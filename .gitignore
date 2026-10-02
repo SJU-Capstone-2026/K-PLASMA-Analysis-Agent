@@ -1,0 +1,34 @@
+# Actual experiment data and runtime storage
+/backend/storage/
+/backend/.runtime/
+/backend/.local-data/
+/backend/data/
+/agent/data/
+/frontend/public/data/
+/data/
+/datasets/
+/results/
+/backups/
+**/K-PLASMA(0D)-RESULTS-DATA/
+**/analysis-data.js
+
+# Local credentials and configuration
+.env
+.env.*
+!.env.example
+!.env.*.example
+*.local
+
+# Dependencies, builds and verification output
+node_modules/
+.gradle/
+build/
+dist/
+coverage/
+playwright-report/
+test-results/
+
+# Local operating-system files
+.DS_Store
+Thumbs.db
+.idea/
