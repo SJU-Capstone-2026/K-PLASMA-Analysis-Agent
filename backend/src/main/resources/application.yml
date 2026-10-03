@@ -1,6 +1,19 @@
 server:
   port: ${BACKEND_PORT:8080}
+  tomcat:
+    max-parameter-count: 5001
+    max-part-count: 5001
+    max-part-header-size: 2048
+    # Tomcat form size covers fields without filenames, including the JSON manifest.
+    max-http-form-post-size: 8388608B
+    max-swallow-size: 16777216B
 spring:
+  servlet:
+    multipart:
+      max-file-size: 2147483648B
+      # 2GiB payload plus 16MiB bounded multipart headers and manifest overhead.
+      max-request-size: 2164260864B
+      file-size-threshold: 0B
   application:
     name: kplasma-analysis-agent
   datasource:
