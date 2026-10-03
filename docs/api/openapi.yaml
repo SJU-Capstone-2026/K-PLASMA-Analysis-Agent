@@ -178,8 +178,7 @@ paths:
   /api/import-jobs/{id}/files:
     get:
       operationId: getApiImportJobsIdFiles
-      description: Full source manifest relative paths/kinds/sizes/hashes, distinct
-        from compatibility sourceFiles.
+      description: Complete original manifest under this job source root, with exact uploaded relative paths/kinds/sizes/hashes including OS metadata and ancillary files inside the Run. Sibling Runs and batch-level ancillary files are excluded from this job view but remain retained. Root-selected Run uses the complete upload manifest. Distinct from presentation sourceFiles.
       responses:
         '200':
           description: Success
@@ -1395,6 +1394,7 @@ components:
       required:
       - runs
       - jobs
+      - sourceFilesByVersion
       properties:
         runs:
           type: array
@@ -1404,6 +1404,13 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/JobView'
+        sourceFilesByVersion:
+          type: object
+          description: Actual presentation file metadata keyed by listed immutable Run version UUID; full original manifest is separate.
+          additionalProperties:
+            type: array
+            items:
+              $ref: '#/components/schemas/SourceFile'
     Health:
       type: object
       additionalProperties: false

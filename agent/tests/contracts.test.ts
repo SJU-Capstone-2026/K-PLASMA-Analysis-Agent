@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { UploadManifest, AgentResponse, TurnSnapshot, BatchView } from '../src/contracts';
+import type { UploadManifest, AgentResponse, TurnSnapshot, BatchView, CatalogView } from '../src/contracts';
 import { toRunSummary } from '../src/contracts';
 import wire from './support/contract-wire.json';
 import { syntheticRun } from './support/synthetic-runs';
@@ -53,4 +53,11 @@ describe('intake, clarification and reprocess wire boundaries', () => {
     expect(batch.jobs[0].jobId).toBe('00000000-0000-4000-8000-000000000003');
     expect(batch).toEqual(wire.reprocessBatch);
   });
+});
+
+it('keeps catalog presentation files keyed by immutable version without hydrating graph arrays', () => {
+  const catalog: CatalogView = { runs: wire.catalog.runs.map(run => ({ ...run, catalogStatus: 'READY' })), jobs: [], sourceFilesByVersion: wire.catalog.sourceFilesByVersion };
+  expect(catalog).toEqual(wire.catalog);
+  expect(Object.values(catalog.sourceFilesByVersion)[0]).toHaveLength(1);
+  expect(catalog.runs[0]).not.toHaveProperty('iedDistribution');
 });

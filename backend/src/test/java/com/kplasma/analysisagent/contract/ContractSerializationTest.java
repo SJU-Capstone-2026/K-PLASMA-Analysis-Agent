@@ -76,4 +76,12 @@ class ContractSerializationTest {
                 mapper.valueToTree(batch)));
     }
 
+    @Test void catalogKeepsVersionKeyedPresentationFilesWithoutGraphPayloads() throws Exception {
+        var original=mapper.readTree(Files.readString(Path.of("../agent/tests/support/contract-wire.json"))).get("catalog");
+        var catalog=mapper.treeToValue(original, ImportDto.CatalogView.class);
+        assertEquals(2,catalog.runs().size());
+        assertEquals(1,catalog.sourceFilesByVersion().values().iterator().next().size());
+        assertFalse(mapper.valueToTree(catalog).get("runs").get(0).has("iedDistribution"));
+        assertTrue(original.equals((left,right)->left.isNumber()&&right.isNumber()?Double.compare(left.doubleValue(),right.doubleValue()):left.equals(right)?0:1,mapper.valueToTree(catalog)));
+    }
 }
