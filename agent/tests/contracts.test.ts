@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { UploadManifest, AgentResponse, TurnSnapshot, BatchView, CatalogView } from '../src/contracts';
+import type { UploadManifest, AgentResponse, TurnSnapshot, BatchView, CatalogView, ReferenceWrite, ExperimentRecord } from '../src/contracts';
 import { toRunSummary } from '../src/contracts';
 import wire from './support/contract-wire.json';
 import { syntheticRun } from './support/synthetic-runs';
@@ -60,4 +60,20 @@ it('keeps catalog presentation files keyed by immutable version without hydratin
   expect(catalog).toEqual(wire.catalog);
   expect(Object.values(catalog.sourceFilesByVersion)[0]).toHaveLength(1);
   expect(catalog.runs[0]).not.toHaveProperty('iedDistribution');
+});
+
+
+it('preserves independent nullable context writes and a complete ordinary EXP wire record', () => {
+  const reference: ReferenceWrite = wire.referenceWrite;
+  const experiment: ExperimentRecord = {
+    ...wire.experimentRecord, version: 2, analysisType: 'REVERSE', processMode: 'GOAL_RECOMMENDATION', decision: 'ADOPT',
+    candidates: wire.experimentRecord.candidates.map(candidate => ({ ...candidate, decision: 'ADOPT' })),
+  };
+  expect(reference).toEqual(wire.referenceWrite);
+  expect(reference.candidateReference).toBeNull();
+  expect(reference.activeRun?.runVersionId).toBe(wire.on.runVersionId);
+  expect(experiment).toEqual(wire.experimentRecord);
+  expect(experiment.candidates).toHaveLength(1);
+  expect(experiment.candidates[0].decision).toBe('ADOPT');
+  expect(experiment.overallComment).toBe('artificial common comment');
 });

@@ -1,6 +1,7 @@
 package com.kplasma.analysisagent.contract;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import java.util.List;
 import java.util.Map;
 import com.kplasma.analysisagent.contract.RunDto.*;
@@ -17,6 +18,12 @@ public final class WorkspaceDto {
     public record ReferenceState(String kind, List<RunRef> runs) {}
     public record Conversation(int version, RunRef activeRun, List<TurnSnapshot> turns) {}
     public record WorkspaceView(StateToken stateToken, Conversation conversation, ReferenceState candidateReference) {}
+    public record TurnWrite(@JsonProperty(required=true) StateToken stateToken, @JsonProperty(required=true) TurnSnapshot turn) {}
+    public record UiWrite(@JsonProperty(required=true) StateToken stateToken, @JsonProperty(required=true) Map<String,Object> ui) {}
+    public record TokenWrite(@JsonProperty(required=true) StateToken stateToken) {}
+    /** Both contexts are explicit, independently nullable, and persisted in one token-checked mutation. */
+    public record ReferenceWrite(@JsonProperty(required=true) StateToken stateToken,
+            @JsonProperty(required=true) ReferenceState candidateReference, @JsonProperty(required=true) RunRef activeRun) {}
     public record SupportingMetrics(double electronDensity, double electronTemperature) {}
     public record RunSnapshot(String runId, String runVersionId, Conditions conditions,
             Metrics metrics, SupportingMetrics supportingMetrics) {}
