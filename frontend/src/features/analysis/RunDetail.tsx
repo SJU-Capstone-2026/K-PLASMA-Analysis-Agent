@@ -11,7 +11,7 @@ export function RunDetailUnavailable({error,runId,onClose}:{error:unknown;runId:
  const title=missing?'삭제된 Run입니다':'상세 데이터를 불러오지 못했습니다';
  const message=missing?`${runId}은 데이터 관리에서 삭제되어 상세 결과를 볼 수 없습니다.`:'일시적인 오류가 발생했습니다. 상세 창을 닫았다가 다시 열어 주세요.';
  return <section className={`run-detail-unavailable ${missing?'is-missing':'is-error'}`} role="alert" aria-label={title}>
-  <span className="run-detail-unavailable-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M9 13l6 6m0-6-6 6"/></svg></span>
+  <span className="run-detail-unavailable-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M9 12l6 6m0-6-6 6"/></svg></span>
   <span className="section-kicker">{missing?'RUN REMOVED':'DETAIL UNAVAILABLE'}</span>
   <h3>{title}</h3><p>{message}</p>
   {onClose&&<button className="button button--secondary" type="button" onClick={onClose}>창 닫기</button>}
