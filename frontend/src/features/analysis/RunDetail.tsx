@@ -1,4 +1,4 @@
-import {useEffect,useState} from 'react';
+import {useEffect,useRef,useState} from 'react';
 import type {FullRun,RunRef,Pair,Iead,Density,SourceFile} from 'agent';
 import {buildRunDetailModel} from '../../prototype/view-models';
 import {analysisLineChart,renderIeAdHeatmap,renderDensityHeatmap} from '../../prototype/charts';
@@ -6,7 +6,7 @@ import {fetchRunVersion} from '../../api/runs';
 import {Modal} from '../../components/Modal';
 export interface RunDetailProps {runRef:RunRef;onReference?:(ref:RunRef)=>void;run?:FullRun;tab?:string;onTabChange?:(tab:string)=>void;turnId?:string}
 export function RunDetail({runRef,run:provided,tab,onTabChange,turnId='modal'}:RunDetailProps){
- const [run,setRun]=useState<FullRun|null>(provided??null);const [error,setError]=useState('');const [requested,setRequested]=useState(tab??'');
+ const [run,setRun]=useState<FullRun|null>(provided??null);const [error,setError]=useState('');const [requested,setRequested]=useState(tab??'');const sourceFiles=useRef<HTMLDetailsElement>(null);
  useEffect(()=>{if(provided){setRun(provided);return;}const controller=new AbortController();setRun(null);setError('');fetchRunVersion(runRef,controller.signal).then(value=>{if(!controller.signal.aborted)setRun(value);}).catch(e=>{if(!controller.signal.aborted)setError(e.message);});return()=>controller.abort();},[runRef.runVersionId,provided]);
  if(error)return <div className="agent-detail-empty" role="alert">{error}</div>;
  if(!run)return <div className="agent-detail-empty">검증된 Run 데이터를 불러오는 중입니다.</div>;
@@ -17,8 +17,8 @@ export function RunDetail({runRef,run:provided,tab,onTabChange,turnId='modal'}:R
  else if(active.available)graph=analysisLineChart(active.series as Pair[],{xLabel:active.id==='iad'?'Angle (°)':active.id==='residual'?'Iteration':active.id==='ied'?'Energy (eV)':'RF phase',yLabel:active.id==='residual'?'Max residual':'Actual value',logY:active.id==='residual',ariaLabel:`${detail.runId} ${active.label} 실제 수치 그래프`});
  const panelId=`run-detail-graph-${turnId}-${run.runId}`;
  return <section className="agent-run-detail" aria-label={`${run.runId} 실험 상세`}><div className="agent-detail-summary"><div className="agent-condition-summary">{detail.conditions.map(item=><div key={item.label}><span>{item.label}</span><strong>{item.value}</strong><small>{item.unit}</small></div>)}</div><div className="agent-detail-metrics">{detail.metrics.map(item=><div key={item.label}><span>{item.label}</span><strong>{item.value} <small>{item.unit}</small></strong></div>)}</div></div>
- <div className="agent-detail-tabs" role="tablist" aria-label={`${run.runId} 실제 그래프`}>{detail.graphs.map(item=><button key={item.id} type="button" role="tab" aria-selected={item.id===active.id} aria-controls={panelId} className={item.id===active.id?'is-active':''} data-action="run-detail-tab" data-turn-id={turnId} data-run-id={run.runId} data-tab={item.id} disabled={!item.available} onClick={()=>{setRequested(item.id);onTabChange?.(item.id);}}>{item.label}</button>)}</div>
- <div id={panelId} className="agent-detail-graph" role="tabpanel">{graph}<p>원본 결과 파일의 저장 샘플만 표시합니다. 예측·보간 곡선이 아닙니다.</p></div><details className="agent-source-files"><summary>원본 파일 {detail.sourceFiles.length}개</summary><div>{detail.sourceFiles.map((file:SourceFile)=><p key={file.path}><strong>{file.name}</strong><span>{file.path}</span><small>{file.size||''}</small></p>)}</div></details></section>;
+ <div className="agent-detail-tabs" role="tablist" aria-label={`${run.runId} 실제 그래프`}>{detail.graphs.map(item=><button key={item.id} type="button" role="tab" aria-selected={item.id===active.id} aria-controls={panelId} className={item.id===active.id?'is-active':''} data-action="run-detail-tab" data-turn-id={turnId} data-run-id={run.runId} data-tab={item.id} disabled={!item.available} onClick={()=>{if(sourceFiles.current)sourceFiles.current.open=false;setRequested(item.id);onTabChange?.(item.id);}}>{item.label}</button>)}</div>
+ <div id={panelId} className="agent-detail-graph" role="tabpanel">{graph}<p>원본 결과 파일의 저장 샘플만 표시합니다. 예측·보간 곡선이 아닙니다.</p></div><details key={active.id} ref={sourceFiles} className="agent-source-files"><summary>원본 파일 {detail.sourceFiles.length}개</summary><div>{detail.sourceFiles.map((file:SourceFile)=><p key={file.path}><strong>{file.name}</strong><span>{file.path}</span><small>{file.size||''}</small></p>)}</div></details></section>;
 }
 export function RunDetailDialog({runRef,onClose}:{runRef:RunRef;onClose:()=>void}){
  const referenceKey=JSON.stringify([runRef.runId,runRef.runVersionId]);

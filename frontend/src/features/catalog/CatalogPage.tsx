@@ -22,6 +22,18 @@ export function CatalogPage({state:external,onStateChange,onReference}:CatalogPa
  async function load(signal:AbortSignal){const sequence=++loadSequence.current;try{const value=await fetchCatalog(undefined,signal);const next=displayRuns(value);if(!signal.aborted&&sequence===loadSequence.current){setCatalog(value);setRuns(next);setError('');}}catch(cause){if(!signal.aborted&&sequence===loadSequence.current)throw cause;}}
  useEffect(()=>{const controller=new AbortController();load(controller.signal).catch(cause=>{if(!controller.signal.aborted)setError(describeImportError(cause));});return()=>controller.abort();},[]);
  const imports=useImportBatch(async signal=>{await Promise.all([fetchRuns(signal),load(signal)]);});
+ const observing=catalog?.jobs.some(job=>job.status==='QUEUED'||job.status==='PROCESSING')??false;
+ useEffect(()=>{
+  if(!observing||imports.pending)return;
+  const controller=new AbortController();let timer:ReturnType<typeof setTimeout>|null=null;
+  const poll=async()=>{
+   timer=null;
+   try{await load(controller.signal);}catch(cause){if(!controller.signal.aborted)setError(describeImportError(cause));}
+   if(!controller.signal.aborted)timer=setTimeout(poll,1000);
+  };
+  timer=setTimeout(poll,1000);
+  return()=>{controller.abort();if(timer!==null)clearTimeout(timer);};
+ },[observing,imports.pending]);
  const rows=viewModels.buildCatalogRows(runs,state.catalogFilters) as CatalogRow[];
  const selected=runs.find(run=>run.runId===state.catalogSelectedRunId);const selectedRow=selected?(viewModels.buildCatalogRows([selected],{}) as CatalogRow[])[0]:null;
  const jobs=catalog?.jobs??[];const explicitJob=jobs.find(job=>job.jobId===state.catalogSelectedJobId);

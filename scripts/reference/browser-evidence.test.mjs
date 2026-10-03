@@ -1,0 +1,37 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {mkdtemp,mkdir,readFile,writeFile,rm} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {spawnSync} from 'node:child_process';
+const groups={'agent-engine':18,'agent-view-models':10,analysis:9,'candidate-fit-view-models':6,'conversation-store':5,'decision-memory':10,engine:21,'explanation-engine':5,'multi-objective-search':4,'record-reuse':6,'record-selection':3};
+const portable=Object.entries(groups).flatMap(([name,count])=>Array.from({length:count},(_,i)=>({id:`P-${name}-${String(i+1).padStart(2,'0')}`,status:'PASS'})));
+const environment={browser:'149.0',fontFamily:'system-ui',locale:'ko-KR',timezone:'Asia/Seoul',deviceScaleFactor:1,apiMocking:false};
+const spec=(title,status='expected')=>({title,tests:[{status,results:[{attachments:[{name:'environment',body:Buffer.from(JSON.stringify(environment)).toString('base64')}]}]}]});
+async function run({report=true,missingCase=false,duplicate=false,metadata=true,synthetic=false,failed=false,missingPortable=false,malformedPortable=false,disclosures=[]}={}){
+ const output=await mkdtemp(join(tmpdir(),'kplasma-evidence-test-'));await mkdir(join(output,'browser'));
+ const summary={mode:synthetic?'artificial-only':'external-reference',status:'PASS_WITH_DEFERRED',portableAssertions:synthetic?[]:malformedPortable?{}:missingPortable?portable.slice(1):duplicate?[...portable,portable[0]]:portable,node:'v22.23.3',java:'openjdk 21',locale:'ko-KR',timezone:'Asia/Seoul'};
+ await writeFile(join(output,'summary.json'),JSON.stringify(summary));
+ const specs=[spec('P-structure-01/03/04 actual DOM'),spec('P-structure-02 real memory container boundaries and reduced motion')];
+ if(!missingCase)specs.push(spec('P-structure-05 followup',synthetic?'skipped':failed?'unexpected':'expected'));
+ for(const disclosure of disclosures)specs[0].tests[0].results[0].attachments.push({name:disclosure.name,body:Buffer.from(JSON.stringify(disclosure)).toString('base64')});
+ if(!metadata)for(const s of specs)s.tests[0].results[0].attachments=[];
+ if(report)await writeFile(join(output,'browser/results.json'),JSON.stringify({suites:[{specs}],stats:{expected:2,skipped:synthetic?1:0,unexpected:failed?1:0,flaky:0}}));
+ const result=spawnSync(process.execPath,['scripts/reference/browser-evidence.mjs',output],{encoding:'utf8'});
+ const saved=JSON.parse(await readFile(join(output,'summary.json'),'utf8'));await rm(output,{recursive:true,force:true});return {result,saved};
+}
+test('missing completed report makes persisted overall gate FAIL and CLI nonzero with 102 diagnostic statuses',async()=>{const {result,saved}=await run({report:false});assert.notEqual(result.status,0);assert.equal(saved.status,'FAIL');assert.equal(saved.prototypeAssertions.length,102);assert.equal(saved.prototypeAssertions.find(x=>x.id==='P-structure-02').status,'UNVERIFIED');});
+test('missing mapped reference case fails overall gate despite successful remaining browser cases',async()=>{const {result,saved}=await run({missingCase:true});assert.notEqual(result.status,0);assert.equal(saved.status,'FAIL');assert.equal(saved.prototypeAssertions.find(x=>x.id==='P-structure-05').status,'UNVERIFIED');});
+test('complete reference IDs and required metadata pass',async()=>{const {result,saved}=await run();assert.equal(result.status,0,result.stderr);assert.equal(saved.prototypeAssertions.length,102);assert.equal(saved.status,'PASS_WITH_DEFERRED');});
+test('duplicate expected ID fails instead of being collapsed silently',async()=>{const {result,saved}=await run({duplicate:true});assert.notEqual(result.status,0);assert.equal(saved.status,'FAIL');});
+test('missing required font/browser attachment fails reference verdict',async()=>{const {result,saved}=await run({metadata:false});assert.notEqual(result.status,0);assert.equal(saved.status,'FAIL');});
+test('unexpected mapped case preserves diagnostic FAIL',async()=>{const {result,saved}=await run({failed:true});assert.notEqual(result.status,0);assert.equal(saved.prototypeAssertions.find(x=>x.id==='P-structure-05').status,'FAIL');});
+test('synthetic allows explicit external-only skipped P-structure-05 without claiming it passed',async()=>{const {result,saved}=await run({synthetic:true});assert.equal(result.status,0,result.stderr);assert.equal(saved.status,'PASS_WITH_DEFERRED');assert.equal(saved.prototypeAssertions.find(x=>x.id==='P-structure-05').status,'UNVERIFIED');});
+test('missing portable expected ID retains UNVERIFIED and fails complete reference set',async()=>{const {result,saved}=await run({missingPortable:true});assert.notEqual(result.status,0);assert.equal(saved.prototypeAssertions.length,102);assert.equal(saved.prototypeAssertions.find(x=>x.id==='P-agent-engine-01').status,'UNVERIFIED');});
+test('malformed portable assertion list still persists FAIL with complete diagnostics',async()=>{const {result,saved}=await run({malformedPortable:true});assert.notEqual(result.status,0);assert.equal(saved.status,'FAIL');assert.equal(saved.prototypeAssertions.length,102);});
+
+test('retains both historical source disclosure residual and corrected MATCH parity attachments',async()=>{
+ const disclosures=[{name:'source-details-residual',status:'DISCLOSED_MINOR',sourceAfterTab:'closed',reactAfterTab:'open',parityPass:false},{name:'source-details-parity',status:'MATCH',sourceAfterTab:'closed',reactAfterTab:'closed',sameTabAfterClick:'closed',differentTabAfterClick:'closed',parityPass:true}];
+ const {result,saved}=await run({disclosures});assert.equal(result.status,0,result.stderr);
+ assert.deepEqual(saved.browserEvidence.disclosed,disclosures);
+});
