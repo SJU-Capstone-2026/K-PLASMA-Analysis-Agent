@@ -81,6 +81,39 @@ class ScalarParserTest {
         failure(source(ini(false), solver(false), residual() + "3 0.1\n", "INFO: Finished!", ""), "PARSE_FAILED", "0d_result/log/residual.log");
         failure(source(ini(false), solver(false), residual().replace("-2.e-2", "NaN"), "INFO: Finished!", ""), "PARSE_FAILED", "0d_result/log/residual.log");
     }
+    @Test void rejectsControlWhitespaceBeforeIniAndSolverNormalization() throws Exception {
+        for (String control : new String[]{"\u000b", "\u000c"}) {
+            failure(source(ini(false).replace("PRS=2", control + "PRS=2"), solver(false), residual(), "INFO: Finished!", ""), "PARSE_FAILED", "0d_setting.ini");
+            failure(source(ini(false).replace("PRS=2", "PRS=2" + control), solver(false), residual(), "INFO: Finished!", ""), "PARSE_FAILED", "0d_setting.ini");
+            failure(source(ini(false), solver(false).replace("Pressure = 2 (mTorr)", control + "Pressure = 2 (mTorr)"), residual(), "INFO: Finished!", ""), "PARSE_FAILED", "0d_result/log/solver.log");
+            failure(source(ini(false), solver(false).replace("Pressure = 2 (mTorr)", "Pressure = 2 (mTorr)" + control), residual(), "INFO: Finished!", ""), "PARSE_FAILED", "0d_result/log/solver.log");
+        }
+    }
+    @Test void ordinaryTabsAndCrLfStillPreserveKnownRfCycleToken() throws Exception {
+        var result = parser.parse(source(ini(false).replace("rfCycle=\u0001", "\trfCycle=\t\u0001\t").replace("\n", "\r\n"),
+            solver(false).replace("Pressure = 2 (mTorr)", "\tPressure =\t2 (mTorr)\t").replace("\n", "\r\n"), residual(), "INFO: Finished!", ""));
+        assertThat(result.conditions().pressure()).isEqualTo(2);
+    }
+    @Test void malformedPresentRequiredAssignmentHasConcreteFailureWhileAbsenceIsIncomplete() {
+        assertThatThrownBy(() -> new SolverLogReader("solver", java.util.List.of("[PREASURE & INLET CONDITIONS]", "Pressure : 2 (mTorr)")).number("PREASURE & INLET CONDITIONS", "Pressure", "mTorr"))
+            .isInstanceOfSatisfying(ParseFailure.class, failure -> {
+                assertThat(failure.status()).isEqualTo("PARSE_FAILED");
+                assertThat(failure.line()).isEqualTo(2);
+                assertThat(failure.field()).isEqualTo("PREASURE & INLET CONDITIONS.Pressure");
+            });
+        assertThatThrownBy(() -> new SolverLogReader("solver", java.util.List.of("[PREASURE & INLET CONDITIONS]", "Q = 1 (sccm)")).number("PREASURE & INLET CONDITIONS", "Pressure", "mTorr"))
+            .isInstanceOfSatisfying(ParseFailure.class, failure -> assertThat(failure.status()).isEqualTo("INCOMPLETE"));
+    }
+    @Test void malformedPresentRequiredSpeciesHasConcreteFailureWhileAbsenceIsIncomplete() {
+        assertThatThrownBy(() -> new SolverLogReader("solver", java.util.List.of("[ION FLUX AT THE SHEATH EDGE]", "Species (#/cm^2sec)", "Ar+: 1.e14")).species("ION FLUX AT THE SHEATH EDGE", "Ar+", "#/cm^2sec"))
+            .isInstanceOfSatisfying(ParseFailure.class, failure -> {
+                assertThat(failure.status()).isEqualTo("PARSE_FAILED");
+                assertThat(failure.line()).isEqualTo(3);
+                assertThat(failure.field()).isEqualTo("ION FLUX AT THE SHEATH EDGE.Ar+");
+            });
+        assertThatThrownBy(() -> new SolverLogReader("solver", java.util.List.of("[NUMBER DENSITY]", "Species (#/cm^3)", "Ar+ 30", "Ar* 20")).species("NUMBER DENSITY", "Ar", "#/cm^3"))
+            .isInstanceOfSatisfying(ParseFailure.class, failure -> assertThat(failure.status()).isEqualTo("INCOMPLETE"));
+    }
     private void failure(StoredSource source, String status, String path) {
         assertThatThrownBy(() -> parser.parse(source)).isInstanceOfSatisfying(ParseFailure.class, failure -> {
             assertThat(failure.status()).isEqualTo(status);

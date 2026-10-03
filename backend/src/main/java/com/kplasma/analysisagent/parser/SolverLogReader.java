@@ -16,10 +16,10 @@ public final class SolverLogReader {
         this.path = path;
         List<Row> rows = preamble;
         for (int i = 0; i < lines.size(); i++) {
-            String line = lines.get(i).strip();
+            String line = lines.get(i);
+            IniReader.controls(line, path, i + 1, "solver", false);
             // '#' within (#/cm^3) is a unit symbol, not a comment.
             line = line.replaceFirst("\\s+#.*$", "").strip();
-            IniReader.controls(line, path, i + 1, "solver", false);
             if (line.startsWith("[") && line.endsWith("]")) {
                 String section = line.substring(1, line.length() - 1);
                 rows = new ArrayList<>();
@@ -52,7 +52,8 @@ public final class SolverLogReader {
             if (match.matches()) {
                 if (found != null) throw ParseFailure.malformed(path, row.line(), section + "." + species, "Duplicate species row");
                 found = new Row(match.group(1), row.line());
-            } else if (row.text().equals(species)) throw ParseFailure.malformed(path, row.line(), section + "." + species, "Missing species value");
+            } else if (bearsLabel(row.text(), species))
+                throw ParseFailure.malformed(path, row.line(), section + "." + species, "Malformed required species row");
         }
         if (found == null) throw ParseFailure.incomplete(path, section + "." + species, "Required species row is missing");
         return IniReader.finite(found.text(), path, found.line(), section + "." + species);
@@ -65,10 +66,15 @@ public final class SolverLogReader {
             if (match.matches()) {
                 if (found != null) throw ParseFailure.malformed(path, row.line(), section + "." + label, "Duplicate solver field");
                 found = new Row(match.group(1).strip(), row.line());
-            }
+            } else if (bearsLabel(row.text(), label))
+                throw ParseFailure.malformed(path, row.line(), section + "." + label, "Malformed required solver assignment");
         }
         if (found == null) throw ParseFailure.incomplete(path, section + "." + label, "Required solver field is missing");
         return found;
+    }
+    private static boolean bearsLabel(String text, String label) {
+        // Exact token boundary prevents Ar from matching Ar+ or Ar*.
+        return Pattern.compile(Pattern.quote(label) + "(?:$|[\\s=:;].*)").matcher(text).matches();
     }
     private List<Row> section(String section) {
         var rows = sections.get(section);

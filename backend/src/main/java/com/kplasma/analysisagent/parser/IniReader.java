@@ -18,7 +18,19 @@ public final class IniReader {
         for (int i = 0; i < lines.size(); i++) {
             String line = lines.get(i);
             int comment = line.indexOf('#');
-            if (comment >= 0) line = line.substring(0, comment);
+            if (comment >= 0) {
+                controls(line.substring(comment), path, i + 1, "comment", false);
+                line = line.substring(0, comment);
+            }
+            int rawEquals = line.indexOf('=');
+            if (rawEquals >= 0) {
+                String rawKey = line.substring(0, rawEquals);
+                String rawValue = line.substring(rawEquals + 1);
+                controls(rawKey, path, i + 1, "INI", false);
+                String field = section + "." + rawKey.strip();
+                controls(rawValue, path, i + 1, field,
+                        field.equals("BiasPower.rfCycle") && rawValue.matches("[ \t]*\u0001[ \t]*"));
+            } else controls(line, path, i + 1, "INI", false);
             line = line.strip();
             if (line.isEmpty()) continue;
             if (line.startsWith("[") && line.endsWith("]")) {
