@@ -1,0 +1,20 @@
+server:
+  port: ${BACKEND_PORT:8080}
+spring:
+  application:
+    name: kplasma-analysis-agent
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/kplasma}
+    username: ${POSTGRES_USER:kplasma}
+    password: ${POSTGRES_PASSWORD:}
+    hikari:
+      connection-timeout: 3000
+      validation-timeout: 1000
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+  flyway:
+    enabled: true
+kplasma:
+  storage-root: ${KPLASMA_STORAGE_ROOT:./storage}
