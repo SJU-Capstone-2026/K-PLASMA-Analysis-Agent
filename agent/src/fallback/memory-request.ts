@@ -10,14 +10,14 @@ const agent: any = agentModule;
 const engine: any = engineModule;
 const viewModels: any = viewModelsModule;
 // Pure orchestration extracted from executeMemoryQuestion in app.js.
-export function executeMemoryQuestion(text: string, runs: RunSummary[], records: DecisionRecord[], candidateReference: any, activeRunId: string | null, thresholdOverride?: number | null, suppliedReference?: any, undo = false): any {
+export function executeMemoryQuestion(text: string, runs: RunSummary[], records: DecisionRecord[], candidateReference: any, activeRunId: string | null, thresholdOverride?: number | null, suppliedReference?: any, undo = false, latestCandidateReference?: any): any {
   const parsed = reuse.parse(text);
   if (!parsed) return null;
   if (parsed.exclude && !/(비용|원가|가격)/.test(text)) {
     return {intent:'RECORD_REUSE',runIds:[],summary:'기록 조건 확인 필요',notice:'현재 시연에서는 비용 사유가 명확한 반려 기록만 자동 제외합니다. 다른 사유는 기록 원문을 확인해 주세요.'};
   }
   const numeric = /(?:flux|플럭스|에너지|energy|압력|pressure|source(?:\s*power)?|소스(?:\s*전력)?|bias(?:\s*power)?|바이어스)\s*(?:가|는|이)?\s*\d/i.test(text);
-  const mentionedCandidateSet = !numeric && /(?:이\s*)?후보(?:들|군)/.test(text) ? candidateReference : null;
+  const mentionedCandidateSet = !numeric && /(?:이\s*)?후보(?:들|군)/.test(text) ? latestCandidateReference : null;
   const reference = suppliedReference || mentionedCandidateSet || candidateReference || (activeRunId ? {ids:[activeRunId],kind:'단일 Run'} : null);
   const threshold = thresholdOverride === undefined ? parsed.threshold : thresholdOverride;
   const scopeIds = numeric ? runs.map((r: any)=>r.runId) : reference ? reference.ids : [];
