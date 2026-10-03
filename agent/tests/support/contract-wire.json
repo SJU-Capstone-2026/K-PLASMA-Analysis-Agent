@@ -378,5 +378,126 @@
         "errors": []
       }
     ]
+  },
+  "catalog": {
+    "runs": [
+      {
+        "runId": "SYNTHETIC",
+        "runVersionId": "00000000-0000-4000-8000-000000000001",
+        "pressure": 3,
+        "sourcePower": 11,
+        "biasPower": 7,
+        "metrics": {
+          "ionFlux": 13,
+          "meanIonEnergy": 17,
+          "iedWidth": 2
+        },
+        "units": {
+          "pressure": "mTorr",
+          "sourcePower": "W",
+          "biasPower": "W",
+          "ionFlux": "10¹⁸ m⁻²s⁻¹",
+          "meanIonEnergy": "eV",
+          "iedWidth": "eV"
+        },
+        "convergenceStatus": "CONVERGED",
+        "qualityStatus": "VERIFIED",
+        "catalogStatus": "READY",
+        "registeredAt": "2000-01-01T00:00:00Z",
+        "presentationScore": 1,
+        "note": "Artificial contract fixture",
+        "analysis": {
+          "hasDistribution": true,
+          "strictConvergence": false,
+          "finalResidualMax": 0.5,
+          "electronTemperature": 2,
+          "ionTemperature": 3,
+          "gasTemperature": 4,
+          "absorbedPower": 5,
+          "alpha": 6,
+          "plasmaResistance": 7,
+          "plasmaReactance": 8,
+          "dcOffset": -1,
+          "peakToPeak": 2,
+          "currentDensityPeak": 9,
+          "electronDensity": 19,
+          "ionDensity": 10,
+          "metastableDensity": 11,
+          "neutralDensity": 12,
+          "ionFluxRaw": 13,
+          "metastableFluxRaw": 14,
+          "neutralFluxRaw": 15
+        }
+      },
+      {
+        "runId": "SYNTHETIC",
+        "runVersionId": "00000000-0000-4000-8000-000000000004",
+        "pressure": 3,
+        "sourcePower": 11,
+        "biasPower": 0,
+        "metrics": {
+          "ionFlux": 13,
+          "meanIonEnergy": 17,
+          "iedWidth": null
+        },
+        "units": {
+          "pressure": "mTorr",
+          "sourcePower": "W",
+          "biasPower": "W",
+          "ionFlux": "10¹⁸ m⁻²s⁻¹",
+          "meanIonEnergy": "eV",
+          "iedWidth": "eV"
+        },
+        "convergenceStatus": "CONVERGED",
+        "qualityStatus": "VERIFIED",
+        "catalogStatus": "READY",
+        "registeredAt": "2000-01-01T00:00:00Z",
+        "presentationScore": 1,
+        "note": "Artificial contract fixture",
+        "analysis": {
+          "hasDistribution": false,
+          "strictConvergence": false,
+          "finalResidualMax": 0.5,
+          "electronTemperature": 2,
+          "ionTemperature": 3,
+          "gasTemperature": 4,
+          "absorbedPower": 5,
+          "alpha": 6,
+          "plasmaResistance": 7,
+          "plasmaReactance": 8,
+          "dcOffset": null,
+          "peakToPeak": null,
+          "currentDensityPeak": 9,
+          "electronDensity": 19,
+          "ionDensity": 10,
+          "metastableDensity": 11,
+          "neutralDensity": 12,
+          "ionFluxRaw": 13,
+          "metastableFluxRaw": 14,
+          "neutralFluxRaw": 15
+        }
+      }
+    ],
+    "jobs": [],
+    "sourceFilesByVersion": {
+      "00000000-0000-4000-8000-000000000001": [
+        {
+          "name": "artificial.ini",
+          "type": "SETTING",
+          "size": "1.0 KB",
+          "status": "PARSED",
+          "path": "artificial/artificial.ini"
+        }
+      ],
+      "00000000-0000-4000-8000-000000000004": [
+        {
+          "name": "artificial.ini",
+          "type": "SETTING",
+          "size": "1.0 KB",
+          "status": "PARSED",
+          "path": "artificial/artificial.ini"
+        }
+      ]
+    }
   }
 }

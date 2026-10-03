@@ -88,4 +88,4 @@ export interface UploadEntry { partName: string; relativePath: string }
 export interface UploadManifest { mode: 'FOLDER' | 'ZIP'; entries: UploadEntry[] }
 export interface JobView { jobId: string; runId: string | null; runVersionId: string | null; status: JobStatus; reason: string | null; errors: ApiError[] }
 export interface BatchView { batchId: string; status: JobStatus | 'SUCCESS' | 'PARTIAL_SUCCESS' | 'FAILED'; receivedBytes: number; totalBytes: number; processedRuns: number; totalRuns: number; jobs: JobView[] }
-export interface CatalogView { runs: RunSummary[]; jobs: JobView[] }
+export interface CatalogView { runs: RunSummary[]; jobs: JobView[]; sourceFilesByVersion: Record<string, SourceFile[]> }

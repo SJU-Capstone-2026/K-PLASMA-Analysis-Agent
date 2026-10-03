@@ -18,7 +18,7 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 import static org.assertj.core.api.Assertions.*;
 
 @Testcontainers
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = "kplasma.worker.enabled=false")
 class ImportIntakeTest {
     @Container static final PostgreSQLContainer DB = new PostgreSQLContainer("postgres:18.6-alpine3.24");
     static final Path ROOT = temp();

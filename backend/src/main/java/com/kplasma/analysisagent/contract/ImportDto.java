@@ -1,6 +1,7 @@
 package com.kplasma.analysisagent.contract;
 
 import java.util.List;
+import java.util.Map;
 
 /** Upload manifests expose relative paths; storage locations never cross the HTTP boundary. */
 public final class ImportDto {
@@ -13,5 +14,6 @@ public final class ImportDto {
             String reason, List<WorkspaceDto.Error> errors) {}
     public record BatchView(String batchId, String status, long receivedBytes, long totalBytes,
             int processedRuns, int totalRuns, List<JobView> jobs) {}
-    public record CatalogView(List<RunDto.Summary> runs, List<JobView> jobs) {}
+    public record CatalogView(List<RunDto.Summary> runs, List<JobView> jobs,
+            Map<String, List<RunDto.SourceFile>> sourceFilesByVersion) {}
 }
