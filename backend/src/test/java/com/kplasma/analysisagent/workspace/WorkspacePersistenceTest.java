@@ -20,6 +20,20 @@ class WorkspacePersistenceTest extends WorkspaceTestSupport {
         assertThat(reloaded.get(0).get("ui").get("runDetailTabs").get("SYNTHETIC-1").stringValue()).isEqualTo("ion-energy");
         assertThat(reloaded.get(1)).isEqualTo(before.get("conversation").get("turns").get(1));
     }
+    @Test void uppercaseTurnUuidRoundTripsUiWithoutChangingFrozenSnapshotOrExactReplay() throws Exception {
+        var t=turn();String uppercase="ABCDEF12-ABCD-4ABC-8DEF-ABCDEF123456";t.put("id",uppercase);
+        var append=Map.of("stateToken",token(),"turn",t);ok("POST","/api/workspace/turns",append,"uppercase");
+        var before=state().get("conversation").get("turns").get(0);assertThat(before.get("id").stringValue()).isEqualTo(uppercase);
+        var patched=ok("PATCH","/api/workspace/turns/"+uppercase.toLowerCase(Locale.ROOT)+"/ui",Map.of("stateToken",token(),"ui",Map.of("collapsed",true,"runDetailTabs",Map.of("SYNTHETIC-1","ied"))),null);
+        var reloaded=state();var saved=reloaded.get("conversation").get("turns").get(0);
+        var immutable=(ObjectNode)before.deepCopy();immutable.set("ui",saved.get("ui"));assertThat(saved).isEqualTo(immutable);
+        assertThat(saved.get("ui").get("collapsed").booleanValue()).isTrue();assertThat(saved.get("ui").get("runDetailTabs").get("SYNTHETIC-1").stringValue()).isEqualTo("ied");
+        assertThat(ok("POST","/api/workspace/turns",append,"uppercase")).isEqualTo(reloaded);assertThat(reloaded.get("stateToken")).isEqualTo(patched.get("stateToken"));
+        var changed=(ObjectNode)t.deepCopy();changed.put("id",uppercase.toLowerCase(Locale.ROOT));
+        rejects("POST","/api/workspace/turns",Map.of("stateToken",append.get("stateToken"),"turn",changed),"uppercase",409,"IDEMPOTENCY_CONFLICT");
+        ok("PATCH","/api/workspace/turns/"+uppercase+"/ui",Map.of("stateToken",token(),"ui",Map.of("lookupExpanded",true)),null);
+        assertThat(state().get("conversation").get("turns").size()).isEqualTo(1);
+    }
     @Test void referenceWritesActiveRunAndCandidateReferenceIndependentlyAndContinueAddsNoTurn() throws Exception {
         Map<String,Object> body=new HashMap<>();body.put("stateToken",token());body.put("activeRun",refs.get(0));body.put("candidateReference",Map.of("kind","단일 Run","runs",List.of(refs.get(1))));
         ok("PUT","/api/workspace/reference",body,null);var reloaded=state();assertThat(reloaded.get("conversation").get("activeRun")).isEqualTo(refs.get(0));assertThat(reloaded.get("candidateReference").get("runs").get(0)).isEqualTo(refs.get(1));

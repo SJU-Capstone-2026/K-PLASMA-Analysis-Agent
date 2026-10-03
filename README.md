@@ -19,7 +19,7 @@ K-PLASMA 프로토타입 v12.3.1의 UI·UX와 기능을 실제 애플리케이�
 - [상세 구현 계획](docs/superpowers/plans/2026-10-03-v12.3.1-implementation-plan.md): 12개 구현 작업, 공통 계약, 의존 순서·PR 단위·검증 기준. 사용자가 승인했으며 작업별 구현·검토 방식으로 진행합니다.
 - [기준 프로토타입 조사](docs/superpowers/research/2026-10-03-v12.3.1-discovery.md): 화면·fallback·수치·원본 파일과 기존 테스트 확인 결과.
 
-제품 코드는 승인된 계획 순서대로 구현 중입니다. 완료된 실행 절차와 검증 결과는 각 작업에서 갱신합니다.
+승인된 12개 작업의 제품 구현과 로컬 검증을 마쳤으며 최종 리뷰의 Catalog 진행 재개·상세 disclosure·Turn UUID 수정도 반영했습니다. 검증 범위와 유예는 [수용 검증](docs/verification/acceptance.md)에 기록했습니다. 최종 수정의 독립 리뷰와 PR 전달은 별도 gate이며 원격 CI나 팀원의 clean-clone 실행 완료를 의미하지 않습니다.
 
 ## 로컬 실행과 검증
 

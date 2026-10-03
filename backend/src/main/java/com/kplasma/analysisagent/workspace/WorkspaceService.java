@@ -53,7 +53,7 @@ public class WorkspaceService {
                 default -> value instanceof String;
             };validate.require(valid,INVALID,"Invalid UI patch value for "+name);
         }
-        var turn=current.conversation().turns().stream().filter(t->t.id().equals(turnId.toString())).findFirst().orElseThrow(()->new IntakeException("NOT_FOUND",404,"Turn not found"));
+        var turn=current.conversation().turns().stream().filter(t->uuid(t.id()).equals(turnId)).findFirst().orElseThrow(()->new IntakeException("NOT_FOUND",404,"Turn not found"));
         var old=turn.ui();Map<String,String> tabs=new LinkedHashMap<>(old.runDetailTabs());
         if(patch.containsKey("runDetailTabs"))((Map<?,?>)patch.get("runDetailTabs")).forEach((k,v)->tabs.put((String)k,(String)v));
         var ui=new TurnUiSnapshot((Boolean)patch.getOrDefault("collapsed",old.collapsed()),strings(patch.getOrDefault("openRunIds",old.openRunIds())),tabs,(String)patch.getOrDefault("activeCandidateGroup",old.activeCandidateGroup()),(String)patch.getOrDefault("continuedRunId",old.continuedRunId()),(Boolean)patch.getOrDefault("lookupExpanded",old.lookupExpanded()),(String)patch.getOrDefault("selectedCandidateRunId",old.selectedCandidateRunId()));

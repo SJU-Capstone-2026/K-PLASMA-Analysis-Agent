@@ -116,3 +116,30 @@ test('default App catalog forward retains candidate reference and writes only im
  fireEvent.click(screen.getByRole('button',{name:'Agent에서 자세히 보기'}));
  await waitFor(()=>expect(written()).toMatchObject({activeRun:{runId:run.runId,runVersionId:run.runVersionId},candidateReference:{kind:'후보 집합',runs:[{runId:'OTHER-REFERENCE',runVersionId:'other-version'}]}}));expect((fetch as ReturnType<typeof vi.fn>).mock.calls.some(([url])=>url==='/api/workspace/turns')).toBe(false);
 });
+
+// These regressions observe the page's server-owned work after the upload hook has been lost.
+test.each(['QUEUED','PROCESSING'] as const)('remounted %s import discovers terminal Run and source metadata without navigation',async status=>{
+ vi.useFakeTimers();let value:CatalogData={runs:[],sourceFilesByVersion:{},jobs:[{...failed,status,reason:null}]};
+ vi.stubGlobal('fetch',vi.fn(async(url:string)=>new Response(JSON.stringify(url==='/api/catalog'?value:url.includes('/files')?[]:run))));
+ const first=render(<CatalogPage/>);await act(async()=>{});first.unmount();
+ render(<CatalogPage/>);await act(async()=>{});expect(screen.getByRole('button',{name:'BROKEN-SYNTHETIC'})).toBeInTheDocument();
+ value=catalog;await act(async()=>{await vi.advanceTimersByTimeAsync(1000);});
+ expect(screen.getByRole('button',{name:run.runId})).toBeInTheDocument();expect(screen.getByText('손상된 synthetic 파일')).toBeInTheDocument();
+ fireEvent.click(screen.getByRole('button',{name:run.runId}));await act(async()=>{});expect(screen.getByText('원본 파일 1개')).toBeInTheDocument();
+ const requests=(fetch as ReturnType<typeof vi.fn>).mock.calls.length;await act(async()=>{await vi.advanceTimersByTimeAsync(4000);});expect((fetch as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(requests);
+});
+test('resumed catalog poll aborts on unmount and ignores a late terminal response',async()=>{
+ vi.useFakeTimers();let signal:AbortSignal|undefined,resolve!:(response:Response)=>void,count=0;
+ vi.stubGlobal('fetch',vi.fn((url:string,options:RequestInit)=>++count===1?Promise.resolve(new Response(JSON.stringify({...catalog,jobs:[{...failed,status:'PROCESSING'}]}))):new Promise<Response>(done=>{signal=options.signal as AbortSignal;resolve=done;})));
+ const {unmount}=render(<CatalogPage/>);await act(async()=>{});await act(async()=>{await vi.advanceTimersByTimeAsync(1000);});
+ expect(signal).toBeDefined();unmount();expect(signal?.aborted).toBe(true);await act(async()=>resolve(new Response(JSON.stringify(catalog))));await act(async()=>{await vi.advanceTimersByTimeAsync(4000);});expect(count).toBe(2);
+});
+test('current upload suspends resumed catalog polling and completion refresh resumes other server jobs',async()=>{
+ transport();vi.useFakeTimers();let active=true;
+ vi.stubGlobal('fetch',vi.fn(async(url:string)=>new Response(JSON.stringify(url==='/api/catalog'?{...catalog,jobs:active?[{...failed,status:'PROCESSING',reason:null}]:catalog.jobs}:url==='/api/runs'?[toRunSummary(run)]:partial))));
+ render(<CatalogPage/>);await act(async()=>{});fireEvent.change(screen.getByLabelText('ZIP 선택'),{target:{files:[new File(['zip'],'synthetic.zip')]}});
+ await act(async()=>UploadRequest.instances[0].finish(processing));await act(async()=>{await vi.advanceTimersByTimeAsync(1000);});
+ // Initial request plus the completion refresh: no simultaneous catalog loop during batch processing.
+ expect((fetch as ReturnType<typeof vi.fn>).mock.calls.filter(([url])=>url==='/api/catalog')).toHaveLength(2);
+ active=false;await act(async()=>{await vi.advanceTimersByTimeAsync(1000);});expect(document.querySelector('.catalog-table')).toHaveTextContent('손상된 synthetic 파일');
+});

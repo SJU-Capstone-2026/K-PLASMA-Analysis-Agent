@@ -3,8 +3,8 @@ import {createHash} from 'node:crypto';
 import {navigate} from './helpers';
 const reference=process.env.KPLASMA_PROTOTYPE_URL;
 const digest=(value:unknown)=>createHash('sha256').update(JSON.stringify(value)).digest('hex');
-test.afterEach(async({request})=>{
- if(!reference)return;
+test.afterEach(async({request},info)=>{
+ if(!reference||info.annotations.some(item=>item.type==='read-only'))return;
  const api=process.env.KPLASMA_E2E_API!;const current=await (await request.get(`${api}/api/workspace`)).json();
  expect((await request.post(`${api}/api/workspace/reset`,{data:{stateToken:current.stateToken}})).status()).toBe(200);
 });
@@ -37,10 +37,10 @@ for(const width of [390,800,1008,1440])test(`external actual SVG coordinates and
   expect(digest(await graphs(page,'.agent-detail-graph svg')),`${width}px ${tab}`).toBe(digest(await graphs(original,'.agent-detail-graph svg')));
   for(const [name,target] of [['react',page],['original',original]] as const)await target.screenshot({path:info.outputPath(`${name}-detail-${tab}-${width}.png`),fullPage:true,animations:'disabled'});
  }
- // Existing reviewed Minor: native source-file details survives a React tab change while original rerenders closed.
+ // Both implementations close native source-file details on an effective graph-tab change.
  for(const target of [page,original]){await target.locator('.agent-source-files summary').click();await target.locator('.agent-detail-tabs [data-tab="ied"]').click();}
- expect(await page.locator('.agent-source-files').getAttribute('open')).not.toBeNull();expect(await original.locator('.agent-source-files').getAttribute('open')).toBeNull();
- await info.attach('source-details-residual',{body:JSON.stringify({status:'DISCLOSED_MINOR',sourceAfterTab:'closed',reactAfterTab:'open',parityPass:false}),contentType:'application/json'});
+ expect(await page.locator('.agent-source-files').getAttribute('open')).toBeNull();expect(await original.locator('.agent-source-files').getAttribute('open')).toBeNull();
+ await info.attach('source-details-parity',{body:JSON.stringify({status:'MATCH',sourceAfterTab:'closed',reactAfterTab:'closed',parityPass:true}),contentType:'application/json'});
  await original.close();
 });
 test('P-structure-05 contextual higher energy retains mandatory range and actual candidates',async({page,context})=>{
@@ -63,4 +63,28 @@ test('D1 demo EXP adoption conflict is exercised and explicitly deferred',async(
  await expect(page.locator('#toast-region')).toContainText('EXP requires exactly one adoption');
  expect(await (await page.request.get(`${process.env.KPLASMA_E2E_API}/api/decisions`)).json()).toEqual([]);
  await info.attach('D1-deferred',{body:JSON.stringify({status:'DEFERRED_KNOWN_CONFLICT',originalDemoEXP:4,ordinaryExactlyOneAdoptionPreserved:true,demoPersisted:0,httpStatus:400,parityPass:false}),contentType:'application/json'});
+});
+
+for(const width of [390,800,1008,1440])test(`read-only actual source disclosure graph parity at ${width}px`,async({page,context,request},info)=>{
+ test.skip(!reference,'Requires externally supplied actual prototype and retained API.');
+ info.annotations.push({type:'read-only',description:'Immutable-version harness; no workspace writes or reset.'});
+ const api=process.env.KPLASMA_E2E_API!;const before=await (await request.get(`${api}/api/workspace`)).json();
+ const runs=await (await request.get(`${api}/api/runs`)).json() as {runId:string;runVersionId:string;pressure:number;sourcePower:number;biasPower:number}[];
+ expect(runs).toHaveLength(150);const run=runs.find(item=>item.pressure===6&&item.sourcePower===400&&item.biasPower===600)!;expect(run).toBeDefined();
+ await page.setViewportSize({width,height:1000});await page.clock.setFixedTime(new Date(process.env.KPLASMA_E2E_INSTANT!));
+ await page.goto(`/src/features/catalog/version.integration.harness.html?${new URLSearchParams({runId:run.runId,runVersionId:run.runVersionId})}`);
+ await expect(page.locator('.agent-detail-tabs')).toBeVisible();
+ const original=await context.newPage();await original.setViewportSize({width,height:1000});await original.clock.setFixedTime(new Date(process.env.KPLASMA_E2E_INSTANT!));await original.goto(reference!);
+ await original.locator('#agent-query').fill('Pressure 6 Source 400 Bias 600 결과 보여줘');await original.locator('#agent-query-form [type="submit"]').click();await expect(original.locator('.agent-response')).toHaveCount(1);
+ await original.locator('.agent-response [data-action="open-run-detail"]').first().click();await expect(original.locator('.agent-detail-tabs')).toBeVisible();
+ for(const target of [page,original]){
+  await target.evaluate(()=>document.fonts.ready);await target.locator('.agent-detail-tabs [data-tab="ied"]').click();
+  await target.locator('.agent-source-files summary').click();await expect(target.locator('.agent-source-files')).toHaveAttribute('open','');
+  await target.locator('.agent-detail-tabs [data-tab="iad"]').click();await expect(target.locator('.agent-source-files')).not.toHaveAttribute('open');
+  await expect(target.locator('.agent-detail-tabs [data-tab="iad"]')).toHaveAttribute('aria-selected','true');
+ }
+ expect(digest(await graphs(page,'.agent-detail-graph svg'))).toBe(digest(await graphs(original,'.agent-detail-graph svg')));
+ for(const [name,target] of [['react',page],['original',original]] as const)await target.locator('.agent-run-detail').screenshot({path:info.outputPath(`${name}-disclosure-${width}.png`),animations:'disabled'});
+ await info.attach('source-details-parity',{body:JSON.stringify({width,status:'MATCH',sourceAfterTab:'closed',reactAfterTab:'closed',exactGraphMatch:true,workspaceWrites:0,parityPass:true}),contentType:'application/json'});
+ expect(await (await request.get(`${api}/api/workspace`)).json()).toEqual(before);await original.close();
 });
