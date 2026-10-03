@@ -184,4 +184,37 @@ class SourceStoreTest {
         assertThatThrownBy(() -> bounded.stage(new UploadManifest("ZIP", List.of(new UploadEntry("archive", "a.zip"))), List.of(archive))).isInstanceOf(IntakeException.class).hasMessageContaining("Too many files");
     }
 
+    @Test void rejectsLocalOnlyZipMetadataBeforeDecoderAllocationAndCleansTemporaryBytes() throws Exception {
+        Path archive = Files.createTempFile(temp, "local-metadata-", ".zip");
+        try (var out = new org.apache.commons.compress.archivers.zip.ZipArchiveOutputStream(archive)) {
+            out.setUseZip64(org.apache.commons.compress.archivers.zip.Zip64Mode.Never);
+            for (int i = 0; i < 400; i++) {
+                var entry = new org.apache.commons.compress.archivers.zip.ZipArchiveEntry("directory-" + i + "/");
+                var extra = new org.apache.commons.compress.archivers.zip.UnrecognizedExtraField();
+                extra.setHeaderId(new org.apache.commons.compress.archivers.zip.ZipShort(0xcafe));
+                extra.setLocalFileDataData(new byte[60_000]); extra.setCentralDirectoryData(new byte[0]);
+                entry.addExtraField(extra); out.putArchiveEntry(entry); out.closeArchiveEntry();
+            }
+            out.putArchiveEntry(new org.apache.commons.compress.archivers.zip.ZipArchiveEntry("0d_setting.ini")); out.write('x'); out.closeArchiveEntry();
+        }
+        assertThatThrownBy(() -> store().stage(new UploadManifest("ZIP", List.of(new UploadEntry("archive", "a.zip"))), List.of(new UploadPart("archive", archive, 0))))
+                .isInstanceOfSatisfying(IntakeException.class, e -> { assertThat(e.code()).isEqualTo("ZIP_METADATA_LIMIT_EXCEEDED"); assertThat(e.status()).isEqualTo(413); });
+        assertThat(archive).doesNotExist();
+        try (var paths = Files.list(temp.resolve("store/staging"))) { assertThat(paths.count()).isZero(); }
+    }
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {true, false})
+    void rejectsDescendantDirectoryAndAncestorFileInEitherEntryOrder(boolean directoryFirst) throws Exception {
+        Path archive = Files.createTempFile(temp, "directory-conflict-", ".zip");
+        try (var out = new ZipOutputStream(Files.newOutputStream(archive))) {
+            for (String name : directoryFirst ? List.of("a/b/", "a", "0d_setting.ini") : List.of("a", "a/b/", "0d_setting.ini")) {
+                out.putNextEntry(new ZipEntry(name)); if (!name.endsWith("/")) out.write('x'); out.closeEntry();
+            }
+        }
+        assertThatThrownBy(() -> store().stage(new UploadManifest("ZIP", List.of(new UploadEntry("archive", "a.zip"))), List.of(new UploadPart("archive", archive, 0))))
+                .isInstanceOf(IntakeException.class).hasMessageContaining("Conflicting upload paths");
+        assertThat(archive).doesNotExist();
+        try (var paths = Files.list(temp.resolve("store/staging"))) { assertThat(paths.count()).isZero(); }
+    }
+
 }

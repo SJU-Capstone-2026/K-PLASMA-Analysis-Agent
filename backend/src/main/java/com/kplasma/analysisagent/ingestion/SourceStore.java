@@ -146,7 +146,9 @@ public class SourceStore {
     private static void checkDirectory(String path, Set<String> files, Set<String> directories) {
         String key = collisionKey(path);
         for (var file : files) if (file.equals(key) || key.startsWith(file + "/")) throw IntakeException.invalid("Conflicting upload paths");
-        directories.add(key);
+        // A descendant directory also reserves every ancestor as a directory.
+        // This makes conflicts independent of ZIP entry order without counting folders as files.
+        for (int end = key.length(); end > 0; end = key.lastIndexOf('/', end - 1)) directories.add(key.substring(0, end));
     }
     Path safeDirectory(Path path) throws IOException {
         Path absolute = path.toAbsolutePath().normalize();

@@ -6,7 +6,7 @@ import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.file.Path;
 
-/** Bounds the central directory before Commons Compress allocates entry objects or extra fields. */
+/** Bounds central and referenced local metadata before Commons Compress allocates entries/extra fields. */
 final class ZipDirectoryBounds {
     static final long METADATA_BUDGET = 16L * 1024 * 1024;
     private ZipDirectoryBounds() {}
@@ -55,13 +55,40 @@ final class ZipDirectoryBounds {
                 long recordLength = 46L + nameLength + extraLength + commentLength;
                 if (recordLength > centralEnd - cursor) throw IntakeException.invalid("Truncated ZIP directory entry");
                 // Account for serialized metadata and fixed per-entry object/index overhead.
-                budget += recordLength + 256;
+                long localOffset = Integer.toUnsignedLong(header.getInt(42));
+                if (localOffset == 0xffffffffL) localOffset = zip64LocalOffset(file, cursor + 46L + nameLength, extraLength, header);
+                if (localOffset < 0 || localOffset > centralOffset - 30) throw IntakeException.invalid("Invalid ZIP local header offset");
+                ByteBuffer local = read(file, localOffset, 30);
+                if (local.getInt(0) != 0x04034b50) throw IntakeException.invalid("Invalid ZIP local header");
+                long localMetadataLength = 30L + unsignedShort(local, 26) + unsignedShort(local, 28);
+                if (localMetadataLength > centralOffset - localOffset) throw IntakeException.invalid("Truncated ZIP local metadata");
+                // Eager decoder resolution retains local extras independently of central extras,
+                // including directory entries and repeated references to the same local header.
+                budget += recordLength + 256 + localMetadataLength;
                 if (budget > METADATA_BUDGET) throw metadataLimit();
                 if (++entries > count) throw IntakeException.invalid("Invalid ZIP directory count");
                 cursor += recordLength;
             }
             if (entries != count) throw IntakeException.invalid("Invalid ZIP directory count");
         }
+    }
+    private static long zip64LocalOffset(RandomAccessFile file, long offset, int extraLength, ByteBuffer central) throws IOException {
+        long end = offset + extraLength;
+        while (offset < end) {
+            if (end - offset < 4) throw IntakeException.invalid("Truncated ZIP64 extra field");
+            ByteBuffer field = read(file, offset, 4);
+            int id = unsignedShort(field, 0), size = unsignedShort(field, 2);
+            offset += 4;
+            if (size > end - offset) throw IntakeException.invalid("Truncated ZIP64 extra field");
+            if (id == 0x0001) {
+                int skip = central.getInt(24) == -1 ? 8 : 0;
+                if (central.getInt(20) == -1) skip += 8;
+                if (size < skip + 8) throw IntakeException.invalid("Missing ZIP64 local header offset");
+                return read(file, offset + skip, 8).getLong(0);
+            }
+            offset += size;
+        }
+        throw IntakeException.invalid("Missing ZIP64 local header offset");
     }
     private static IntakeException metadataLimit() { return new IntakeException("ZIP_METADATA_LIMIT_EXCEEDED", 413, "ZIP metadata exceeds bounded allocation budget"); }
     private static int unsignedShort(ByteBuffer buffer, int offset) { return Short.toUnsignedInt(buffer.getShort(offset)); }
