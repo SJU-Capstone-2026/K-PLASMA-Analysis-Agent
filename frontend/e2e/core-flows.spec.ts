@@ -1,7 +1,7 @@
 import {expect,test} from '@playwright/test';
 import type {RunSummary} from 'agent';
 import {registerWorkspaceDecisionGate} from '../src/features/agent/workspace.integration';
-import {navigate} from './helpers';
+import {navigate,roundedOverflowRight} from './helpers';
 
 const api=process.env.KPLASMA_E2E_API;
 if(!api)throw new Error('Use npm run test:e2e: it provisions an isolated actual PostgreSQL/backend.');
@@ -36,11 +36,12 @@ for(const width of [390,800,1008,1440])test(`P-structure-01/03/04 actual DOM, lo
  if(width===800){
   const selectors=await page.locator('.analysis-selectors').boundingBox();expect(selectors!.width).toBe(530);
   expect(selectors!.x+selectors!.width).toBeGreaterThan(width);
-  expect(await page.evaluate(()=>document.documentElement.scrollWidth)).toBe(Math.ceil(selectors!.x+selectors!.width));
+  // scrollWidth is integer CSSOM geometry; ceil incorrectly adds1 for fractional right<.5.
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth)).toBe(roundedOverflowRight(selectors!.x+selectors!.width));
  }
  else expect(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth)).toBe(false);
  await page.screenshot({path:info.outputPath(`actual-analysis-${width}.png`),fullPage:true,animations:'disabled'});
- expect(external).toEqual([]);await info.attach('environment',{body:JSON.stringify({browser:context.browser()?.version(),fontFamily:await page.locator('body').evaluate(element=>getComputedStyle(element).fontFamily),width,locale:'ko-KR',timezone:'Asia/Seoul',deviceScaleFactor:1,apiMocking:false,inheritedOverflow:width===800?{viewport:800,measuredMacSourceScrollWidth:886,reactScrollWidth:await page.evaluate(()=>document.documentElement.scrollWidth),selectorWidth:530}:null}),contentType:'application/json'});
+ expect(external).toEqual([]);await info.attach('environment',{body:JSON.stringify({browser:context.browser()?.version(),fontFamily:await page.locator('body').evaluate(element=>getComputedStyle(element).fontFamily),width,locale:'ko-KR',timezone:'Asia/Seoul',deviceScaleFactor:1,apiMocking:false,inheritedOverflow:width===800?{viewport:800,measuredMacSourceScrollWidth:886,reactScrollWidth:await page.evaluate(()=>document.documentElement.scrollWidth),selectorWidth:530,selectorRight:await page.locator('.analysis-selectors').evaluate(el=>el.getBoundingClientRect().right),scrollWidthRounding:'nearest integer'}:null}),contentType:'application/json'});
 });
 test('P-structure-02 real memory container boundaries and reduced motion',async({page,request,context},info)=>{
  const initial=await (await request.get(`${api}/api/workspace`)).json();expect(initial.conversation.turns).toEqual([]);expect(await (await request.get(`${api}/api/decisions`)).json()).toEqual([]);

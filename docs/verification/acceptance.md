@@ -34,7 +34,7 @@ CI에는 외부 패키지를 공급하지 않으며 인공 데이터·계약·ba
 
 레이아웃 bounding 좌표에만 최대 1/64px 차이를 허용한다(R18). 측정된 원본 selector x=355.609375와 React x=355.625의 정확한 차이에서 나온 fractional layout rounding이며 기존의 넓은 `toBeCloseTo` 허용은 쓰지 않는다. SVG 전체 tree·좌표와 실제 scalar/graph 값·shape·순서·개수에는 오차를 허용하지 않는다. 원본을 가리거나 실제 내용을 mask하지 않는다.
 
-인공 CI 800px 검사는 플랫폼 폰트가 바꾸는 x좌표에 Mac의 886px를 강제하지 않는다. 고정 selector 폭 530px, 그 right의 ceil과 문서 scrollWidth의 정확한 일치, 실제 관측 폭을 기록한다. 외부 비교는 원본/React 문서 폭을 정확히 비교한다.
+인공 CI 800px 검사는 플랫폼 폰트가 바꾸는 x좌표에 Mac의 886px를 강제하지 않는다. 고정 selector 폭 530px, 그 fractional right를 Chromium의 정수 CSSOM 반올림(`Math.round`)으로 변환한 값과 문서 scrollWidth의 정확한 일치, 실제 관측 폭을 기록한다. 외부 비교는 원본/React 문서 폭을 정확히 비교한다.
 
 모든 실데이터 증거는 무시된 로컬 `backend/.runtime/verification/reference-1791020640641/`(최종 외부)와 `synthetic-1791020770166/`(최종 인공)에만 있다. 최종 외부 실행의 debug-hold 옵션은 활성화했지만 첫 browser 시도에서 통과해 대기/재시도는 없었다. 이전 실패는 test-only Clock bean 이름 충돌, Vitest의 Playwright 파일 잘못 수집, 잘못된 테스트 버튼 이름/실패 후 cleanup 누락, 실제 HTTP 탭 저장 완료 전 SVG 비교였다. 수정 후 390px scoped 원본/React 7탭을 먼저 확인했고 마지막 전체 실행에서 모두 통과했다. 추가 수치 tolerance나 product 수정은 없었다. 실제 CI 원격 실행, 다른 팀원의 clean clone, D2–D5 후속 정책은 미검증/유예다.
 
@@ -57,3 +57,7 @@ mandatory browser report·browser/runtime/font metadata·정확한 unique 102 ex
 실행 시점 HEAD는 `4abc603`(Task12 리뷰 수정), 제품 수정은 미커밋이므로 dirty 상태다. 완료 후 커밋 SHA로 실행했다고 소급하지 않는다. 네 폭 browser 실행은 같은 설치 Chromium/locale/timezone/scale와 고정 browser time을 사용하며 결과 화면은 무시된 로컬 경로에만 보관했다. 위 4 PASS는 수정된 disclosure와 해당 그래프의 별도 집중 검증이며, 기존 전체 외부 폴더/ZIP·829,300 assertion·102 ID aggregate를 다시 실행했다는 뜻이 아니다. 전체 실제 재등록은 반복하지 않았다. D1–D5, 원본 800px overflow, 다른 팀원의 clean-clone 및 원격 CI 미검증 범위는 유지된다. 최종 수정의 독립 리뷰와 PR 전달은 coordinator의 별도 gate다.
 
 최종 수정의 동일 scoped 리뷰 중 원본 `app.js`의 현재 탭 클릭도 modal 재생성으로 disclosure를 닫는다는 점을 추가 확인했다. 이에 현재/다른 탭 버튼 모두 닫도록 보완하고 두 detail 경로 집중35 PASS와 네 폭 실제 비교4 PASS를 다시 확인했다. 변경 없는 외부 유효 탭 props는 disclosure를 보존하고 유효 외부 탭 변경은 닫힌다. `browser-evidence.mjs`는 기존 `source-details-residual`과 새 `source-details-parity` MATCH attachment를 모두 보존하며 RED→GREEN 회귀를 포함한 Node 전체29 PASS를 확인했다. TypeScript/lint도 통과했다. 이 보완 실행의 HEAD는 `3dce1b8`+dirty다. 위 frontend83·agent32/backend99 전체 실행, copied-JAR smoke 및 기존 외부829,300/102 ID 증거를 다시 실행한 것으로 소급하지 않는다.
+
+CI 진단 실행(37119427978)에서 기존 `ceil` assertion은 expected887/received886으로 실패했다. 이는 DOMRect의 fractional CSS pixel과 integer `scrollWidth`를 잘못 비교한 테스트 오류다. Chromium153 DOM-only 회귀는 right886.125/886.25/886.484375일 때 scrollWidth886, right886.5/886.75/886.875일 때887을 확인한다. 이전 ceil 설명은 이 정확한 정수 반올림 검증으로 대체한다. selector530px 및 right>800, 추가 overflow가 있으면 실패하는 정확한 equality를 유지한다. 원본/React 문서 폭 비교와 SVG/과학값 비교는 그대로 정확하며 tolerance를 늘리지 않는다. 실제 Linux selector x는 로그에 없으므로 추정값으로 기록하지 않는다. CSSOM의 정수 scrollWidth 및 DOMRect 구분은 [W3C CSSOM View](https://www.w3.org/TR/cssom-view/), Chromium rounding 구현은 [Blink Element](https://chromium.googlesource.com/chromium/src/+/6c499eeecfb7a65b0ffd42782cbdf9c813bfd968/third_party/blink/renderer/core/dom/element.cc)를 참고한다. 수정 후 로컬 검증과 원격 재검증은 별도 증거로 기록한다.
+
+이 정수 반올림 수정의 로컬 composed gate는 HEAD `a146ae3`/dirty, 기본 Chromium153.0.8010.12에서 11 PASS·외부 전용10 skip, evidenceValidation PASS다. 새 geometry case 1개가 포함되어 앞선10 PASS와 구별한다. Ubuntu 원격 수정 후 CI 결과는 아직 대기 중이며 이전 실패를 성공으로 소급하지 않는다.
