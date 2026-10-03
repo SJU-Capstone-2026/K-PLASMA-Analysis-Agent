@@ -13,7 +13,7 @@ public class ImportRepository {
     private final JdbcTemplate jdbc;
     private final ObjectMapper mapper;
     public ImportRepository(JdbcTemplate jdbc, ObjectMapper mapper) { this.jdbc = jdbc; this.mapper = mapper; }
-    void lockIntake() { jdbc.queryForList("select pg_advisory_xact_lock(173529, 4)"); }
+    public void lockIntake() { jdbc.queryForList("select pg_advisory_xact_lock(173529, 4)"); }
     record Replay(UUID batchId, String requestHash) {}
     Replay replay(String key) {
         var results = jdbc.query("select batch_id, request_hash from import_idempotency where idempotency_key = ?", (rs, n) -> new Replay(rs.getObject(1, UUID.class), rs.getString(2)), key);

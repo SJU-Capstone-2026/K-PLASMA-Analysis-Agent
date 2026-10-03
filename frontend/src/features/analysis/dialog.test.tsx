@@ -1,8 +1,17 @@
-import {act,render,screen} from '@testing-library/react';
+import {act,fireEvent,render,screen} from '@testing-library/react';
 import {afterEach,expect,test,vi} from 'vitest';
 import {RunDetailDialog} from './RunDetail';
 import {fixtureRuns} from '../../test/runs';
 afterEach(()=>{vi.restoreAllMocks();vi.unstubAllGlobals();});
+test('a deleted Run uses a localized unavailable state instead of exposing the server error',async()=>{
+ const onClose=vi.fn();vi.stubGlobal('fetch',vi.fn(async()=>new Response(JSON.stringify({code:'NOT_FOUND',message:'Run version not found',requestId:'missing-run'}),{status:404})));
+ render(<RunDetailDialog runRef={fixtureRuns[0]} onClose={onClose}/>);
+ const alert=await screen.findByRole('alert');
+ expect(alert).toHaveAccessibleName('삭제된 Run입니다');
+ expect(alert).toHaveTextContent(`${fixtureRuns[0].runId}은 데이터 관리에서 삭제되어 상세 결과를 볼 수 없습니다.`);
+ expect(screen.queryByText('Run version not found')).not.toBeInTheDocument();
+ fireEvent.click(screen.getByRole('button',{name:'창 닫기'}));expect(onClose).toHaveBeenCalledOnce();
+});
 test('pending replacement hides prior version evidence even when display Run ID is unchanged',async()=>{
  const first=fixtureRuns[0],replacement={...first,runVersionId:'replacement-version'};
  vi.stubGlobal('fetch',vi.fn((url:string)=>url.endsWith(first.runVersionId)?Promise.resolve(new Response(JSON.stringify(first))):new Promise<Response>(()=>{})));

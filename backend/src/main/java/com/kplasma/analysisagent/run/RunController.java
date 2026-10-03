@@ -2,6 +2,7 @@ package com.kplasma.analysisagent.run;
 
 import com.kplasma.analysisagent.contract.ImportDto.*;
 import com.kplasma.analysisagent.contract.RunDto;
+import com.kplasma.analysisagent.contract.RunDeletionDto;
 import com.kplasma.analysisagent.ingestion.*;
 import java.util.*;
 import org.springframework.http.ResponseEntity;
@@ -12,8 +13,10 @@ public class RunController {
     private final RunQueryService query;
     private final RunRepository repository;
     private final ImportWorker imports;
-    public RunController(RunQueryService query,RunRepository repository,ImportWorker imports) {this.query=query;this.repository=repository;this.imports=imports;}
+    private final RunDeletionService deletion;
+    public RunController(RunQueryService query,RunRepository repository,ImportWorker imports,RunDeletionService deletion) {this.query=query;this.repository=repository;this.imports=imports;this.deletion=deletion;}
     @GetMapping("/runs") public List<RunDto.Summary> runs() {return query.listSearchable();}
+    @PostMapping("/runs/delete") public RunDeletionDto.Result delete(@RequestBody RunDeletionDto.Request request) {return deletion.delete(request);}
     @GetMapping("/run-versions/{id}") public RunDto.Full version(@PathVariable String id) {return query.getVersion(uuid(id));}
     @GetMapping("/catalog")
     public CatalogView catalog(@RequestParam(defaultValue="") String search,@RequestParam(defaultValue="") String status,@RequestParam(defaultValue="") String quality) {

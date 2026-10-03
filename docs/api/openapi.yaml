@@ -52,6 +52,45 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ApiError'
+  /api/runs/delete:
+    post:
+      operationId: deleteRegisteredRuns
+      description: >-
+        Delete every immutable version of the explicitly listed Run IDs atomically,
+        together with associated jobs and unshared managed originals. The UI uses
+        the same endpoint for one selected Run or an unfiltered snapshot of all
+        registered Runs. Unregistered failed jobs and their originals remain.
+        Missing IDs are no-ops. Any target referenced by a saved decision blocks
+        the whole request. Conversation snapshots do not block deletion; matching
+        current workspace references are released. Any queued or processing import
+        also blocks deletion. User-selected external source
+        folders are never modified. Old upload idempotency keys retain an empty
+        batch receipt after deletion; a new upload key can register the Run again.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RunDeletionRequest'
+      responses:
+        '200':
+          description: Database deletion committed; cleanupPending reports deferred managed-file cleanup.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RunDeletionResult'
+        '409':
+          description: RUN_IN_USE for a saved decision, or IMPORT_IN_PROGRESS; no Runs are deleted.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        default:
+          description: Explicit failure; invalid request bodies return 400.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
   /api/run-versions/{id}:
     get:
       operationId: getApiRunVersionsId
@@ -1386,6 +1425,33 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/JobView'
+    RunDeletionRequest:
+      type: object
+      additionalProperties: false
+      required: [runIds]
+      properties:
+        runIds:
+          type: array
+          minItems: 1
+          maxItems: 1000
+          items:
+            type: string
+            minLength: 1
+            maxLength: 64
+            pattern: '^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$'
+    RunDeletionResult:
+      type: object
+      additionalProperties: false
+      required: [deletedRunIds, cleanupPending]
+      properties:
+        deletedRunIds:
+          type: array
+          uniqueItems: true
+          items:
+            type: string
+        cleanupPending:
+          type: boolean
+          description: Database deletion succeeded; unreferenced managed files await cleanup on a later deletion or server restart.
     CatalogView:
       type: object
       additionalProperties: false

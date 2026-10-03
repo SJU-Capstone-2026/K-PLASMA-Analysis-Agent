@@ -1,5 +1,7 @@
 /** Wire contracts: finite binary64 numbers, ISO 8601 timestamps, immutable version references. */
 export interface RunRef { runId: string; runVersionId: string }
+export interface RunDeleteRequest { runIds: string[] }
+export interface RunDeleteResult { deletedRunIds: string[]; cleanupPending: boolean }
 export type Pair = [number, number];
 export type DensityRow = [number, number[], number[]];
 export interface Conditions { pressure: number; sourcePower: number; biasPower: number }

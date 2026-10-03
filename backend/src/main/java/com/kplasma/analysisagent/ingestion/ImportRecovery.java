@@ -15,9 +15,10 @@ public class ImportRecovery implements SmartInitializingSingleton {
     private final JdbcTemplate jdbc;
     private final ImportRepository imports;
     private final SourceStore store;
+    private final StorageGarbageCollector garbage;
     private final TransactionTemplate transactions;
     private volatile boolean ready;
-    public ImportRecovery(JdbcTemplate jdbc,ImportRepository imports,SourceStore store,PlatformTransactionManager manager) {this.jdbc=jdbc;this.imports=imports;this.store=store;this.transactions=new TransactionTemplate(manager);}
+    public ImportRecovery(JdbcTemplate jdbc,ImportRepository imports,SourceStore store,StorageGarbageCollector garbage,PlatformTransactionManager manager) {this.jdbc=jdbc;this.imports=imports;this.store=store;this.garbage=garbage;this.transactions=new TransactionTemplate(manager);}
     public boolean ready() {return ready;}
     @Override public void afterSingletonsInstantiated() {recover();}
     public void recover() {
@@ -32,8 +33,7 @@ public class ImportRecovery implements SmartInitializingSingleton {
                     count(*) filter (where status in ('READY','DUPLICATE')) good,count(*) filter (where status='PROCESSING') active
                     from import_job group by batch_id) c where b.id=c.batch_id
                 """);
-            cleanup("sources",new HashSet<>(jdbc.query("select id::text from source_set",(rs,n)->rs.getString(1))));
-            cleanup("batches",new HashSet<>(jdbc.query("select id::text from import_batch",(rs,n)->rs.getString(1))));
+            garbage.collect();
             cleanup("staging",Set.of());cleanup("uploads",Set.of());
         });
         ready=true;

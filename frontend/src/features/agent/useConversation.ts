@@ -34,7 +34,8 @@ export function useConversation(){
  }
  const updateTurnUi=(id:string,patch:Partial<TurnUiSnapshot>)=>serialize(async()=>{const next=await patchTurnUi(current.current.stateToken,id,patch);apply(next);});
  const setReference=(reference:ReferenceState,activeRun?:RunRef|null)=>serialize(async()=>{invalidate();const target=activeRun===undefined?(reference?.runs.length===1?reference.runs[0]:null):activeRun;const next=await writeReference(current.current.stateToken,reference?{kind:reference.kind,runs:reference.runs.map(asRef)}:null,target?asRef(target):null);apply(next);});
+ async function refresh(){invalidate();await serialize(async()=>{const controller=new AbortController();controllers.current.add(controller);try{const next=await fetchWorkspace(controller.signal);if(!controller.signal.aborted){apply(next);setError('');}}finally{controllers.current.delete(controller);}});}
  async function replace(reset:boolean){if(ready)invalidate();await serialize(async()=>{if(!ready)invalidate();const next=await replaceConversation(current.current.stateToken,reset);apply(next);setError('');});}
- return {state,ready,error,pending,submit,updateTurnUi,setReference,newConversation:()=>replace(false),reset:()=>replace(true)};
+ return {state,ready,error,pending,submit,updateTurnUi,setReference,refresh,newConversation:()=>replace(false),reset:()=>replace(true)};
 }
 export type ConversationController=ReturnType<typeof useConversation>;
