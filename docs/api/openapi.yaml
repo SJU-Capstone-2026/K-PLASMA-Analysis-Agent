@@ -845,9 +845,7 @@ components:
     Snapshot:
       type: object
       additionalProperties: true
-      description: Compact original engine snapshot objects. Recursively forbid Run/analysis/graph/series
-        payloads. Numeric snapshots/objective evaluations and original intent/status/messages/order
-        are retained. The workspace service enforces this before persistence.
+      description: Compact original engine snapshots preserve scientific scalar metrics, conditions, quality and objective evaluations. Full Runs and graph or series payloads are forbidden recursively. candidateRunRefs and memoryRequest.referenceRunRefs retain distinct compact immutable identities and must match answerRunRefs inventory. Original intent, status, messages and order are retained; workspace persistence validates these boundaries.
     Intent:
       type: string
       enum:
@@ -1448,16 +1446,22 @@ components:
           required: []
           properties: *id017
     ReferenceWrite:
+      description: Atomically write independent active Run and candidate reference under one StateToken check. Both fields are required and nullable.
       type: object
       additionalProperties: false
       required:
       - stateToken
       - candidateReference
+      - activeRun
       properties:
         stateToken:
           $ref: '#/components/schemas/StateToken'
         candidateReference:
           $ref: '#/components/schemas/ReferenceState'
+        activeRun:
+          oneOf:
+          - $ref: '#/components/schemas/RunRef'
+          - type: 'null'
     UploadEntry:
       type: object
       additionalProperties: false

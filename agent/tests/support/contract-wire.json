@@ -499,5 +499,59 @@
         }
       ]
     }
+  },
+  "referenceWrite": {
+    "stateToken": {
+      "workspaceEpoch": 1,
+      "conversationEpoch": 1,
+      "revision": 0
+    },
+    "candidateReference": null,
+    "activeRun": {
+      "runId": "SYNTHETIC",
+      "runVersionId": "00000000-0000-4000-8000-000000000001"
+    }
+  },
+  "experimentRecord": {
+    "id": "EXP-artificial",
+    "reviewId": "EXP-artificial",
+    "version": 2,
+    "createdAt": "2000-01-01T00:00:00Z",
+    "question": "artificial question",
+    "objectives": [],
+    "overallComment": "artificial common comment",
+    "authorName": "tester",
+    "candidates": [
+      {
+        "runId": "SYNTHETIC",
+        "runVersionId": "00000000-0000-4000-8000-000000000001",
+        "decision": "ADOPT",
+        "note": "",
+        "conditions": {
+          "pressure": 3,
+          "sourcePower": 11,
+          "biasPower": 7
+        },
+        "metrics": {
+          "ionFlux": 13,
+          "meanIonEnergy": 17,
+          "iedWidth": 2
+        },
+        "objectiveEvaluations": []
+      }
+    ],
+    "targetRunId": "SYNTHETIC",
+    "comparedRunIds": [],
+    "targetRunRef": {
+      "runId": "SYNTHETIC",
+      "runVersionId": "00000000-0000-4000-8000-000000000001"
+    },
+    "comparedRunRefs": [],
+    "decision": "ADOPT",
+    "comment": "artificial common comment",
+    "analysisType": "REVERSE",
+    "processMode": "GOAL_RECOMMENDATION",
+    "goals": [],
+    "queryText": "artificial question"
   }
 }

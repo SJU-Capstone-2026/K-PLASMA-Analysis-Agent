@@ -44,10 +44,12 @@ class ContractSerializationTest {
         var reviewJson = "{\"reviewId\":\"REV-artificial\",\"targetRunId\":\"SYNTHETIC\",\"comparedRunIds\":[],\"decision\":\"HOLD\",\"comment\":\"artificial\",\"authorName\":\"tester\",\"createdAt\":\"2000-01-01T00:00:00Z\",\"analysisType\":\"FORWARD\",\"processMode\":\"CONDITION_LOOKUP\",\"constraints\":[],\"goals\":[],\"queryText\":\"\",\"evidenceKinds\":[],\"limitations\":[],\"runSnapshots\":[],\"targetRunRef\":{\"runId\":\"SYNTHETIC\",\"runVersionId\":\"00000000-0000-4000-8000-000000000001\"},\"comparedRunRefs\":[]}";
         var review = mapper.readValue(reviewJson, WorkspaceDto.DecisionRecord.class);
         assertEquals(mapper.readTree(reviewJson), mapper.valueToTree(review));
-        var experiment = (tools.jackson.databind.node.ObjectNode) mapper.readTree(reviewJson).deepCopy();
-        experiment.put("version", 2);
+        var experiment = mapper.readTree(Files.readString(Path.of("../agent/tests/support/contract-wire.json"))).get("experimentRecord");
         var value = mapper.treeToValue(experiment, WorkspaceDto.DecisionRecord.class);
-        assertEquals(2, mapper.valueToTree(value).get("version").intValue());
+        assertEquals(2, value.version());
+        assertEquals("ADOPT", value.candidates().getFirst().decision());
+        assertNotNull(value.candidates().getFirst().runVersionId());
+        assertTrue(experiment.equals((left,right)->left.isNumber()&&right.isNumber()?Double.compare(left.doubleValue(),right.doubleValue()):left.equals(right)?0:1, mapper.valueToTree(value)));
     }
     @Test void uploadIntakeKeepsFolderPartPathsAndOneArchiveWithoutClientComputedInventory() throws Exception {
         var fixture = mapper.readTree(Files.readString(Path.of("../agent/tests/support/contract-wire.json")));
@@ -84,4 +86,12 @@ class ContractSerializationTest {
         assertFalse(mapper.valueToTree(catalog).get("runs").get(0).has("iedDistribution"));
         assertTrue(original.equals((left,right)->left.isNumber()&&right.isNumber()?Double.compare(left.doubleValue(),right.doubleValue()):left.equals(right)?0:1,mapper.valueToTree(catalog)));
     }
+    @Test void referenceWriteKeepsExplicitIndependentNullableContexts() throws Exception {
+        var original=mapper.readTree(Files.readString(Path.of("../agent/tests/support/contract-wire.json"))).get("referenceWrite");
+        var write=mapper.treeToValue(original,WorkspaceDto.ReferenceWrite.class);
+        assertNull(write.candidateReference());
+        assertNotNull(write.activeRun());
+        assertTrue(original.equals((left,right)->left.isNumber()&&right.isNumber()?Double.compare(left.doubleValue(),right.doubleValue()):left.equals(right)?0:1, mapper.valueToTree(write)));
+    }
+
 }

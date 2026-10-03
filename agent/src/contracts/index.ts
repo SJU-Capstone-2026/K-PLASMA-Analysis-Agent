@@ -61,6 +61,7 @@ export interface TurnUiSnapshot {
 }
 export interface TurnSnapshot { id: string; askedAt: string; question: string; intent: Intent; context: RunRef | null; answerRunRefs: RunRef[]; answerSnapshot: Snapshot; ui: TurnUiSnapshot }
 export type ReferenceState = { kind: '단일 Run' | '후보 집합'; runs: RunRef[] } | null;
+export interface ReferenceWrite { stateToken: StateToken; candidateReference: ReferenceState; activeRun: RunRef | null }
 export interface Conversation { version: 1; activeRun: RunRef | null; turns: TurnSnapshot[] }
 export interface WorkspaceView { stateToken: StateToken; conversation: Conversation; candidateReference: ReferenceState }
 export type Decision = 'ADOPT' | 'HOLD' | 'REJECT';
