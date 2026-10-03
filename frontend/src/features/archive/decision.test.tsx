@@ -1,6 +1,6 @@
 import {fireEvent,render,screen,waitFor} from '@testing-library/react';
-import {expect,test,vi} from 'vitest';
-import {executeFallback,toRunSummary,type TurnSnapshot,type DecisionRecord,type ExperimentRecord} from 'agent';
+import {afterEach,expect,test,vi} from 'vitest';
+import {executeFallback,toRunSummary,type TurnSnapshot,type DecisionRecord,type ExperimentRecord,type ReviewRecord} from 'agent';
 import {syntheticRun} from '../../test/runs';
 import {DecisionDialog} from './DecisionDialog';
 import {initialTurnUi} from '../agent/useConversation';
@@ -14,3 +14,10 @@ test('archive shows stored metrics and treats malicious-looking notes as text',a
 test('retry after a lost response reuses the exact record and idempotency key',async()=>{let first=true;const save=vi.fn(async(_record:DecisionRecord,_refs:import('agent').RunRef[],_key:string)=>{void _record;void _refs;void _key;if(first){first=false;throw new Error('응답 연결 실패');}});render(<DecisionDialog target={runs[0]} runs={runs} workspaceEpoch={1} onSave={save} onClose={()=>{}}/>);fireEvent.click(await screen.findByRole('radio',{name:/보류/}));fireEvent.change(screen.getByRole('textbox',{name:/판단 근거 코멘트/}),{target:{value:'같은 작성 내용'}});fireEvent.click(screen.getByRole('button',{name:'코멘트와 결정 저장'}));await screen.findByText('응답 연결 실패');fireEvent.click(screen.getByRole('button',{name:'코멘트와 결정 저장'}));await waitFor(()=>expect(save).toHaveBeenCalledTimes(2));expect(save.mock.calls[1][0]).toEqual(save.mock.calls[0][0]);expect(save.mock.calls[1][2]).toEqual(save.mock.calls[0][2]);});
 
 test('workflow screen changes refocus the panel and third additional candidate stays unchecked',async()=>{render(<DecisionDialog turn={await turn()} runs={runs} workspaceEpoch={1} onSave={async()=>{}} onClose={()=>{}}/>);await waitFor(()=>expect(screen.getByRole('dialog')).toHaveFocus());fireEvent.click(screen.getByLabelText(`${runs[0].runId} 채택`));fireEvent.click(screen.getByLabelText(`${runs[1].runId} 추가 후보`));fireEvent.click(screen.getByLabelText(`${runs[2].runId} 추가 후보`));fireEvent.click(screen.getByLabelText(`${runs[3].runId} 추가 후보`));expect(screen.getByLabelText(`${runs[3].runId} 추가 후보`)).not.toBeChecked();expect(screen.getByRole('alert')).toHaveTextContent('추가 후보는 최대 2개');const next=screen.getByRole('button',{name:'다음: 후보별 판단'});next.focus();fireEvent.click(next);await waitFor(()=>expect(screen.getByRole('dialog')).toHaveFocus());});
+
+
+afterEach(()=>vi.unstubAllGlobals());
+test('REV hydrates only its historical target and saves scalar latest comparison summaries',async()=>{
+ const historical={...runs[0],runVersionId:'old-target'};const calls:string[]=[];vi.stubGlobal('fetch',vi.fn(async(path:string)=>{calls.push(path);if(path==='/api/runs')return Response.json(runs.map(toRunSummary));if(path.endsWith(historical.runVersionId))return Response.json(historical);throw new Error('unrelated full version unavailable');}));const save=vi.fn(async(_record:DecisionRecord,_refs:import('agent').RunRef[])=>{void _record;void _refs;});render(<DecisionDialog target={historical} workspaceEpoch={1} onSave={save} onClose={()=>{}}/>);
+ fireEvent.click(await screen.findByRole('radio',{name:/보류/}));fireEvent.click(screen.getByRole('checkbox',{name:new RegExp(runs[1].runId)}));fireEvent.change(screen.getByRole('textbox',{name:/판단 근거 코멘트/}),{target:{value:'scalar comparison'}});fireEvent.click(screen.getByRole('button',{name:'코멘트와 결정 저장'}));await waitFor(()=>expect(save).toHaveBeenCalledTimes(1));expect(calls.filter(path=>path.startsWith('/api/run-versions/'))).toEqual([`/api/run-versions/${historical.runVersionId}`]);expect(save.mock.calls[0][1]).toEqual([{runId:historical.runId,runVersionId:historical.runVersionId},{runId:runs[1].runId,runVersionId:runs[1].runVersionId}]);expect((save.mock.calls[0][0] as ReviewRecord).runSnapshots[1]).toMatchObject({runId:runs[1].runId,runVersionId:runs[1].runVersionId,metrics:runs[1].metrics});
+});

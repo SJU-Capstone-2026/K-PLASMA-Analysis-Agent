@@ -62,8 +62,15 @@ describe.skipIf(!root)('external v12.3.1 parity (hashes only)', () => {
     // R15 identity-only migration metadata is compared separately; physical and behavioral fields remain exact.
     const physicalSnapshot = JSON.parse(JSON.stringify(actual.answerSnapshot));
     delete physicalSnapshot.candidateRunRefs;
+    delete physicalSnapshot.excludedRunRefs;
     if (physicalSnapshot.memoryRequest) delete physicalSnapshot.memoryRequest.referenceRunRefs;
     expect(digest(actual.answerSnapshot.candidateRunRefs)).toBe(digest(actual.candidates));
+    if (expected.memoryResult) {
+      const excludedIds = expected.memoryResult.excluded.map((run: any) => run.runId);
+      const metadata = actual.answerSnapshot.excludedRunRefs as {runId: string; runVersionId: string}[];
+      expect(digest(metadata.map(ref => ref.runId))).toBe(digest(excludedIds));
+      expect(digest(metadata)).toBe(digest(excludedIds.map((id: string) => { const run = runs.find(run => run.runId === id)!; return {runId: id, runVersionId: run.runVersionId}; })));
+    }
     expect(digest(physicalSnapshot)).toBe(digest(expected));
     expect(actual.intent).toBe(expected.intent);
     if (expected.status) expect(actual.status).toBe(expected.status);

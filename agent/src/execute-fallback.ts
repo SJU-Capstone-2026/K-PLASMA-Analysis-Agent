@@ -99,6 +99,8 @@ export async function executeFallback(input: AgentRequest, context: AgentContext
     const candidates = candidateIds.map(resolved).filter((r): r is RunSummary => Boolean(r)).map(asRef);
     // Compact immutable identity extension: role metadata disambiguates equal display IDs.
     answerSnapshot.candidateRunRefs = candidates.map(r => ({ ...r }));
+    // Excluded rows describe searched results, independently of historical retry references.
+    if (memory) answerSnapshot.excludedRunRefs = objects(memory.excluded).flatMap(run => typeof run.runId === 'string' ? [run.runId] : []).map(resolved).filter((r): r is RunSummary => Boolean(r)).map(r => ({ ...asRef(r) }));
     // Pending/notice answers retain selected context even when no result IDs exist.
     // Resolve this context from explicit versions, independently of latest searched candidates.
     const contextIds = new Set(stringIds(object(answerSnapshot.reference)?.ids));
