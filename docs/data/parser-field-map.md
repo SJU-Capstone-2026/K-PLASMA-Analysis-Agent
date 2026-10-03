@@ -45,7 +45,7 @@ API 정의는 `docs/api/openapi.yaml`, TypeScript는 `agent/src/contracts/index.
 | --- | --- | --- |
 | `pressure` | INI `[Pressure].PRS`; solver `[PREASURE & INLET CONDITIONS] Pressure (mTorr)` | Direct, cross-check both and folder if present |
 | `sourcePower` | INI `[SourcePower].Powerh`; solver `[SOURCE POWER CONDITIONS] PowerH (W)` | Direct, cross-check |
-| `biasPower` | INI `[BiasPower].Sourceh0`; solver `[BIAS POWER CONDITIONS] Power1h (W)` | Direct, cross-check; condition section exists even Bias-off |
+| `biasPower` | INI `[BiasPower].Sourceh0`; solver `[BIAS POWER CONDITIONS] Power1h (W)` | Direct, cross-check; Bias-off may omit both solver bias sections only when INI Bias=0 / Sourceh0=0 and solver Bias=OFF agree |
 | `metrics.ionFlux` | solver `[ION FLUX AT THE SHEATH EDGE] Ar+` | Raw `#/cm^2sec` × `1e-14`, display unit `10¹⁸ m⁻²s⁻¹`; direct binary64 multiplication matches all 150 |
 | `metrics.meanIonEnergy` | solver `[AVERAGE ION ENERGY AT THE SUBSTRATE] Ar+ (eV)` | Direct; not recomputed as IED weighted mean |
 | `metrics.iedWidth` | Full unsampled IED | Algorithm below; Bias-off `null` |
@@ -119,3 +119,13 @@ node --test scripts/reference/check.test.mjs
 ```
 
 `loadReference(root: string): Promise<ReferencePackage>`는 root/version/prototypeRoot/rawRoot/testsRoot/manifest를 반환한다. I/O는 async다. `reference:check`는 환경 변수 누락 시 안내와 nonzero exit를 반환한다. 원본 UI·실제 payload·테스트의 실제 기대값·manifest checksum·검증 화면은 저장소에 복사하지 않는다.
+
+## Task 5 구현 경계
+
+`KPlasmaScalarParser.parse(StoredSource)`는 Run-relative manifest key를 사용한다. 필수 파일은 `0d_setting.ini`, `0d_result/log/solver.log`, `0d_result/log/output.log`, `0d_result/log/residual.log`이다. UTF-8 decode 오류와 손상 수치는 PARSE_FAILED이며 파일 누락과 완료 marker 부재는 INCOMPLETE다. `ParseFailure`는 status/path/line/field를 제공하며 내부 storage path나 원본 내용을 노출하지 않는다. line=0은 파일/전체 형식 오류처럼 특정 행이 없는 경우다.
+
+`ParsedScalars`는 conditions, ionFlux, meanIonEnergy, analysis scalar, units, conv, biasOn과 Completion을 보존한다. Completion은 실제 marker의 outputPath/outputLine과 최종 원본 residual의 finalIteration/residualPath/residualLine을 담는다. scalar 단계의 `analysis.hasDistribution`은 false로 두고 Task 6의 전체 그래프 검증 결과로 합친다. Bias-on scalar 단계만 통과한 Run을 VERIFIED/READY로 게시하지 않는다. IED width는 Task 6에서 계산하고 Task 7에서 결합한다. strictConvergence=false여도 정상 완료 marker와 최종 유효 residual이 있으면 Completion.finished=true다.
+
+INI의 `[Pressure].key0=Ar`, `[DataFile].reaction_path=rate_Ar.xml`, `[Option].solver=2`, `[SourcePower].Heat=1/Pulsing=0`, `[BiasPower].Pulsing0=0/rfCycle=U+0001`과 solver RELEASE 8.8.1 / TCP / Heating ON / SPulsing OFF / Ar를 교차 확인한다. 현재 고정 조건 격자만 지원한다. INI Bias와 Sourceh0 및 solver Bias는 서로 일치해야 한다. Bias-on에는 BIAS POWER CONDITIONS와 BIAS PARAMETERS의 모든 사용 필드가 필수다. 실제 Bias-off solver에는 두 section 모두 없다. 이때 Sourceh0=0을 조건으로 사용하며 dcOffset/peakToPeak는 null이다.
+
+Residual은 type=residual, gtype=1D, x=iteration (#), y=residual (a.u.), species=E Ar* Ar+ Ar Te를 검증한다. 숫자 행은 iteration 뒤 5개 유한 수치를 가지며 양의 정수 iteration이 증가해야 한다. 마지막 행이 잘리거나 손상되면 이전 행으로 성공 처리하지 않는다. 원본 모든 scalar는 binary64 그대로 저장한다. 표시용 반올림과 정적 메타데이터(등록 시각, 점수, note, 최종 품질/검색 상태)는 이 파서가 생성하지 않는다.
