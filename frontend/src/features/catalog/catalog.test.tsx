@@ -71,3 +71,25 @@ test('new latest Run detail uses matching successful job inventory after menu re
  api();const prior={...ready,jobId:'prior-job',runVersionId:'prior-version'};const normal=fetch;vi.stubGlobal('fetch',vi.fn((url:string,options:RequestInit)=>url==='/api/catalog'?Promise.resolve(new Response(JSON.stringify({...catalog,jobs:[prior,ready,failed]}))):normal(url,options)));
  render(<CatalogPage state={{...initialCatalogState,catalogSelectedRunId:run.runId,catalogSelectedJobId:'prior-job'}}/>);await screen.findByRole('button',{name:'Agent에서 자세히 보기'});expect(fetch).toHaveBeenCalledWith('/api/import-jobs/ready-job/files',expect.anything());expect(fetch).not.toHaveBeenCalledWith('/api/import-jobs/prior-job/files',expect.anything());
 });
+function inventoryFailureApi(failRun=false){
+ const other:JobView={...failed,jobId:'other-job',runId:'OTHER-SYNTHETIC',status:'INCOMPLETE',reason:'synthetic output missing'};
+ vi.stubGlobal('fetch',vi.fn(async(url:string)=>new Response(JSON.stringify(url==='/api/catalog'?{...catalog,jobs:[ready,failed,other]}:url==='/api/import-jobs/failed-job/files'?{code:'INVENTORY_UNAVAILABLE',message:'작업 A 원본 조회 실패',requestId:'synthetic-a'}:url.startsWith('/api/run-versions/')?failRun?{code:'VERSION_UNAVAILABLE',message:'선택 Run 상세 조회 실패',requestId:'synthetic-run'}:run:[{path:'other/synthetic.dat',kind:'DAT',size:4,sha256:'synthetic'}]),{status:url==='/api/import-jobs/failed-job/files'||failRun&&url.startsWith('/api/run-versions/')?503:200})));
+}
+test('switching from failed inventory A to successful inventory B removes A error',async()=>{
+ inventoryFailureApi();const {rerender}=render(<CatalogPage state={{...initialCatalogState,catalogSelectedJobId:'failed-job'}}/>);
+ expect(await screen.findByRole('alert')).toHaveTextContent('작업 A 원본 조회 실패');
+ rerender(<CatalogPage state={{...initialCatalogState,catalogSelectedJobId:'other-job'}}/>);
+ await screen.findByText('other/synthetic.dat');expect(screen.queryByRole('alert')).not.toBeInTheDocument();expect(document.querySelector('.catalog-detail h2')).toHaveTextContent('OTHER-SYNTHETIC');
+});
+test('deselecting a failed inventory clears its job-scoped error and files',async()=>{
+ inventoryFailureApi();const {rerender}=render(<CatalogPage state={{...initialCatalogState,catalogSelectedJobId:'failed-job'}}/>);
+ expect(await screen.findByRole('alert')).toHaveTextContent('작업 A 원본 조회 실패');
+ rerender(<CatalogPage state={initialCatalogState}/>);
+ await waitFor(()=>expect(screen.queryByRole('alert')).not.toBeInTheDocument());expect(screen.getByText('Run을 선택하세요.')).toBeInTheDocument();expect(screen.queryByText('other/synthetic.dat')).not.toBeInTheDocument();
+});
+test('changing only selected job inventory does not clear the retained FullRun error',async()=>{
+ inventoryFailureApi(true);const {rerender}=render(<CatalogPage state={{...initialCatalogState,catalogSelectedRunId:run.runId,catalogSelectedJobId:'ready-job'}}/>);
+ expect(await screen.findByRole('alert')).toHaveTextContent('선택 Run 상세 조회 실패');
+ rerender(<CatalogPage state={{...initialCatalogState,catalogSelectedRunId:run.runId,catalogSelectedJobId:'other-job'}}/>);
+ await screen.findByText('other/synthetic.dat');expect(screen.getByRole('alert')).toHaveTextContent('선택 Run 상세 조회 실패');
+});
