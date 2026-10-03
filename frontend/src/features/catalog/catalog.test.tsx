@@ -6,6 +6,7 @@ import {toRunSummary} from 'agent';
 import {uploadFolder, uploadZip, reprocess} from '../../api/imports';
 import type {CatalogData} from '../../api/imports';
 import {CatalogPage,initialCatalogState} from './CatalogPage';
+import {App} from '../../App';
 import {syntheticRun} from '../../test/runs';
 
 const run=syntheticRun();
@@ -92,4 +93,26 @@ test('changing only selected job inventory does not clear the retained FullRun e
  expect(await screen.findByRole('alert')).toHaveTextContent('선택 Run 상세 조회 실패');
  rerender(<CatalogPage state={{...initialCatalogState,catalogSelectedRunId:run.runId,catalogSelectedJobId:'other-job'}}/>);
  await screen.findByText('other/synthetic.dat');expect(screen.getByRole('alert')).toHaveTextContent('선택 Run 상세 조회 실패');
+});
+function shellApi(){
+ vi.spyOn(window,'scrollTo').mockImplementation(()=>{});
+ api();const normal=fetch;const workspace={stateToken:{workspaceEpoch:0,conversationEpoch:0,revision:0},conversation:{version:1,activeRun:null,turns:[]},candidateReference:{kind:'후보 집합',runs:[{runId:'OTHER-REFERENCE',runVersionId:'other-version'}]}};
+ let written:Record<string,unknown>|undefined;
+ vi.stubGlobal('fetch',vi.fn(async(url:string,init?:RequestInit)=>{
+  if(url==='/api/workspace')return new Response(JSON.stringify(workspace));
+  if(url==='/api/decisions')return new Response('[]');
+  if(url==='/api/workspace/reference'){written=JSON.parse(init!.body as string);return new Response(JSON.stringify({...workspace,conversation:{...workspace.conversation,activeRun:written!.activeRun},candidateReference:written!.candidateReference,stateToken:{...workspace.stateToken,revision:1}}));}
+  return normal(url,init);
+ }));return ()=>written;
+}
+test('default App catalog preserves submitted filters and selected job across navigation',async()=>{
+ shellApi();render(<App/>);fireEvent.click(screen.getByText('도구 및 도움말'));fireEvent.click(screen.getByRole('button',{name:'Run 데이터 관리'}));
+ fireEvent.click(await screen.findByRole('button',{name:'BROKEN-SYNTHETIC'}));fireEvent.change(screen.getByLabelText('파싱 상태'),{target:{value:'PARSE_FAILED'}});fireEvent.submit(document.getElementById('catalog-filter-form')!);
+ fireEvent.click(screen.getByRole('button',{name:'사용 방법'}));fireEvent.click(screen.getByRole('button',{name:'Run 데이터 관리'}));
+ await screen.findByRole('button',{name:'BROKEN-SYNTHETIC'});expect(screen.getByLabelText('파싱 상태')).toHaveValue('PARSE_FAILED');expect(document.querySelector('.catalog-detail h2')).toHaveTextContent('BROKEN-SYNTHETIC');
+});
+test('default App catalog forward retains candidate reference and writes only immutable active Run',async()=>{
+ const written=shellApi();render(<App/>);fireEvent.click(screen.getByText('도구 및 도움말'));fireEvent.click(screen.getByRole('button',{name:'Run 데이터 관리'}));fireEvent.click(await screen.findByRole('button',{name:run.runId}));
+ fireEvent.click(screen.getByRole('button',{name:'Agent에서 자세히 보기'}));
+ await waitFor(()=>expect(written()).toMatchObject({activeRun:{runId:run.runId,runVersionId:run.runVersionId},candidateReference:{kind:'후보 집합',runs:[{runId:'OTHER-REFERENCE',runVersionId:'other-version'}]}}));expect((fetch as ReturnType<typeof vi.fn>).mock.calls.some(([url])=>url==='/api/workspace/turns')).toBe(false);
 });
