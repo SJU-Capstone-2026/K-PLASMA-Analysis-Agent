@@ -217,4 +217,27 @@ class SourceStoreTest {
         try (var paths = Files.list(temp.resolve("store/staging"))) { assertThat(paths.count()).isZero(); }
     }
 
+    @Test void acceptsOrdinaryNestedFilesAlongsideDeclaredSiblingDirectories() throws Exception {
+        Path archive = Files.createTempFile(temp, "nested-siblings-", ".zip");
+        try (var out = new ZipOutputStream(Files.newOutputStream(archive))) {
+            for (String name : List.of("a-older/", "a/deep/leaf/", "b/", "0d_setting.ini", "a/deep/leaf/file.txt", "a/other.txt", "a2")) {
+                out.putNextEntry(new ZipEntry(name)); if (!name.endsWith("/")) out.write('x'); out.closeEntry();
+            }
+        }
+        var result = store().stage(new UploadManifest("ZIP", List.of(new UploadEntry("archive", "a.zip"))), List.of(new UploadPart("archive", archive, 0)));
+        assertThat(result.files()).extracting(StoredBatch.File::relativePath).containsExactly("0d_setting.ini", "a/deep/leaf/file.txt", "a/other.txt", "a2");
+        assertThat(result.totalBytes()).isEqualTo(4);
+    }
+    @Test void rejectsAncestorFileEvenWithAnEarlierLexicalSiblingDirectory() throws Exception {
+        Path archive = Files.createTempFile(temp, "nested-conflict-", ".zip");
+        try (var out = new ZipOutputStream(Files.newOutputStream(archive))) {
+            for (String name : List.of("a-older/", "a/deep/leaf/", "a", "0d_setting.ini")) {
+                out.putNextEntry(new ZipEntry(name)); if (!name.endsWith("/")) out.write('x'); out.closeEntry();
+            }
+        }
+        assertThatThrownBy(() -> store().stage(new UploadManifest("ZIP", List.of(new UploadEntry("archive", "a.zip"))), List.of(new UploadPart("archive", archive, 0))))
+                .isInstanceOf(IntakeException.class).hasMessageContaining("Conflicting upload paths");
+        assertThat(archive).doesNotExist();
+    }
+
 }

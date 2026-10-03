@@ -55,7 +55,7 @@ public class SourceStore {
                 ZipDirectoryBounds.verify(archive.path());
                 try (var zip = ZipFile.builder().setPath(archive.path()).get()) {
                     var entries = zip.getEntries();
-                    Set<String> directoryPaths = new HashSet<>();
+                    NavigableSet<String> directoryPaths = new TreeSet<>();
                     while (entries.hasMoreElements()) {
                         var entry = entries.nextElement();
                         if (entry.isUnixSymlink() || ((entry.getUnixMode() & 0170000) != 0 && (entry.getUnixMode() & 0170000) != 0100000 && (entry.getUnixMode() & 0170000) != 0040000))
@@ -67,7 +67,10 @@ public class SourceStore {
                             checkDirectory(path, paths, directoryPaths); continue;
                         }
                         if (!zip.canReadEntryData(entry)) throw IntakeException.invalid("Unsupported ZIP entry encoding");
-                        if (directoryPaths.contains(collisionKey(path))) throw IntakeException.invalid("Conflicting upload paths");
+                        String key = collisionKey(path), prefix = key + "/";
+                        String descendant = directoryPaths.ceiling(prefix);
+                        if (directoryPaths.contains(key) || descendant != null && descendant.startsWith(prefix))
+                            throw IntakeException.invalid("Conflicting upload paths");
                         CRC32 crc = new CRC32();
                         try (var input = new CheckedInputStream(zip.getInputStream(entry), crc)) {
                             var file = copy(input, staging, path, paths, total);
@@ -146,9 +149,8 @@ public class SourceStore {
     private static void checkDirectory(String path, Set<String> files, Set<String> directories) {
         String key = collisionKey(path);
         for (var file : files) if (file.equals(key) || key.startsWith(file + "/")) throw IntakeException.invalid("Conflicting upload paths");
-        // A descendant directory also reserves every ancestor as a directory.
-        // This makes conflicts independent of ZIP entry order without counting folders as files.
-        for (int end = key.length(); end > 0; end = key.lastIndexOf('/', end - 1)) directories.add(key.substring(0, end));
+        // Retain only explicit paths; copying all ancestor strings expands memory with path depth.
+        directories.add(key);
     }
     Path safeDirectory(Path path) throws IOException {
         Path absolute = path.toAbsolutePath().normalize();
