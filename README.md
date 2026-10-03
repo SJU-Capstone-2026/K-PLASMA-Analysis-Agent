@@ -21,59 +21,25 @@ K-PLASMA 프로토타입 v12.3.1의 UI·UX와 기능을 실제 애플리케이�
 
 제품 코드는 승인된 계획 순서대로 구현 중입니다. 완료된 실행 절차와 검증 결과는 각 작업에서 갱신합니다.
 
-## 로컬 실행 (Task 1)
+## 로컬 실행과 검증
 
-Java 21 (검증: Temurin 21.0.12.1), Node **22.23.3**, npm **10.9.9**, 실행 중인 Docker가 필요합니다. Gradle **8.14.3**은 체크인된 Wrapper가 내려받고 체크섬으로 검증합니다. Spring Boot **4.1.1**, PostgreSQL **18.6-alpine3.24**를 사용하며 npm 의존성의 정확한 버전은 `package-lock.json`에 기록합니다. Node 버전 관리 도구에서 `.node-version`을 적용하고 `JAVA_HOME`을 Java 21 설치 경로로 지정하세요.
-
-저장소 루트에서 설치하고 비공개 로컬 설정을 준비합니다. `.env`의 `POSTGRES_PASSWORD`는 직접 설정하세요. 비밀번호는 Git에 넣지 않습니다.
+Java 21, Node 22.23.3, npm 10.9.9와 Docker를 준비한 뒤 [팀 실행 문서](docs/development.md)를 따라 PostgreSQL·backend·frontend를 시작합니다. `agent`는 frontend가 사용하는 라이브러리입니다. `.env`의 셸 특수문자가 있는 값은 작은따옴표로 감싸고, DB 포트를 변경하면 `POSTGRES_PORT`와 `DB_URL`을 함께 갱신합니다.
 
 ```sh
 npm ci
-cp .env.example .env
-# .env에서 POSTGRES_PASSWORD를 설정한 다음 실행
-set -a
-source .env
-set +a
-docker compose config --quiet
-docker compose up -d --wait postgres
-```
-
-DB 다음으로 backend를 시작합니다. `bootRun`의 작업 폴더는 `backend/`이므로 기본 `./storage`는 `backend/storage/`입니다. 폴더는 readiness 확인 때 없으면 생성하며 기존 파일은 유지합니다. 다른 작업 폴더에서 JAR를 직접 실행한다면 `KPLASMA_STORAGE_ROOT`에 저장소의 절대 경로를 지정하세요.
-
-```sh
-backend/gradlew -p backend bootRun
-```
-
-별도 터미널에서 저장소 루트의 frontend를 시작합니다. 기본 포트는 backend **8080**, frontend **5173**, PostgreSQL **5432**입니다. frontend의 `/api` 요청은 `VITE_API_TARGET`으로 프록시됩니다. `.env`에서 DB 포트를 바꾸면 `DB_URL`의 포트도 함께 바꾸세요.
-
-```sh
-npm run dev
-curl http://localhost:8080/api/health
-# 준비됨: {"status":"UP","database":"UP","storage":"UP"}
-# DB 질의 또는 실제 보관소 쓰기 실패: HTTP 503, 해당 상태 DOWN
-```
-
-이 단계의 frontend는 빈 React 부트 엔트리입니다. 화면과 결정론적 fallback은 후속 작업에서 이관합니다. `agent`는 npm workspace 라이브러리이며 별도 프로세스로 실행하지 않습니다.
-
-종료는 backend와 frontend 터미널에서 각각 `Ctrl+C`, DB는 다음 명령을 사용합니다. 일반 종료는 DB 볼륨과 `backend/storage/` 데이터를 보존합니다.
-
-```sh
-docker compose stop postgres
-```
-
-검증은 저장소 루트에서 실행합니다. backend 테스트는 Docker에서 격리된 실제 PostgreSQL 18 컨테이너와 임시 보관 폴더를 사용하며 개발 DB에는 접속하지 않습니다. npm workspace 테스트는 이 초기 단계에 테스트 파일이 없는 상태를 허용합니다.
-
-```sh
-backend/gradlew -p backend test --tests '*StartupSmokeTest'
-backend/gradlew -p backend test
-docker compose config --quiet
-npm run build
+npm test
 npm run typecheck
 npm run lint
-npm test
+npm run build
+backend/gradlew -p backend test --console=plain
+npm exec --workspace frontend -- playwright install chromium
+npm run test:e2e
+npm run verify:public-files
 ```
 
-버전 선택 근거: [Spring Boot 요구사항](https://docs.spring.io/spring-boot/system-requirements.html), [Node LTS](https://nodejs.org/en/download), [PostgreSQL 공식 이미지](https://hub.docker.com/_/postgres). Java/Node의 이번 로컬 검증용 런타임은 `backend/.runtime/`에만 두며 Git에 포함하지 않습니다.
+`test:e2e`는 독립 PostgreSQL과 실제 backend를 사용한 인공 데이터 검증입니다. 실제 150 Run과 기준 패키지를 외부에서 제공받은 뒤 `KPLASMA_REFERENCE_ROOT`를 설정하고 `npm run verify:reference`를 실행합니다. 환경변수가 없으면 명시적인 외부 검증은 실패합니다. 기본 CI는 실제 데이터를 포함하지 않으며 검증 artifact를 업로드하지 않습니다.
+
+[수용 검증](docs/verification/acceptance.md)과 [원본 102개 대응표](docs/verification/prototype-test-map.md)는 통과·실패·유예·미검증 범위를 구분합니다. D1–D5와 남은 차이가 있으므로 전체 100% 동등성으로 표현하지 않습니다. 새 대화와 데모 초기화는 업로드한 Run·그래프·원본을 유지합니다. 종료 절차는 DB volume과 원본을 보존합니다.
 
 ## 코드와 실제 데이터의 공유
 

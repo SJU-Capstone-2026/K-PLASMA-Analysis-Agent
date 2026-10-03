@@ -9,10 +9,14 @@
   "scripts": {
     "dev": "npm run dev -w frontend",
     "build": "npm run build --workspaces",
-    "typecheck": "npm run typecheck --workspaces",
-    "test": "npm run test --workspaces",
+    "typecheck": "npm run typecheck --workspaces && tsc --project frontend/e2e/tsconfig.json",
+    "test": "npm run test --workspaces && node --test scripts/reference/*.test.mjs",
     "lint": "eslint frontend agent",
-    "reference:check": "node scripts/reference/check.mjs"
+    "reference:check": "node scripts/reference/check.mjs",
+    "test:e2e": "node scripts/reference/verify.mjs",
+    "verify:reference": "node scripts/reference/verify.mjs --reference",
+    "verify:public-files": "node scripts/verify-public-files.mjs",
+    "test:ui:historical": "playwright test --config frontend/task9.playwright.config.ts"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",

@@ -1,0 +1,31 @@
+name: Synthetic verification
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - run: npm ci
+      - run: npm run verify:public-files
+      - run: npm test
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm run build
+      - run: backend/gradlew -p backend test --console=plain
+      - run: npm exec --workspace frontend -- playwright install --with-deps chromium
+      - run: npm run test:e2e
+      # Deliberately no upload-artifact step. External sources, traces, payloads and screenshots stay local.
