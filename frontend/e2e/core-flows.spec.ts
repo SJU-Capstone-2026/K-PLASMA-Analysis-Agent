@@ -1,7 +1,7 @@
 import {expect,test} from '@playwright/test';
 import type {RunSummary} from 'agent';
 import {registerWorkspaceDecisionGate} from '../src/features/agent/workspace.integration';
-import {navigate,roundedOverflowRight} from './helpers';
+import {navigate} from './helpers';
 
 const api=process.env.KPLASMA_E2E_API;
 if(!api)throw new Error('Use npm run test:e2e: it provisions an isolated actual PostgreSQL/backend.');
@@ -16,7 +16,7 @@ test('artificial folder UI upload goes through real HTTP and preserves duplicate
  const terminal=await (await page.request.get(`${api}/api/import-batches/${batch.batchId}`)).json();expect(terminal.jobs.every((job:{status:string})=>job.status==='DUPLICATE')).toBe(true);
  expect(await (await page.request.get(`${api}/api/runs`)).json()).toEqual(before);
 });
-for(const width of [390,800,1008,1440])test(`P-structure-01/03/04 actual DOM, local runtime and keyboard at ${width}px`,async({page,context},info)=>{
+for(const width of [390,800,1008,1100,1440])test(`P-structure-01/03/04 actual DOM, local runtime and keyboard at ${width}px`,async({page,context},info)=>{
  await page.setViewportSize({width,height:1000});const external:string[]=[];
  page.on('request',request=>{if(!request.url().startsWith(baseURL)&&!request.url().startsWith('data:'))external.push(new URL(request.url()).hostname);});
  await page.goto('/');await expect(page.locator('.agent-welcome')).toBeVisible();
@@ -30,18 +30,20 @@ for(const width of [390,800,1008,1440])test(`P-structure-01/03/04 actual DOM, lo
  await navigate(page,'analysis');await expect(page.locator('.analysis-selection-card')).toBeVisible();
  const cells=page.locator('[data-action="analysis-select"]');await cells.first().focus();await page.keyboard.press('Enter');await expect(page.locator('.analysis-run-title h2')).toBeVisible();
  expect(await cells.first().evaluate(element=>parseFloat(getComputedStyle(element).outlineWidth))).toBeGreaterThan(0);
- // R18: source/React on the measured Mac font runtime are both886px at800px.
- // CI fonts can change x; assert the inherited fixed530px selector geometry and report actual width.
- // This is a disclosed overflow check, never a no-overflow pass.
- if(width===800){
-  const selectors=await page.locator('.analysis-selectors').boundingBox();expect(selectors!.width).toBe(530);
-  expect(selectors!.x+selectors!.width).toBeGreaterThan(width);
-  // scrollWidth is integer CSSOM geometry; ceil incorrectly adds1 for fractional right<.5.
-  expect(await page.evaluate(()=>document.documentElement.scrollWidth)).toBe(roundedOverflowRight(selectors!.x+selectors!.width));
- }
- else expect(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth)).toBe(false);
+ const analysisGeometry=await page.evaluate(()=>{
+  const map=document.querySelector('.condition-map')!.getBoundingClientRect(),card=document.querySelector('.analysis-selection-card')!.getBoundingClientRect();
+  return {pageOverflows:document.documentElement.scrollWidth>innerWidth,mapOverlapsCard:!(map.right<=card.left||card.right<=map.left||map.bottom<=card.top||card.bottom<=map.top)};
+ });
+ expect(analysisGeometry).toEqual({pageOverflows:false,mapOverlapsCard:false});
  await page.screenshot({path:info.outputPath(`actual-analysis-${width}.png`),fullPage:true,animations:'disabled'});
- expect(external).toEqual([]);await info.attach('environment',{body:JSON.stringify({browser:context.browser()?.version(),fontFamily:await page.locator('body').evaluate(element=>getComputedStyle(element).fontFamily),width,locale:'ko-KR',timezone:'Asia/Seoul',deviceScaleFactor:1,apiMocking:false,inheritedOverflow:width===800?{viewport:800,measuredMacSourceScrollWidth:886,reactScrollWidth:await page.evaluate(()=>document.documentElement.scrollWidth),selectorWidth:530,selectorRight:await page.locator('.analysis-selectors').evaluate(el=>el.getBoundingClientRect().right),scrollWidthRounding:'nearest integer'}:null}),contentType:'application/json'});
+ await navigate(page,'catalog');await expect(page.getByRole('heading',{name:'등록 Run'})).toBeVisible();
+ const catalogGeometry=await page.locator('.catalog-toolbar').evaluate(toolbar=>{
+  const bounds=toolbar.getBoundingClientRect(),children=Array.from(toolbar.children).map(child=>child.getBoundingClientRect());
+  return {pageOverflows:document.documentElement.scrollWidth>innerWidth,childrenFit:children.every(child=>child.left>=bounds.left-1&&child.right<=bounds.right+1)};
+ });
+ expect(catalogGeometry).toEqual({pageOverflows:false,childrenFit:true});
+ await page.screenshot({path:info.outputPath(`actual-catalog-${width}.png`),fullPage:true,animations:'disabled'});
+ expect(external).toEqual([]);await info.attach('environment',{body:JSON.stringify({browser:context.browser()?.version(),fontFamily:await page.locator('body').evaluate(element=>getComputedStyle(element).fontFamily),width,locale:'ko-KR',timezone:'Asia/Seoul',deviceScaleFactor:1,apiMocking:false}),contentType:'application/json'});
 });
 test('P-structure-02 real memory container boundaries and reduced motion',async({page,request,context},info)=>{
  const initial=await (await request.get(`${api}/api/workspace`)).json();expect(initial.conversation.turns).toEqual([]);expect(await (await request.get(`${api}/api/decisions`)).json()).toEqual([]);

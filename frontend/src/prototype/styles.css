@@ -1404,6 +1404,17 @@ select:focus { border-color: var(--color-primary); box-shadow: 0 0 0 3px rgba(65
 .analysis-provenance > div:not(:first-child) strong { color: #fff; font-size: 18px; }
 .analysis-provenance > div:not(:first-child) span { color: #aeb9d2; font-size: 9px; }
 
+@media (max-width: 1180px) {
+  .catalog-layout { grid-template-columns: 1fr; }
+  .catalog-detail { position: static; }
+  .analysis-toolbar { align-items: stretch; flex-direction: column; }
+  .analysis-selectors { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .analysis-selectors label { min-width: 0; }
+  .analysis-overview { grid-template-columns: 1fr; }
+  .condition-map-wrap { overflow-x: auto; }
+  .analysis-selection-actions { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
 @media (max-width: 1024px) {
   :root { --sidebar-width: 212px; }
 
@@ -1454,6 +1465,7 @@ select:focus { border-color: var(--color-primary); box-shadow: 0 0 0 3px rgba(65
 @media (max-width: 900px) {
   .reverse-command-bar { grid-template-columns: minmax(0, 1fr) auto; }
   .reverse-command-bar .stepper { grid-column: 1 / -1; grid-row: 2; }
+  .catalog-toolbar { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 @media (max-width: 760px) {
