@@ -1,0 +1,73 @@
+import {act, fireEvent, render, screen, waitFor} from '@testing-library/react';
+import {useState} from 'react';
+import {afterEach, expect, test, vi} from 'vitest';
+import type {BatchView, JobView} from 'agent';
+import {toRunSummary} from 'agent';
+import {uploadFolder, uploadZip, reprocess} from '../../api/imports';
+import type {CatalogData} from '../../api/imports';
+import {CatalogPage,initialCatalogState} from './CatalogPage';
+import {syntheticRun} from '../../test/runs';
+
+const run=syntheticRun();
+const ready:JobView={jobId:'ready-job',runId:run.runId,runVersionId:run.runVersionId,status:'READY',reason:null,errors:[]};
+const failed:JobView={jobId:'failed-job',runId:'BROKEN-SYNTHETIC',runVersionId:null,status:'PARSE_FAILED',reason:'손상된 synthetic 파일',errors:[{code:'PARSE_FAILED',message:'synthetic.dat 3행: 숫자 오류',requestId:'test'}]};
+const catalog:CatalogData={runs:[toRunSummary(run)],jobs:[ready,failed],sourceFilesByVersion:{[run.runVersionId]:run.sourceFiles}};
+const partial:BatchView={batchId:'batch',status:'PARTIAL_SUCCESS',receivedBytes:4,totalBytes:4,processedRuns:2,totalRuns:2,jobs:[ready,failed]};
+const processing:BatchView={...partial,status:'PROCESSING',processedRuns:1};
+class UploadRequest {
+ static instances:UploadRequest[]=[];upload={onprogress:null as ((event:ProgressEvent)=>void)|null};status=202;responseText=JSON.stringify(partial);onload:(()=>void)|null=null;onerror:(()=>void)|null=null;onabort:(()=>void)|null=null;headers:Record<string,string>={};body:FormData|null=null;aborted=false;
+ constructor(){UploadRequest.instances.push(this);}
+ open(){} setRequestHeader(key:string,value:string){this.headers[key]=value;}
+ send(body:FormData){this.body=body;} abort(){this.aborted=true;this.onabort?.();} finish(batch:BatchView=partial){this.responseText=JSON.stringify(batch);this.onload?.();}
+}
+function transport(){UploadRequest.instances=[];vi.stubGlobal('XMLHttpRequest',UploadRequest);}
+function api(){vi.stubGlobal('fetch',vi.fn(async(url:string)=>new Response(JSON.stringify(url.startsWith('/api/catalog')?catalog:url==='/api/runs'?[toRunSummary(run)]:url.includes('/files')?[{path:'nested/synthetic.dat',kind:'DAT',size:4,sha256:'synthetic'}]:url.startsWith('/api/run-versions/')?run:partial))));}
+function folder(path:string){const file=new File(['data'],'synthetic.dat');Object.defineProperty(file,'webkitRelativePath',{value:path});return file;}
+function blobText(blob:Blob):Promise<string>{return new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(reader.result as string);reader.onerror=reject;reader.readAsText(blob);});}
+afterEach(()=>{vi.useRealTimers();vi.restoreAllMocks();vi.unstubAllGlobals();});
+
+test('folder multipart distinguishes identical basenames by unique parts and actual relative paths',async()=>{
+ transport();const files=[folder('folder-a/synthetic.dat'),folder('folder-b/synthetic.dat')];const promise=uploadFolder(files,'folder-key');const xhr=UploadRequest.instances[0];
+ const form=xhr.body!;const manifest=JSON.parse(await blobText(form.get('manifest') as Blob));expect(manifest).toEqual({mode:'FOLDER',entries:[{partName:'file-0',relativePath:'folder-a/synthetic.dat'},{partName:'file-1',relativePath:'folder-b/synthetic.dat'}]});
+ expect(form.get('file-0')).toBeInstanceOf(File);expect(form.get('file-1')).toBeInstanceOf(File);expect(xhr.headers['Idempotency-Key']).toBe('folder-key');xhr.finish();expect(await promise).toEqual(partial);
+});
+test('ZIP sends one archive part without synthetic file tree',async()=>{transport();const promise=uploadZip(new File(['archive'],'synthetic.zip'),'zip-key');const xhr=UploadRequest.instances[0];expect(Array.from(xhr.body!.keys())).toEqual(['manifest','archive']);expect(JSON.parse(await blobText(xhr.body!.get('manifest') as Blob))).toEqual({mode:'ZIP',entries:[{partName:'archive',relativePath:'synthetic.zip'}]});xhr.finish();await promise;});
+test('reprocess preserves explicit endpoint and idempotency key',async()=>{api();await reprocess('failed-job','retry-key');expect(fetch).toHaveBeenCalledWith('/api/import-jobs/failed-job/reprocess',expect.objectContaining({method:'POST',headers:expect.objectContaining({'Idempotency-Key':'retry-key'})}));});
+test('partial success lists successful Run and failure reason without forwarding failed jobs',async()=>{api();const onReference=vi.fn();render(<CatalogPage onReference={onReference}/>);await screen.findByRole('button',{name:run.runId});expect(screen.getByText('손상된 synthetic 파일')).toBeInTheDocument();fireEvent.click(screen.getByRole('button',{name:'BROKEN-SYNTHETIC'}));expect(screen.getByText('분석 제외 상태')).toBeInTheDocument();expect(screen.queryByRole('button',{name:'Agent에서 자세히 보기'})).not.toBeInTheDocument();fireEvent.click(screen.getByRole('button',{name:run.runId}));fireEvent.click(await screen.findByRole('button',{name:'Agent에서 자세히 보기'}));expect(onReference).toHaveBeenCalledWith({runId:run.runId,runVersionId:run.runVersionId});expect(await screen.findByText('nested/synthetic.dat')).toBeInTheDocument();});
+test('filter applies on submit while selected detail remains outside filtered rows',async()=>{api();render(<CatalogPage/>);fireEvent.click(await screen.findByRole('button',{name:run.runId}));await screen.findByRole('button',{name:'Agent에서 자세히 보기'});fireEvent.change(screen.getByLabelText('Run 또는 파일 검색'),{target:{value:'NO-SUCH-RUN'}});expect(screen.getByRole('button',{name:run.runId})).toBeInTheDocument();fireEvent.submit(document.getElementById('catalog-filter-form')!);expect(screen.queryByRole('button',{name:run.runId})).not.toBeInTheDocument();expect(document.querySelector('.catalog-detail h2')).toHaveTextContent(run.runId);});
+test('real upload byte progress changes into processed Run progress and stops polling on terminal status',async()=>{
+ transport();api();vi.useFakeTimers();render(<CatalogPage/>);await act(async()=>{});
+ fireEvent.change(screen.getByLabelText('폴더 선택'),{target:{files:[folder('folder/synthetic.dat')]}});const xhr=UploadRequest.instances[0];
+ act(()=>xhr.upload.onprogress?.({lengthComputable:true,loaded:25,total:100} as ProgressEvent));expect(screen.getByRole('progressbar',{name:'파일 전송률'})).toHaveAttribute('aria-valuenow','25');expect(screen.getByRole('button',{name:'ZIP 선택'})).toBeDisabled();
+ await act(async()=>xhr.finish(processing));expect(screen.getByRole('progressbar',{name:'Run 처리 진행률'})).toHaveAttribute('aria-valuenow','1');expect(screen.getByRole('progressbar',{name:'Run 처리 진행률'})).toHaveAttribute('aria-valuemax','2');
+ await act(async()=>{await vi.advanceTimersByTimeAsync(1000);});expect(screen.getByText('일부 완료')).toBeInTheDocument();const polls=(fetch as ReturnType<typeof vi.fn>).mock.calls.filter(([url])=>url==='/api/import-batches/batch').length;await act(async()=>{await vi.advanceTimersByTimeAsync(4000);});expect((fetch as ReturnType<typeof vi.fn>).mock.calls.filter(([url])=>url==='/api/import-batches/batch')).toHaveLength(polls);expect(fetch).toHaveBeenCalledWith('/api/runs',expect.anything());
+});
+test('unmount aborts in-flight upload',async()=>{transport();api();const {unmount}=render(<CatalogPage/>);await screen.findByRole('button',{name:run.runId});fireEvent.change(screen.getByLabelText('폴더 선택'),{target:{files:[folder('folder/synthetic.dat')]}});const xhr=UploadRequest.instances[0];unmount();expect(xhr.aborted).toBe(true);});
+test('server errors stay visible and never insert fake successful Runs',async()=>{vi.stubGlobal('fetch',vi.fn(async()=>new Response(JSON.stringify({code:'INTAKE_UNAVAILABLE',message:'서버 연결 중단',requestId:'synthetic'}),{status:503})));render(<CatalogPage/>);expect(await screen.findByRole('alert')).toHaveTextContent('서버 연결 중단');expect(screen.queryByRole('button',{name:/RUN-P/})).not.toBeInTheDocument();});
+test('idempotency conflicts show server code and request id without successful batch',async()=>{transport();const promise=uploadZip(new File(['zip'],'synthetic.zip'),'same-key');const xhr=UploadRequest.instances[0];xhr.status=409;xhr.responseText=JSON.stringify({code:'IDEMPOTENCY_CONFLICT',message:'다른 원본 요청',requestId:'request-test'});xhr.onload?.();await expect(promise).rejects.toMatchObject({status:409,error:{code:'IDEMPOTENCY_CONFLICT',requestId:'request-test'}});});
+test('rapid input events create one upload attempt while pending',async()=>{transport();api();render(<CatalogPage/>);await screen.findByRole('button',{name:run.runId});const input=screen.getByLabelText('폴더 선택');fireEvent.change(input,{target:{files:[folder('folder/synthetic.dat')]}});fireEvent.change(input,{target:{files:[folder('folder/synthetic.dat')]}});expect(UploadRequest.instances).toHaveLength(1);});
+test('unmount aborts current poll and schedules no further polls after late response',async()=>{
+ transport();api();vi.useFakeTimers();let pollSignal:AbortSignal|undefined,resolvePoll!:(response:Response)=>void;
+ const normal=fetch;vi.stubGlobal('fetch',vi.fn((url:string,options:RequestInit)=>url==='/api/import-batches/batch'?new Promise<Response>(resolve=>{pollSignal=options.signal as AbortSignal;resolvePoll=resolve;}):normal(url,options)));
+ const {unmount}=render(<CatalogPage/>);await act(async()=>{});fireEvent.change(screen.getByLabelText('폴더 선택'),{target:{files:[folder('folder/synthetic.dat')]}});await act(async()=>UploadRequest.instances[0].finish(processing));await act(async()=>{await vi.advanceTimersByTimeAsync(1000);});unmount();expect(pollSignal?.aborted).toBe(true);await act(async()=>resolvePoll(new Response(JSON.stringify(processing))));await vi.advanceTimersByTimeAsync(3000);expect((fetch as ReturnType<typeof vi.fn>).mock.calls.filter(([url])=>url==='/api/import-batches/batch')).toHaveLength(1);
+});
+test.each(['READY','DUPLICATE','INCOMPLETE','PARSE_FAILED','INTERRUPTED'] as const)('terminal %s allows explicit reprocessing while keeping prior successful version',async status=>{
+ api();const job:JobView={...failed,status};const value={...catalog,jobs:[ready,job]};const normal=fetch;vi.stubGlobal('fetch',vi.fn((url:string,options:RequestInit)=>url==='/api/catalog'?Promise.resolve(new Response(JSON.stringify(value))):normal(url,options)));
+ render(<CatalogPage/>);fireEvent.click(await screen.findByRole('button',{name:status==='READY'?run.runId:'BROKEN-SYNTHETIC'}));fireEvent.click(screen.getByRole('button',{name:'다시 처리'}));await waitFor(()=>expect(fetch).toHaveBeenCalledWith(status==='READY'?'/api/import-jobs/ready-job/reprocess':'/api/import-jobs/failed-job/reprocess',expect.anything()));expect(screen.getByRole('button',{name:run.runId})).toBeInTheDocument();
+});
+test.each(['QUEUED','PROCESSING'] as const)('active %s job cannot be reprocessed',async status=>{api();const normal=fetch;vi.stubGlobal('fetch',vi.fn((url:string,options:RequestInit)=>url==='/api/catalog'?Promise.resolve(new Response(JSON.stringify({...catalog,jobs:[ready,{...failed,status}]}))):normal(url,options)));render(<CatalogPage/>);fireEvent.click(await screen.findByRole('button',{name:'BROKEN-SYNTHETIC'}));expect(screen.queryByRole('button',{name:'다시 처리'})).not.toBeInTheDocument();});
+test('controlled applied filters and selected job survive menu navigation remount',async()=>{
+ api();function Host(){const [state,setState]=useState(initialCatalogState),[shown,setShown]=useState(true);return <><button onClick={()=>setShown(!shown)}>메뉴 이동</button>{shown&&<CatalogPage state={state} onStateChange={setState}/>}</>;}
+ render(<Host/>);fireEvent.click(await screen.findByRole('button',{name:'BROKEN-SYNTHETIC'}));fireEvent.change(screen.getByLabelText('파싱 상태'),{target:{value:'PARSE_FAILED'}});fireEvent.submit(document.getElementById('catalog-filter-form')!);fireEvent.click(screen.getByRole('button',{name:'메뉴 이동'}));fireEvent.click(screen.getByRole('button',{name:'메뉴 이동'}));await screen.findByRole('button',{name:'BROKEN-SYNTHETIC'});expect(screen.getByLabelText('파싱 상태')).toHaveValue('PARSE_FAILED');expect(document.querySelector('.catalog-detail h2')).toHaveTextContent('BROKEN-SYNTHETIC');expect(screen.getByRole('button',{name:'다시 처리'})).toBeInTheDocument();
+});
+test('missing metadata map entry fails visibly instead of displaying invented zero files',async()=>{vi.stubGlobal('fetch',vi.fn(async()=>new Response(JSON.stringify({...catalog,sourceFilesByVersion:{}}))));render(<CatalogPage/>);expect(await screen.findByRole('alert')).toHaveTextContent('원본 파일 메타데이터');expect(screen.queryByRole('button',{name:run.runId})).not.toBeInTheDocument();});
+test('filename search uses actual display metadata without hydrating all graphs',async()=>{api();render(<CatalogPage/>);await screen.findByRole('button',{name:run.runId});fireEvent.change(screen.getByLabelText('Run 또는 파일 검색'),{target:{value:'SYNTHETIC.DAT'}});fireEvent.submit(document.getElementById('catalog-filter-form')!);expect(screen.getByRole('button',{name:run.runId})).toBeInTheDocument();expect((fetch as ReturnType<typeof vi.fn>).mock.calls.some(([url])=>url.startsWith('/api/run-versions/'))).toBe(false);});
+test('late initial catalog cannot replace newer completion refresh',async()=>{
+ transport();api();const second=syntheticRun(800);const newer={...catalog,runs:[toRunSummary(second)],sourceFilesByVersion:{[second.runVersionId]:second.sourceFiles}};
+ let resolveInitial!:(response:Response)=>void,count=0;const normal=fetch;vi.stubGlobal('fetch',vi.fn((url:string,options:RequestInit)=>url==='/api/catalog'?++count===1?new Promise<Response>(resolve=>{resolveInitial=resolve;}):Promise.resolve(new Response(JSON.stringify(newer))):normal(url,options)));
+ render(<CatalogPage/>);fireEvent.change(screen.getByLabelText('ZIP 선택'),{target:{files:[new File(['zip'],'synthetic.zip')]}});await act(async()=>UploadRequest.instances[0].finish());await screen.findByRole('button',{name:second.runId});await act(async()=>resolveInitial(new Response(JSON.stringify(catalog))));expect(screen.getByRole('button',{name:second.runId})).toBeInTheDocument();
+});
+test('new latest Run detail uses matching successful job inventory after menu remount',async()=>{
+ api();const prior={...ready,jobId:'prior-job',runVersionId:'prior-version'};const normal=fetch;vi.stubGlobal('fetch',vi.fn((url:string,options:RequestInit)=>url==='/api/catalog'?Promise.resolve(new Response(JSON.stringify({...catalog,jobs:[prior,ready,failed]}))):normal(url,options)));
+ render(<CatalogPage state={{...initialCatalogState,catalogSelectedRunId:run.runId,catalogSelectedJobId:'prior-job'}}/>);await screen.findByRole('button',{name:'Agent에서 자세히 보기'});expect(fetch).toHaveBeenCalledWith('/api/import-jobs/ready-job/files',expect.anything());expect(fetch).not.toHaveBeenCalledWith('/api/import-jobs/prior-job/files',expect.anything());
+});
