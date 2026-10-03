@@ -1,0 +1,1467 @@
+openapi: 3.1.0
+info:
+  title: K-PLASMA v12.3.1 data and workspace contract
+  version: 1.0.0
+  description: No actual experiment data. JSON numbers are finite binary64; unavailable
+    physical output is null, timestamps ISO 8601, IDs strings. Error categories distinguish
+    input/file missing/corrupt/unsupported/duplicate/storage/interrupted/stale context.
+    Uploaded JS is never executed.
+paths:
+  /api/health:
+    get:
+      operationId: getApiHealth
+      description: GET /api/health
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Health'
+        default:
+          description: Explicit failure with code, message and requestId; no fake
+            success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '503':
+          description: Database or storage not ready
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Health'
+  /api/runs:
+    get:
+      operationId: getApiRuns
+      description: All latest successful searchable versions, graph-free; not a generated
+        grid.
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/RunSummary'
+        default:
+          description: Explicit failure with code, message and requestId; no fake
+            success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+  /api/run-versions/{id}:
+    get:
+      operationId: getApiRunVersionsId
+      description: Hydrate an immutable version UUID; all original arrays and normal
+        Bias-off nulls are retained.
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FullRun'
+        default:
+          description: Explicit failure with code, message and requestId; no fake
+            success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+      parameters:
+      - &id002
+        name: id
+        in: path
+        required: true
+        schema: &id001
+          type: string
+  /api/catalog:
+    get:
+      operationId: getApiCatalog
+      description: GET /api/catalog
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CatalogView'
+        default:
+          description: Explicit failure with code, message and requestId; no fake
+            success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+      parameters:
+      - name: search
+        in: query
+        schema: *id001
+      - name: status
+        in: query
+        schema: *id001
+      - name: quality
+        in: query
+        schema: *id001
+  /api/import-batches:
+    post:
+      operationId: postApiImportBatches
+      description: 'Folder or ZIP upload. Each limit is independent: folder bytes
+        2 GiB; archive container 2 GiB; expanded bytes 2 GiB; ordinary/internal file
+        64 MiB; at most 5000 files. The ZIP container is exempt from 64 MiB. Stream
+        to external storage. Run-level partial success is explicit.'
+      responses:
+        '202':
+          description: Accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BatchView'
+        default:
+          description: Explicit failure with code, message and requestId; no fake
+            success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+              - manifest
+              properties:
+                manifest:
+                  $ref: '#/components/schemas/UploadManifest'
+              additionalProperties:
+                type: string
+                format: binary
+              description: Binary multipart part names must match manifest.entries[].partName.
+                FOLDER uses separate file parts; ZIP uses one archive part. The manifest
+                is JSON, and size/hash/type are computed on the server.
+            encoding:
+              manifest:
+                contentType: application/json
+  /api/import-batches/{id}:
+    get:
+      operationId: getApiImportBatchesId
+      description: GET /api/import-batches/{id}
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BatchView'
+        default:
+          description: Explicit failure with code, message and requestId; no fake
+            success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+      parameters:
+      - *id002
+  /api/import-jobs/{id}/files:
+    get:
+      operationId: getApiImportJobsIdFiles
+      description: Full source manifest relative paths/kinds/sizes/hashes, distinct
+        from compatibility sourceFiles.
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ManifestFile'
+        default:
+          description: Explicit failure with code, message and requestId; no fake
+            success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+      parameters:
+      - *id002
+  /api/import-jobs/{id}/reprocess:
+    post:
+      operationId: postApiImportJobsIdReprocess
+      description: Create a new processing batch containing the reprocess job; return
+        BatchView progress and nested jobs. A failed version cannot replace the latest
+        successful search version.
+      responses:
+        '202':
+          description: Accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BatchView'
+        default:
+          description: Explicit failure with code, message and requestId; no fake
+            success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+      parameters:
+      - *id002
+      - &id003
+        name: Idempotency-Key
+        in: header
+        required: true
+        schema:
+          type: string
+          minLength: 1
+  /api/workspace:
+    get:
+      operationId: getApiWorkspace
+      description: GET /api/workspace
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkspaceView'
+        default:
+          description: Explicit failure with code, message and requestId; no fake
+            success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+  /api/workspace/turns:
+    post:
+      operationId: postApiWorkspaceTurns
+      description: POST /api/workspace/turns
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkspaceView'
+        default:
+          description: Explicit failure with code, message and requestId; no fake
+            success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '409':
+          description: 'STALE_CONTEXT: old epoch or revision; idempotency does not
+            bypass generation validation'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+      parameters:
+      - *id003
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TurnWrite'
+  /api/workspace/turns/{id}/ui:
+    patch:
+      operationId: patchApiWorkspaceTurnsIdUi
+      description: PATCH /api/workspace/turns/{id}/ui
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkspaceView'
+        default:
+          description: Explicit failure with code, message and requestId; no fake
+            success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '409':
+          description: 'STALE_CONTEXT: old epoch or revision; idempotency does not
+            bypass generation validation'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+      parameters:
+      - *id002
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UiWrite'
+  /api/workspace/reference:
+    put:
+      operationId: putApiWorkspaceReference
+      description: PUT /api/workspace/reference
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkspaceView'
+        default:
+          description: Explicit failure with code, message and requestId; no fake
+            success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '409':
+          description: 'STALE_CONTEXT: old epoch or revision; idempotency does not
+            bypass generation validation'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReferenceWrite'
+  /api/workspace/new-conversation:
+    post:
+      operationId: postApiWorkspaceNewConversation
+      description: Atomically increment conversationEpoch; clear conversation and
+        reference only.
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkspaceView'
+        default:
+          description: Explicit failure with code, message and requestId; no fake
+            success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '409':
+          description: 'STALE_CONTEXT: old epoch or revision; idempotency does not
+            bypass generation validation'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StateToken'
+  /api/decisions:
+    get:
+      operationId: getApiDecisions
+      description: GET /api/decisions
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/DecisionRecord'
+        default:
+          description: Explicit failure with code, message and requestId; no fake
+            success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+    post:
+      operationId: postApiDecisions
+      description: Validate workspaceEpoch and normal one-adoption EXP constraints;
+        historical snapshots are immutable.
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DecisionRecord'
+        default:
+          description: Explicit failure with code, message and requestId; no fake
+            success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '409':
+          description: 'STALE_CONTEXT: old epoch or revision; idempotency does not
+            bypass generation validation'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+      parameters:
+      - *id003
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DecisionWrite'
+  /api/workspace/reset:
+    post:
+      operationId: postApiWorkspaceReset
+      description: Atomically increment workspaceEpoch and conversationEpoch; delete
+        conversation/decisions/reference. Registered Runs, graphs and originals survive.
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkspaceView'
+        default:
+          description: Explicit failure with code, message and requestId; no fake
+            success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '409':
+          description: 'STALE_CONTEXT: old epoch or revision; idempotency does not
+            bypass generation validation'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StateToken'
+components:
+  schemas:
+    RunRef:
+      type: object
+      additionalProperties: false
+      required:
+      - runId
+      - runVersionId
+      properties:
+        runId: *id001
+        runVersionId: &id007
+          type: string
+          format: uuid
+    Conditions:
+      type: object
+      additionalProperties: false
+      required:
+      - pressure
+      - sourcePower
+      - biasPower
+      properties:
+        pressure: &id004
+          type: number
+        sourcePower: *id004
+        biasPower: *id004
+      description: Requested values may be outside the fixed grid; nearest lookup
+        retains deltas.
+    Metrics:
+      type: object
+      additionalProperties: false
+      required:
+      - ionFlux
+      - meanIonEnergy
+      - iedWidth
+      properties:
+        ionFlux: *id004
+        meanIonEnergy: *id004
+        iedWidth: &id006
+          type:
+          - number
+          - 'null'
+    Units:
+      type: object
+      additionalProperties: false
+      required:
+      - pressure
+      - sourcePower
+      - biasPower
+      - ionFlux
+      - meanIonEnergy
+      - iedWidth
+      properties:
+        pressure:
+          type: string
+          const: mTorr
+        sourcePower:
+          type: string
+          const: W
+        biasPower:
+          type: string
+          const: W
+        ionFlux:
+          type: string
+          const: 10¹⁸ m⁻²s⁻¹
+        meanIonEnergy:
+          type: string
+          const: eV
+        iedWidth:
+          type: string
+          const: eV
+    AnalysisScalars:
+      type: object
+      additionalProperties: false
+      required:
+      - hasDistribution
+      - strictConvergence
+      - finalResidualMax
+      - electronTemperature
+      - ionTemperature
+      - gasTemperature
+      - absorbedPower
+      - alpha
+      - plasmaResistance
+      - plasmaReactance
+      - dcOffset
+      - peakToPeak
+      - currentDensityPeak
+      - electronDensity
+      - ionDensity
+      - metastableDensity
+      - neutralDensity
+      - ionFluxRaw
+      - metastableFluxRaw
+      - neutralFluxRaw
+      properties:
+        hasDistribution: &id005
+          type: boolean
+        strictConvergence: *id005
+        finalResidualMax: *id004
+        electronTemperature: *id004
+        ionTemperature: *id004
+        gasTemperature: *id004
+        absorbedPower: *id004
+        alpha: *id004
+        plasmaResistance: *id004
+        plasmaReactance: *id004
+        dcOffset: *id006
+        peakToPeak: *id006
+        currentDensityPeak: *id004
+        electronDensity: *id004
+        ionDensity: *id004
+        metastableDensity: *id004
+        neutralDensity: *id004
+        ionFluxRaw: *id004
+        metastableFluxRaw: *id004
+        neutralFluxRaw: *id004
+    Pair:
+      type: array
+      prefixItems:
+      - *id004
+      - *id004
+      items: false
+      minItems: 2
+      maxItems: 2
+    DensityRow:
+      type: array
+      prefixItems:
+      - *id004
+      - type: array
+        items: *id004
+      - type: array
+        items: *id004
+      items: false
+      minItems: 3
+      maxItems: 3
+    IedPoint:
+      type: object
+      additionalProperties: false
+      required:
+      - energy
+      - intensity
+      properties:
+        energy: *id004
+        intensity: *id004
+    Iead:
+      type: object
+      additionalProperties: false
+      required:
+      - angles
+      - energies
+      - values
+      - sourceShape
+      - angleRange
+      properties:
+        angles:
+          type: array
+          items: *id004
+        energies:
+          type: array
+          items: *id004
+        values:
+          type: array
+          items: *id004
+        sourceShape:
+          $ref: '#/components/schemas/Pair'
+        angleRange:
+          $ref: '#/components/schemas/Pair'
+      description: 'Angle-major flat values: values[a * energies.length + e]. sourceShape
+        is the original [nx, ny].'
+    Waveform:
+      type: object
+      additionalProperties: false
+      required:
+      - points
+      - phaseRange
+      - sourceCount
+      properties:
+        points:
+          type: array
+          items:
+            $ref: '#/components/schemas/Pair'
+        phaseRange:
+          $ref: '#/components/schemas/Pair'
+        sourceCount: &id016
+          type: integer
+    Density:
+      type: object
+      additionalProperties: false
+      required:
+      - rows
+      - sourceShape
+      properties:
+        rows:
+          type: array
+          items:
+            $ref: '#/components/schemas/DensityRow'
+        sourceShape:
+          $ref: '#/components/schemas/Pair'
+      description: Phase-major triples [phase, original distance coordinates[], density
+        values[]]. No flattening or transposition.
+    Analysis:
+      type: object
+      additionalProperties: false
+      required:
+      - hasDistribution
+      - strictConvergence
+      - finalResidualMax
+      - electronTemperature
+      - ionTemperature
+      - gasTemperature
+      - absorbedPower
+      - alpha
+      - plasmaResistance
+      - plasmaReactance
+      - dcOffset
+      - peakToPeak
+      - currentDensityPeak
+      - electronDensity
+      - ionDensity
+      - metastableDensity
+      - neutralDensity
+      - ionFluxRaw
+      - metastableFluxRaw
+      - neutralFluxRaw
+      - residualTrace
+      - iad
+      - iead
+      - current
+      - potential
+      - density
+      properties:
+        hasDistribution: *id005
+        strictConvergence: *id005
+        finalResidualMax: *id004
+        electronTemperature: *id004
+        ionTemperature: *id004
+        gasTemperature: *id004
+        absorbedPower: *id004
+        alpha: *id004
+        plasmaResistance: *id004
+        plasmaReactance: *id004
+        dcOffset: *id006
+        peakToPeak: *id006
+        currentDensityPeak: *id004
+        electronDensity: *id004
+        ionDensity: *id004
+        metastableDensity: *id004
+        neutralDensity: *id004
+        ionFluxRaw: *id004
+        metastableFluxRaw: *id004
+        neutralFluxRaw: *id004
+        residualTrace:
+          type: array
+          items:
+            $ref: '#/components/schemas/Pair'
+        iad:
+          anyOf:
+          - type: array
+            items:
+              $ref: '#/components/schemas/Pair'
+          - type: 'null'
+        iead:
+          anyOf:
+          - $ref: '#/components/schemas/Iead'
+          - type: 'null'
+        current:
+          anyOf:
+          - $ref: '#/components/schemas/Waveform'
+          - type: 'null'
+        potential:
+          anyOf:
+          - $ref: '#/components/schemas/Waveform'
+          - type: 'null'
+        density:
+          anyOf:
+          - $ref: '#/components/schemas/Density'
+          - type: 'null'
+    JobStatus:
+      type: string
+      enum:
+      - QUEUED
+      - PROCESSING
+      - READY
+      - DUPLICATE
+      - INCOMPLETE
+      - PARSE_FAILED
+      - INTERRUPTED
+    RunSummary:
+      type: object
+      additionalProperties: false
+      required:
+      - runId
+      - runVersionId
+      - pressure
+      - sourcePower
+      - biasPower
+      - metrics
+      - units
+      - convergenceStatus
+      - qualityStatus
+      - catalogStatus
+      - registeredAt
+      - presentationScore
+      - note
+      - analysis
+      properties:
+        runId: *id001
+        runVersionId: *id007
+        pressure: *id004
+        sourcePower: *id004
+        biasPower: *id004
+        metrics: &id008
+          $ref: '#/components/schemas/Metrics'
+        units: &id009
+          $ref: '#/components/schemas/Units'
+        convergenceStatus: *id001
+        qualityStatus: *id001
+        catalogStatus: &id010
+          $ref: '#/components/schemas/JobStatus'
+        registeredAt: &id011
+          type: string
+          format: date-time
+        presentationScore: *id004
+        note: *id001
+        analysis:
+          $ref: '#/components/schemas/AnalysisScalars'
+      description: Latest successful searchable version. No graph arrays or sourceFiles.
+        Engine completion is separate from strict residual convergence.
+    SourceFile:
+      type: object
+      additionalProperties: false
+      required:
+      - name
+      - type
+      - size
+      - status
+      - path
+      properties:
+        name: *id001
+        type: *id001
+        size: *id001
+        status: *id001
+        path: *id001
+      description: 'Display lineage only: path is a canonical relative path, never
+        an internal/absolute storage location. This 3/9-entry list is not the complete
+        manifest.'
+    FullRun:
+      type: object
+      additionalProperties: false
+      required:
+      - runId
+      - runVersionId
+      - pressure
+      - sourcePower
+      - biasPower
+      - metrics
+      - units
+      - convergenceStatus
+      - qualityStatus
+      - catalogStatus
+      - registeredAt
+      - presentationScore
+      - note
+      - analysis
+      - iedDistribution
+      - sourceFiles
+      properties:
+        runId: *id001
+        runVersionId: *id007
+        pressure: *id004
+        sourcePower: *id004
+        biasPower: *id004
+        metrics: *id008
+        units: *id009
+        convergenceStatus: *id001
+        qualityStatus: *id001
+        catalogStatus: *id010
+        registeredAt: *id011
+        presentationScore: *id004
+        note: *id001
+        analysis:
+          $ref: '#/components/schemas/Analysis'
+        iedDistribution:
+          type: array
+          items:
+            $ref: '#/components/schemas/IedPoint'
+        sourceFiles:
+          type: array
+          items:
+            $ref: '#/components/schemas/SourceFile'
+    Snapshot:
+      type: object
+      additionalProperties: true
+      description: Compact original engine snapshot objects. Recursively forbid Run/analysis/graph/series
+        payloads. Numeric snapshots/objective evaluations and original intent/status/messages/order
+        are retained. The workspace service enforces this before persistence.
+    Intent:
+      type: string
+      enum:
+      - FORWARD_LOOKUP
+      - REVERSE_SEARCH
+      - CHANGE_EXPLANATION
+      - CONCEPT_EXPLANATION
+      - RECORD_REUSE
+      - CLARIFICATION
+      - UNSUPPORTED
+    AgentRequest:
+      type: object
+      additionalProperties: false
+      required:
+      - text
+      - candidateReferences
+      properties:
+        text: *id001
+        baseline:
+          $ref: '#/components/schemas/RunRef'
+        candidateReferences:
+          type: array
+          items:
+            $ref: '#/components/schemas/RunRef'
+        clarification:
+          $ref: '#/components/schemas/Snapshot'
+    AgentResponse:
+      type: object
+      additionalProperties: false
+      required:
+      - intent
+      - status
+      - candidates
+      - explanation
+      - answerSnapshot
+      - usedRunRefs
+      properties:
+        intent:
+          $ref: '#/components/schemas/Intent'
+        status: *id001
+        candidates:
+          type: array
+          items:
+            $ref: '#/components/schemas/RunRef'
+        explanation:
+          anyOf:
+          - $ref: '#/components/schemas/Snapshot'
+          - type: 'null'
+        answerSnapshot:
+          $ref: '#/components/schemas/Snapshot'
+        usedRunRefs:
+          type: array
+          items:
+            $ref: '#/components/schemas/RunRef'
+    StateToken:
+      type: object
+      additionalProperties: false
+      required:
+      - workspaceEpoch
+      - conversationEpoch
+      - revision
+      properties:
+        workspaceEpoch:
+          type: integer
+          minimum: 0
+        conversationEpoch:
+          type: integer
+          minimum: 0
+        revision:
+          type: integer
+          minimum: 0
+    TurnUiSnapshot:
+      type: object
+      additionalProperties: false
+      required:
+      - collapsed
+      - openRunIds
+      - runDetailTabs
+      - activeCandidateGroup
+      - continuedRunId
+      - lookupExpanded
+      - selectedCandidateRunId
+      properties: &id017
+        collapsed: *id005
+        openRunIds:
+          type: array
+          items: *id001
+        runDetailTabs:
+          type: object
+          additionalProperties: *id001
+        activeCandidateGroup: *id001
+        continuedRunId:
+          type:
+          - string
+          - 'null'
+        lookupExpanded: *id005
+        selectedCandidateRunId:
+          type:
+          - string
+          - 'null'
+    TurnSnapshot:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - askedAt
+      - question
+      - intent
+      - context
+      - answerRunRefs
+      - answerSnapshot
+      - ui
+      properties:
+        id: *id001
+        askedAt: *id011
+        question: *id001
+        intent:
+          $ref: '#/components/schemas/Intent'
+        context:
+          anyOf:
+          - $ref: '#/components/schemas/RunRef'
+          - type: 'null'
+        answerRunRefs:
+          type: array
+          items:
+            $ref: '#/components/schemas/RunRef'
+        answerSnapshot:
+          $ref: '#/components/schemas/Snapshot'
+        ui:
+          $ref: '#/components/schemas/TurnUiSnapshot'
+    ReferenceState:
+      anyOf:
+      - type: object
+        additionalProperties: false
+        required:
+        - kind
+        - runs
+        properties:
+          kind:
+            type: string
+            enum:
+            - 단일 Run
+            - 후보 집합
+          runs:
+            type: array
+            items:
+              $ref: '#/components/schemas/RunRef'
+      - type: 'null'
+    Conversation:
+      type: object
+      additionalProperties: false
+      required:
+      - version
+      - activeRun
+      - turns
+      properties:
+        version:
+          type: integer
+          const: 1
+        activeRun:
+          anyOf:
+          - $ref: '#/components/schemas/RunRef'
+          - type: 'null'
+        turns:
+          type: array
+          items:
+            $ref: '#/components/schemas/TurnSnapshot'
+    WorkspaceView:
+      type: object
+      additionalProperties: false
+      required:
+      - stateToken
+      - conversation
+      - candidateReference
+      properties:
+        stateToken:
+          $ref: '#/components/schemas/StateToken'
+        conversation:
+          $ref: '#/components/schemas/Conversation'
+        candidateReference:
+          $ref: '#/components/schemas/ReferenceState'
+    Decision:
+      type: string
+      enum:
+      - ADOPT
+      - HOLD
+      - REJECT
+    ExperimentDecision:
+      type: string
+      enum:
+      - ADOPT
+      - HOLD
+      - REJECT
+      - ALTERNATIVE
+      - COMPARISON
+    SupportingMetrics:
+      type: object
+      additionalProperties: false
+      required:
+      - electronDensity
+      - electronTemperature
+      properties:
+        electronDensity: *id004
+        electronTemperature: *id004
+    RunSnapshot:
+      type: object
+      additionalProperties: false
+      required:
+      - runId
+      - runVersionId
+      - conditions
+      - metrics
+      - supportingMetrics
+      properties:
+        runId: *id001
+        runVersionId: *id007
+        conditions:
+          $ref: '#/components/schemas/Conditions'
+        metrics:
+          $ref: '#/components/schemas/Metrics'
+        supportingMetrics:
+          $ref: '#/components/schemas/SupportingMetrics'
+    CandidateSnapshot:
+      type: object
+      additionalProperties: false
+      required:
+      - runId
+      - runVersionId
+      - decision
+      - note
+      - conditions
+      - metrics
+      - objectiveEvaluations
+      properties:
+        runId: *id001
+        runVersionId: *id007
+        decision:
+          $ref: '#/components/schemas/ExperimentDecision'
+        note: *id001
+        conditions:
+          $ref: '#/components/schemas/Conditions'
+        metrics:
+          $ref: '#/components/schemas/Metrics'
+        objectiveEvaluations:
+          type: array
+          items:
+            $ref: '#/components/schemas/Snapshot'
+    ReviewRecord:
+      type: object
+      additionalProperties: false
+      required:
+      - reviewId
+      - targetRunId
+      - comparedRunIds
+      - targetRunRef
+      - comparedRunRefs
+      - decision
+      - comment
+      - authorName
+      - createdAt
+      - analysisType
+      - processMode
+      - goals
+      - queryText
+      - constraints
+      - evidenceKinds
+      - limitations
+      - runSnapshots
+      properties:
+        reviewId: *id001
+        targetRunId: *id001
+        comparedRunIds: &id012
+          type: array
+          items: *id001
+        targetRunRef: &id013
+          $ref: '#/components/schemas/RunRef'
+        comparedRunRefs: &id014
+          type: array
+          items:
+            $ref: '#/components/schemas/RunRef'
+        decision:
+          $ref: '#/components/schemas/Decision'
+        comment: *id001
+        authorName: *id001
+        createdAt: *id011
+        analysisType:
+          type: string
+          enum:
+          - FORWARD
+          - REVERSE
+          - EXPLANATION
+        processMode: *id001
+        goals: &id015
+          type: array
+          items:
+            $ref: '#/components/schemas/Snapshot'
+        queryText: *id001
+        constraints:
+          type: array
+          items:
+            $ref: '#/components/schemas/Snapshot'
+        evidenceKinds:
+          type: array
+          items: *id001
+        limitations:
+          type: array
+          items: *id001
+        runSnapshots:
+          type: array
+          items:
+            $ref: '#/components/schemas/RunSnapshot'
+      description: REV has no version property. Explanation reviews retain one baseline
+        comparison. Scalar snapshots preserve historical values; all referenced versions
+        are immutable.
+    ExperimentRecord:
+      type: object
+      additionalProperties: false
+      required:
+      - reviewId
+      - targetRunId
+      - comparedRunIds
+      - targetRunRef
+      - comparedRunRefs
+      - decision
+      - comment
+      - authorName
+      - createdAt
+      - analysisType
+      - processMode
+      - goals
+      - queryText
+      - id
+      - version
+      - question
+      - objectives
+      - overallComment
+      - candidates
+      properties:
+        reviewId: *id001
+        targetRunId: *id001
+        comparedRunIds: *id012
+        targetRunRef: *id013
+        comparedRunRefs: *id014
+        decision:
+          $ref: '#/components/schemas/ExperimentDecision'
+        comment: *id001
+        authorName: *id001
+        createdAt: *id011
+        analysisType:
+          type: string
+          const: REVERSE
+        processMode:
+          type: string
+          const: GOAL_RECOMMENDATION
+        goals: *id015
+        queryText: *id001
+        id: *id001
+        version:
+          type: integer
+          const: 2
+        question: *id001
+        objectives:
+          type: array
+          items:
+            $ref: '#/components/schemas/Snapshot'
+        overallComment: *id001
+        candidates:
+          type: array
+          items:
+            $ref: '#/components/schemas/CandidateSnapshot'
+          minItems: 1
+          maxItems: 3
+      description: EXP version 2. A normal new write requires exactly one ADOPT plus
+        up to two HOLD/REJECT candidates, unique known RunRefs. ALTERNATIVE/COMPARISON
+        survive historical reads, not ordinary SINGLE_ADOPT writes. targetRunId and
+        comparedRunIds must match the corresponding refs.
+    DecisionRecord:
+      oneOf:
+      - $ref: '#/components/schemas/ReviewRecord'
+      - $ref: '#/components/schemas/ExperimentRecord'
+    DecisionWrite:
+      type: object
+      additionalProperties: false
+      required:
+      - workspaceEpoch
+      - record
+      - runRefs
+      properties:
+        workspaceEpoch: *id016
+        record:
+          $ref: '#/components/schemas/DecisionRecord'
+        runRefs:
+          type: array
+          items:
+            $ref: '#/components/schemas/RunRef'
+    ApiError:
+      type: object
+      additionalProperties: false
+      required:
+      - code
+      - message
+      - requestId
+      properties:
+        code: *id001
+        message: *id001
+        field: *id001
+        details:
+          $ref: '#/components/schemas/Snapshot'
+        requestId: *id001
+    ManifestFile:
+      type: object
+      additionalProperties: false
+      required:
+      - path
+      - kind
+      - size
+      - sha256
+      properties:
+        path: *id001
+        kind: *id001
+        size:
+          type: integer
+          minimum: 0
+          maximum: 67108864
+        sha256:
+          type: string
+          pattern: ^[a-f0-9]{64}$
+      description: Relative path, original byte count, SHA-256. Reject traversal,
+        symlinks and duplicate paths. Archive container is not an ordinary manifest
+        file.
+    UploadManifest:
+      type: object
+      additionalProperties: false
+      required:
+      - mode
+      - entries
+      properties:
+        mode:
+          type: string
+          enum:
+          - FOLDER
+          - ZIP
+        entries:
+          type: array
+          items:
+            $ref: '#/components/schemas/UploadEntry'
+          minItems: 1
+          maxItems: 5000
+      allOf:
+      - if:
+          properties:
+            mode:
+              const: ZIP
+          required:
+          - mode
+        then:
+          properties:
+            entries:
+              minItems: 1
+              maxItems: 1
+      description: Intake manifest only. FOLDER maps each file part; ZIP maps exactly
+        one archive part. Server validates relative paths, part-name correspondence
+        and limits, then computes a separate full file inventory.
+    JobView:
+      type: object
+      additionalProperties: false
+      required:
+      - jobId
+      - runId
+      - runVersionId
+      - status
+      - reason
+      - errors
+      properties:
+        jobId:
+          type: string
+          format: uuid
+        runId:
+          type:
+          - string
+          - 'null'
+        runVersionId:
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
+        status:
+          $ref: '#/components/schemas/JobStatus'
+        reason:
+          type:
+          - string
+          - 'null'
+        errors:
+          type: array
+          items:
+            $ref: '#/components/schemas/ApiError'
+    BatchView:
+      type: object
+      additionalProperties: false
+      required:
+      - batchId
+      - status
+      - receivedBytes
+      - totalBytes
+      - processedRuns
+      - totalRuns
+      - jobs
+      properties:
+        batchId:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum:
+          - QUEUED
+          - PROCESSING
+          - READY
+          - DUPLICATE
+          - INCOMPLETE
+          - PARSE_FAILED
+          - INTERRUPTED
+          - SUCCESS
+          - PARTIAL_SUCCESS
+          - FAILED
+        receivedBytes:
+          type: integer
+          minimum: 0
+        totalBytes:
+          type: integer
+          minimum: 0
+        processedRuns:
+          type: integer
+          minimum: 0
+        totalRuns:
+          type: integer
+          minimum: 0
+        jobs:
+          type: array
+          items:
+            $ref: '#/components/schemas/JobView'
+    CatalogView:
+      type: object
+      additionalProperties: false
+      required:
+      - runs
+      - jobs
+      properties:
+        runs:
+          type: array
+          items:
+            $ref: '#/components/schemas/RunSummary'
+        jobs:
+          type: array
+          items:
+            $ref: '#/components/schemas/JobView'
+    Health:
+      type: object
+      additionalProperties: false
+      required:
+      - status
+      - database
+      - storage
+      properties:
+        status: *id001
+        database: *id001
+        storage: *id001
+    TurnWrite:
+      type: object
+      additionalProperties: false
+      required:
+      - stateToken
+      - turn
+      properties:
+        stateToken:
+          $ref: '#/components/schemas/StateToken'
+        turn:
+          $ref: '#/components/schemas/TurnSnapshot'
+    UiWrite:
+      type: object
+      additionalProperties: false
+      required:
+      - stateToken
+      - ui
+      properties:
+        stateToken:
+          $ref: '#/components/schemas/StateToken'
+        ui:
+          type: object
+          additionalProperties: false
+          required: []
+          properties: *id017
+    ReferenceWrite:
+      type: object
+      additionalProperties: false
+      required:
+      - stateToken
+      - candidateReference
+      properties:
+        stateToken:
+          $ref: '#/components/schemas/StateToken'
+        candidateReference:
+          $ref: '#/components/schemas/ReferenceState'
+    UploadEntry:
+      type: object
+      additionalProperties: false
+      required:
+      - partName
+      - relativePath
+      properties:
+        partName:
+          type: string
+          minLength: 1
+        relativePath:
+          type: string
+          minLength: 1
+      description: Client mapping from one multipart part name to its relative path.
+        Same basenames in distinct directories remain separate. No client hash, size
+        or classification required.
