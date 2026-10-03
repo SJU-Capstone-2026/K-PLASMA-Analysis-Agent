@@ -83,7 +83,12 @@ export async function executeFallback(input: AgentRequest, context: AgentContext
     const versionSource = searchedLatest || (intent === 'RECORD_REUSE' && answerSnapshot.numeric) ? new Map(context.candidateRunsLatest.map(r => [r.runId, r])) : byId;
     const resolved = (id: string) => versionSource.get(id);
     const candidates = candidateIds.map(resolved).filter((r): r is RunSummary => Boolean(r)).map(asRef);
-    const used = [...(baseline ? [asRef(baseline)] : []), ...ids.map(resolved).filter((r): r is RunSummary => Boolean(r)).map(asRef)];
+    // Pending/notice answers retain selected context even when no result IDs exist.
+    // Resolve this context from explicit versions, independently of latest searched candidates.
+    const contextIds = new Set(stringIds(object(answerSnapshot.reference)?.ids));
+    const contextRefs = references.filter(run => contextIds.has(run.runId)).map(asRef);
+    const used = [...(baseline ? [asRef(baseline)] : []), ...contextRefs,
+      ...ids.map(resolved).filter((r): r is RunSummary => Boolean(r)).map(asRef)];
     const usedRunRefs = [...new Map(used.map(r => [r.runVersionId, r])).values()];
     return { intent, status, candidates, explanation: object(answerSnapshot.explanation) ?? null, answerSnapshot, usedRunRefs };
   }

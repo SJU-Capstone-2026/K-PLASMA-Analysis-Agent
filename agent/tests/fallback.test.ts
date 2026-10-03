@@ -107,6 +107,34 @@ describe('version and record reuse boundaries', () => {
     const other = await executeFallback({ ...request('성능 때문에 반려된 후보 제외해줘'), candidateReferences: [ref(a)] }, ctx);
     expect(other.status).toBe('NEEDS_INPUT'); expect(other.candidates).toEqual([]);
   });
+  it.each([
+    ['pending threshold', {}],
+    ['invalid threshold notice', { threshold: 0 }],
+  ])('preserves historical selected candidates through %s persistence and retry', async (_label, clarification) => {
+    const oldA = run('A', 17); const oldB = run('B', 21);
+    const latestA = { ...run('A', 70), runVersionId: 'new-a' };
+    const latestB = { ...run('B', 80), runVersionId: 'new-b' };
+    const text = '비용 반려가 많은 후보 제외해줘';
+    const answer = await executeFallback({ ...request(text), candidateReferences: [ref(oldA), ref(oldB)], clarification },
+      context([latestA, latestB], [oldA, oldB]));
+    expect(answer.status).toBe('NEEDS_INPUT'); expect(answer.candidates).toEqual([]);
+    expect(answer.usedRunRefs).toEqual([ref(oldA), ref(oldB)]);
+    expect(answer.answerSnapshot.reference).toEqual({ kind: '후보 집합', ids: ['A', 'B'] });
+    const persisted = JSON.parse(JSON.stringify({ answerSnapshot: answer.answerSnapshot, usedRunRefs: answer.usedRunRefs }));
+    expect(JSON.stringify(persisted.answerSnapshot)).not.toMatch(/iedDistribution|residualTrace|sourceRun|"points"|"values"/);
+    const retry = await executeFallback({ ...request(persisted.answerSnapshot.memoryRequest.text), candidateReferences: persisted.usedRunRefs,
+      clarification: { threshold: 1 } }, context([{ ...latestA, runVersionId: 'newest-a' }, { ...latestB, runVersionId: 'newest-b' }], [oldA, oldB]));
+    expect(retry.status).toBe('READY');
+    expect(retry.candidates).toEqual([ref(oldA), ref(oldB)]);
+  });
+  it('keeps latest numeric search candidates and historical selected snapshot context together', async () => {
+    const old = run('A', 17); const latest = { ...run('A', 70), runVersionId: 'new-a' };
+    const answer = await executeFallback({ ...request('Flux가 13 이상인 후보를 찾되, 비용 때문에 반려된 건 제외해줘'), candidateReferences: [ref(old)] },
+      context([latest], [old]));
+    expect(answer.status).toBe('READY');
+    expect(answer.candidates).toEqual([ref(latest)]);
+    expect(answer.usedRunRefs).toEqual([ref(old), ref(latest)]);
+  });
   it('rejects a hydration response from the wrong immutable version', async () => {
     const a = run('A', 17); const ctx = context([]); ctx.hydrateFullRun = async () => a;
     await expect(executeFallback({ ...request('이 Run 결과 보여줘'), baseline: { ...ref(a), runVersionId: 'wrong' } }, ctx)).rejects.toThrow('requested version');
