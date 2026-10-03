@@ -9,7 +9,11 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run --passWithNoTests"
   },
-  "dependencies": { "react": "19.3.0", "react-dom": "19.3.0" },
+  "dependencies": {
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "agent": "*"
+  },
   "devDependencies": {
     "@playwright/test": "1.63.0",
     "@testing-library/jest-dom": "6.9.1",

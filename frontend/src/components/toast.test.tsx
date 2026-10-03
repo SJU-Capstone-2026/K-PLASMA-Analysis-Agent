@@ -1,0 +1,5 @@
+import {act,render,screen} from '@testing-library/react';
+import {afterEach,expect,test,vi} from 'vitest';
+import {Toast} from './Toast';
+afterEach(()=>vi.useRealTimers());
+test('toast append preserves 3200ms deadlines and polite atomic safe text',()=>{vi.useFakeTimers();const first=vi.fn(),next=vi.fn();const message={id:1,text:'<img src=x onerror=alert(1)>',tone:'info'};const {container,rerender}=render(<Toast messages={[message]} onRemove={first}/>);expect(container.querySelector('#toast-region')).toHaveAttribute('aria-live','polite');expect(container.querySelector('#toast-region')).toHaveAttribute('aria-atomic','true');expect(screen.getByText(message.text)).toBeInTheDocument();expect(container.querySelector('img')).toBeNull();act(()=>vi.advanceTimersByTime(1600));rerender(<Toast messages={[message,{id:2,text:'두 번째'}]} onRemove={next}/>);act(()=>vi.advanceTimersByTime(1600));expect(next).toHaveBeenCalledWith(1);expect(next).not.toHaveBeenCalledWith(2);act(()=>vi.advanceTimersByTime(1600));expect(next).toHaveBeenCalledWith(2);});
