@@ -4,7 +4,7 @@
 
 | Gate | 재현 명령 | 현재 상태 |
 | --- | --- | --- |
-| 인공 단위·계약·패키지·엄격 비교기 | `npm test` | PASS: frontend 83, agent 32 + 외부 4 skip, Node 28 (최종 제품 수정 후) |
+| 인공 단위·계약·패키지·엄격 비교기 | `npm test` | PASS: frontend83·agent32 + 외부4 skip (전체 실행); Node29 (metadata 보완 후 별도 실행) |
 | TypeScript·lint·build | `npm run typecheck && npm run lint && npm run build` | PASS; E2E TypeScript도 검사 |
 | 실제 PostgreSQL backend 회귀 | `backend/gradlew -p backend test --console=plain` | PASS: 99, 실패/오류/skip 0; 최종 제품 수정 후 별도 build/cache 사용 |
 | 실제 HTTP+DB 인공 전체 흐름 | `npm run test:e2e` | PASS: 10, 외부 기준 전용 6 skip (리뷰 수정 후) |
@@ -26,7 +26,7 @@ CI에는 외부 패키지를 공급하지 않으며 인공 데이터·계약·ba
 | D3 | DEFERRED: 동시 업로드 역순 완료의 강화된 최신 버전 정책은 추가하지 않는다. |
 | D4 | DEFERRED: 비용 반려 재사용은 원본 display Run ID 범위를 유지한다. |
 | D5 | DEFERRED: 추가 localhost/origin 접근 제어는 이번 범위 밖이다. |
-| native source-files details | CORRECTED: 유효 그래프 탭이 바뀌면 원본과 React 모두 닫힌다. standalone/turn-owned 단위 회귀와 별도 실제 데이터 네 폭 비교가 통과했다. 아래 최종 제품 수정 증거를 따른다. |
+| native source-files details | CORRECTED: 현재/다른 그래프 탭 버튼을 누르면 원본과 React 모두 닫히고, 외부의 유효 탭 변경에서도 닫힌다. standalone/turn-owned 단위 회귀와 별도 실제 데이터 네 폭 비교가 통과했다. 아래 최종 제품 수정 증거를 따른다. |
 | 800px Analysis 가로 넘침 | SOURCE_INHERITED: 같은 인공 데이터/상태에서 원본·React 모두 viewport 800px, scrollWidth 886px. 원본 보존에 따라 고치지 않고 양쪽 폭 일치를 검사한다. 무넘침 PASS로 세지 않는다. |
 | 팀원 clean-clone 실제 실행 | 문서와 자동화 제공; 다른 팀원이 실제 실행했다는 증거는 아직 없다. |
 
@@ -44,14 +44,16 @@ mandatory browser report·browser/runtime/font metadata·정확한 unique 102 ex
 
 ## 최종 제품 리뷰 수정 (2026-10-03)
 
-전체 제품 리뷰의 I1/M1/M2를 한 수정 범위로 처리했다. I1은 Catalog에 다시 진입하거나 reload할 때 QUEUED/PROCESSING 작업이 있으면 1초 간격으로 목록을 순차 조회하여 terminal 상태와 최신 Run·표시 파일 메타데이터를 반영한다. 현재 업로드의 배치 조회 중에는 이 목록 조회를 중단하고, terminal·unmount에 정리하며 abort/sequence 검증으로 늦은 응답을 차단한다. M1은 standalone 및 저장된 턴의 상세에서 유효 그래프 탭이 바뀔 때 native source-files disclosure를 닫는다. M2는 Turn UUID를 파싱하여 비교하므로 대문자 append→load→소문자/대문자 route UI PATCH가 가능하다. 저장된 ID·답변은 다시 쓰지 않으며 원래 요청의 exact replay는 현재 상태를 반환하고 ID 대소문자만 바꾼 payload도 기존처럼 충돌한다.
+전체 제품 리뷰의 I1/M1/M2를 한 수정 범위로 처리했다. I1은 Catalog에 다시 진입하거나 reload할 때 QUEUED/PROCESSING 작업이 있으면 1초 간격으로 목록을 순차 조회하여 terminal 상태와 최신 Run·표시 파일 메타데이터를 반영한다. 현재 업로드의 배치 조회 중에는 이 목록 조회를 중단하고, terminal·unmount에 정리하며 abort/sequence 검증으로 늦은 응답을 차단한다. M1은 standalone 및 저장된 턴의 상세에서 현재/다른 그래프 탭 버튼 클릭과 외부 유효 탭 변경 시 native source-files disclosure를 닫는다. M2는 Turn UUID를 파싱하여 비교하므로 대문자 append→load→소문자/대문자 route UI PATCH가 가능하다. 저장된 ID·답변은 다시 쓰지 않으며 원래 요청의 exact replay는 현재 상태를 반환하고 ID 대소문자만 바꾼 payload도 기존처럼 충돌한다.
 
 | 최종 수정 검증 | 실행과 결과 |
 | --- | --- |
-| I1/M1 집중 회귀 | `npm run test -w frontend -- src/features/catalog/catalog.test.tsx src/features/analysis/source-details.test.tsx`: 35 PASS. QUEUED/PROCESSING remount→terminal·Run 파일 메타데이터, upload 조회 중 중복 loop 없음, unmount/late response, 두 상세 경로의 open→closed 및 같은 유효 탭 유지. 각 결함의 RED 후 GREEN 확인. |
+| I1/M1 집중 회귀 | `npm run test -w frontend -- src/features/catalog/catalog.test.tsx src/features/analysis/source-details.test.tsx`: 35 PASS. QUEUED/PROCESSING remount→terminal·Run 파일 메타데이터, upload 조회 중 중복 loop 없음, unmount/late response, 두 상세 경로의 현재/다른 탭 클릭 open→closed 및 같은 유효 외부 탭 유지. 각 결함의 RED 후 GREEN 확인. |
 | M2 실제 HTTP/PostgreSQL 회귀 | `backend/gradlew -p backend test --tests '*WorkspacePersistenceTest'`: 12 PASS. 대문자 저장/재조회·양쪽 route PATCH·UI 외 snapshot 불변·exact replay·case-only payload 충돌. 새 회귀의 RED 후 GREEN 확인. 테스트 전용 PostgreSQL18.6 사용. |
 | 전체 로컬 재검증 | `npm test`: frontend83, agent32 PASS/외부4 skip, Node28 PASS. `backend/gradlew -p backend test bootJar`: backend99 PASS/실패·오류·skip0. `npm run typecheck`, `npm run lint`, `npm run build` exit0. backend는 별도 buildDirectory와 project-cache-dir 사용. |
 | 독립 실행 API smoke | 별도 빈 PostgreSQL18.6·보관소, private build/cache의 bootJar를 복사하여 실행. 인공 답변 1턴으로 append/load/양쪽 UI PATCH/exact replay HTTP200, ID case-only 변경 HTTP409, 불변 답변 유지, Run0 확인. 기존 실제 DB에는 쓰지 않았다. |
-| 실제 source disclosure 네 폭 비교 | `reference-parity.spec.ts`의 `read-only actual source disclosure` 4 PASS(390/800/1008/1440px). 원본과 immutable-version harness 모두 disclosure를 실제로 열고 IED→IAD 전환 후 닫힘 확인, IAD SVG tree/좌표 정확 일치. 현재 actual150 API를 읽기만 사용하고 원본은 변경하지 않았다. 각 case 전후 및 전체 전후 root workspace가 동일하다. |
+| 실제 source disclosure 네 폭 비교 | `reference-parity.spec.ts`의 `read-only actual source disclosure` 4 PASS(390/800/1008/1440px). 원본과 immutable-version harness 모두 disclosure를 실제로 열고 현재 IED 클릭 후 닫힘, 다시 열고 IED→IAD 전환 후 닫힘 확인, IAD SVG tree/좌표 정확 일치. 현재 actual150 API를 읽기만 사용하고 원본은 변경하지 않았다. 각 case 전후 및 전체 전후 root workspace가 동일하다. |
 
 실행 시점 HEAD는 `4abc603`(Task12 리뷰 수정), 제품 수정은 미커밋이므로 dirty 상태다. 완료 후 커밋 SHA로 실행했다고 소급하지 않는다. 네 폭 browser 실행은 같은 설치 Chromium/locale/timezone/scale와 고정 browser time을 사용하며 결과 화면은 무시된 로컬 경로에만 보관했다. 위 4 PASS는 수정된 disclosure와 해당 그래프의 별도 집중 검증이며, 기존 전체 외부 폴더/ZIP·829,300 assertion·102 ID aggregate를 다시 실행했다는 뜻이 아니다. 전체 실제 재등록은 반복하지 않았다. D1–D5, 원본 800px overflow, 다른 팀원의 clean-clone 및 원격 CI 미검증 범위는 유지된다. 최종 수정의 독립 리뷰와 PR 전달은 coordinator의 별도 gate다.
+
+최종 수정의 동일 scoped 리뷰 중 원본 `app.js`의 현재 탭 클릭도 modal 재생성으로 disclosure를 닫는다는 점을 추가 확인했다. 이에 현재/다른 탭 버튼 모두 닫도록 보완하고 두 detail 경로 집중35 PASS와 네 폭 실제 비교4 PASS를 다시 확인했다. 변경 없는 외부 유효 탭 props는 disclosure를 보존하고 유효 외부 탭 변경은 닫힌다. `browser-evidence.mjs`는 기존 `source-details-residual`과 새 `source-details-parity` MATCH attachment를 모두 보존하며 RED→GREEN 회귀를 포함한 Node 전체29 PASS를 확인했다. TypeScript/lint도 통과했다. 이 보완 실행의 HEAD는 `3dce1b8`+dirty다. 위 frontend83·agent32/backend99 전체 실행, copied-JAR smoke 및 기존 외부829,300/102 ID 증거를 다시 실행한 것으로 소급하지 않는다.

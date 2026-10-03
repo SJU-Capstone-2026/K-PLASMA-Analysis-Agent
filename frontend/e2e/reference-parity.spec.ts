@@ -80,11 +80,13 @@ for(const width of [390,800,1008,1440])test(`read-only actual source disclosure 
  for(const target of [page,original]){
   await target.evaluate(()=>document.fonts.ready);await target.locator('.agent-detail-tabs [data-tab="ied"]').click();
   await target.locator('.agent-source-files summary').click();await expect(target.locator('.agent-source-files')).toHaveAttribute('open','');
+  await target.locator('.agent-detail-tabs [data-tab="ied"]').click();await expect(target.locator('.agent-source-files')).not.toHaveAttribute('open');
+  await target.locator('.agent-source-files summary').click();await expect(target.locator('.agent-source-files')).toHaveAttribute('open','');
   await target.locator('.agent-detail-tabs [data-tab="iad"]').click();await expect(target.locator('.agent-source-files')).not.toHaveAttribute('open');
   await expect(target.locator('.agent-detail-tabs [data-tab="iad"]')).toHaveAttribute('aria-selected','true');
  }
  expect(digest(await graphs(page,'.agent-detail-graph svg'))).toBe(digest(await graphs(original,'.agent-detail-graph svg')));
  for(const [name,target] of [['react',page],['original',original]] as const)await target.locator('.agent-run-detail').screenshot({path:info.outputPath(`${name}-disclosure-${width}.png`),animations:'disabled'});
- await info.attach('source-details-parity',{body:JSON.stringify({width,status:'MATCH',sourceAfterTab:'closed',reactAfterTab:'closed',exactGraphMatch:true,workspaceWrites:0,parityPass:true}),contentType:'application/json'});
+ await info.attach('source-details-parity',{body:JSON.stringify({width,status:'MATCH',sourceAfterTab:'closed',reactAfterTab:'closed',sameTabAfterClick:'closed',differentTabAfterClick:'closed',exactGraphMatch:true,workspaceWrites:0,parityPass:true}),contentType:'application/json'});
  expect(await (await request.get(`${api}/api/workspace`)).json()).toEqual(before);await original.close();
 });

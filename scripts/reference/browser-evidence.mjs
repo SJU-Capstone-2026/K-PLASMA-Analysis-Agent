@@ -14,7 +14,7 @@ export async function browserEvidence(output,directory='browser') {
   for(const suite of report.suites)walk(suite);
   const decoded=[];
   for(const spec of specs)for(const test of spec.tests)for(const result of test.results)for(const attachment of result.attachments??[]){
-    if(['environment','layout-boundary','source-details-residual','D1-deferred','memory-container-boundaries'].includes(attachment.name)&&attachment.body)decoded.push({name:attachment.name,...JSON.parse(Buffer.from(attachment.body,'base64').toString())});
+    if(['environment','layout-boundary','source-details-residual','source-details-parity','D1-deferred','memory-container-boundaries'].includes(attachment.name)&&attachment.body)decoded.push({name:attachment.name,...JSON.parse(Buffer.from(attachment.body,'base64').toString())});
   }
   const structure=Array.from({length:5},(_,index)=>{
     const id=`P-structure-${String(index+1).padStart(2,'0')}`;
