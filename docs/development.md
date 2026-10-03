@@ -91,4 +91,4 @@ docker compose stop postgres
 
 ## 순차 PR 검토와 병합
 
-이번 구현은 10개 draft PR을 선행 PR 브랜치에 쌓아 증분 diff로 검토한다(PR2 base는 PR1 브랜치 등). 의존 feature 브랜치를 base로 둔 PR을 그 브랜치에 바로 병합하지 않는다. 선행 PR이 main에 병합되면 작성자/팀이 후속 브랜치를 최신 main 위로 다시 정리하고 base를 main으로 바꾼 뒤 병합한다. 브랜치 재작성은 [협업 가이드](../CONTRIBUTING.md)의 합의된 개인 브랜치 `--force-with-lease` 규칙을 따른다. 자동 retarget/rebase나 원격 브랜치 보호 활성화를 가정하지 않는다. 이 문서는 main 병합이나 push 권한을 추가로 부여하지 않는다.
+이번 구현은 10개 순차 PR을 선행 PR 브랜치에 쌓아 증분 diff로 검토한다(PR2 base는 PR1 브랜치 등). 의존 feature 브랜치를 base로 둔 PR을 그 브랜치에 바로 병합하지 않는다. 선행 PR이 main에 병합되면 작성자/팀이 후속 브랜치를 최신 main 위로 다시 정리하고 base를 main으로 바꾼 뒤 병합한다. 브랜치 재작성은 [협업 가이드](../CONTRIBUTING.md)의 합의된 개인 브랜치 `--force-with-lease` 규칙을 따른다. 자동 retarget/rebase나 원격 브랜치 보호 활성화를 가정하지 않는다. 이 문서는 main 병합이나 push 권한을 추가로 부여하지 않는다.

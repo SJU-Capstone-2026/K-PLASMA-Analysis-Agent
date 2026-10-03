@@ -8,14 +8,14 @@ import {compareRuns} from './compare-runs.mjs';
 import {comparePrototypeAssertions} from './compare-tests.mjs';
 import {repo,startBackend,command,createZip,upload,get,terminalBatch,syntheticFolder} from './runtime.mjs';
 import {serveReference} from './server.mjs';
-import {browserEvidence} from './browser-evidence.mjs';
+import {recordBrowserEvidence} from './browser-evidence.mjs';
 
 const actual=process.argv.includes('--reference');
 // Explicit reference commands fail before provisioning or returning a misleading green skip.
 const reference=actual?await loadReference(process.env.KPLASMA_REFERENCE_ROOT):null;
 const output=join(repo,'backend/.runtime/verification',`${actual?'reference':'synthetic'}-${Date.now()}`);
 await mkdir(output,{recursive:true});
-let backend,prototype;
+let backend,prototype,executionComplete=false;
 let summary={mode:actual?'external-reference':'artificial-only',status:'FAIL',sourceVersion:reference?.version??null,sourceGitCommit:null,sourceGitCommitReason:'Original delivered package has no Git history.',appCommit:execFileSync('git',['rev-parse','HEAD'],{cwd:repo,encoding:'utf8'}).trim(),appDirty:!!execFileSync('git',['status','--porcelain'],{cwd:repo,encoding:'utf8'}).trim(),parserVersion:'v12.3.1',node:process.version,java:spawnSync(process.env.JAVA_HOME?join(process.env.JAVA_HOME,'bin/java'):'java',['-version'],{encoding:'utf8'}).stderr.trim(),locale:'ko-KR',timezone:'Asia/Seoul',widths:[390,800,1008,1440],dataArtifacts:'Ignored local output only; never upload to CI.',deferred:['D1','D2','D3','D4','D5']};
 try {
   let expected;
@@ -76,11 +76,13 @@ try {
   summary.browser='PASS';
   if(reference){await command(join(repo,'node_modules/.bin/vitest'),['run','tests/reference-parity.test.ts'],{cwd:join(repo,'agent'),env:{...process.env,KPLASMA_REFERENCE_EXPLICIT:'true'},log:join(output,'fallback-parity.log')});
     if(summary.portableAssertions.some(result=>result.status!=='PASS'))throw new Error('One or more migrated original library assertions failed; inspect per-ID status.');}
-  summary.status='PASS_WITH_DEFERRED';
+  executionComplete=true;
 } catch(error){summary.error=String(error.message);process.exitCode=1;}
 finally {
   await prototype?.close();await backend?.close();
-  try{summary.browserEvidence=await browserEvidence(output,summary.browserDirectory);summary.prototypeAssertions=[...(summary.portableAssertions??[]),...summary.browserEvidence.structureAssertions];}catch{summary.browserEvidence={status:'UNVERIFIED',reason:'No completed browser report.'};}
+  const evidenceValid=await recordBrowserEvidence(summary,output);
+  if(executionComplete&&evidenceValid&&!summary.error)summary.status='PASS_WITH_DEFERRED';
+  else {summary.status='FAIL';process.exitCode=1;}
   await writeFile(join(output,'summary.json'),JSON.stringify(summary,null,2));
   console.log(`${summary.mode}: ${summary.status}. Local ignored evidence: ${output}`);
   if(summary.error)console.error(summary.error);
