@@ -5,6 +5,10 @@ import com.kplasma.analysisagent.run.RunQueryService;
 import java.nio.file.*;
 import java.util.*;
 import org.junit.jupiter.api.*;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
+import org.springframework.jdbc.core.RowMapper;
+import tools.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -25,6 +29,7 @@ class ImportPipelineTest {
     @Autowired ImportRecovery recovery;
     @Autowired RunQueryService query;
     @Autowired JdbcTemplate jdbc;
+    @Autowired ObjectMapper mapper;
     @DynamicPropertySource static void properties(DynamicPropertyRegistry r) {
         r.add("spring.datasource.url",DB::getJdbcUrl); r.add("spring.datasource.username",DB::getUsername);
         r.add("spring.datasource.password",DB::getPassword); r.add("kplasma.storage-root",ROOT::toString);
@@ -121,6 +126,44 @@ class ImportPipelineTest {
         var files=new HashMap<>(SyntheticRunFiles.files("root-manifest"));files.put(".DS_Store","OS original");files.put("notes.txt","inside original");
         var batch=intake.accept(batch(files,false),"root-manifest");
         assertThat(worker.files(UUID.fromString(batch.jobs().getFirst().jobId()))).hasSize(6);
+    }
+    @ParameterizedTest @ValueSource(booleans={true,false})
+    void batchSnapshotStaysConsistentWhenWorkerFinishesAfterFirstReadStatement(boolean succeeds) throws Exception {
+        var originals=run("run","snapshot-"+succeeds);
+        if(!succeeds)originals.remove("run/0d_result/log/output.log");
+        var batch=intake.accept(batch(originals,false),"snapshot-"+succeeds);
+        UUID job=UUID.fromString(batch.jobs().getFirst().jobId());
+        var finished=new java.util.concurrent.atomic.AtomicBoolean();
+        // Real JDBC reads, with a deterministic external finish commit after the first job-bearing statement.
+        var interleavingJdbc=new JdbcTemplate(Objects.requireNonNull(jdbc.getDataSource())) {
+            @Override public <T> List<T> query(String sql,RowMapper<T> rowMapper,Object... args) {
+                var result=super.query(sql,rowMapper,args);
+                if(sql.contains("import_job")&&finished.compareAndSet(false,true))worker.process(job);
+                return result;
+            }
+        };
+        var reader=new ImportRepository(interleavingJdbc,mapper);
+        var observed=reader.get(UUID.fromString(batch.batchId()));
+        assertThat(finished).isTrue();
+        long terminalJobs=observed.jobs().stream().filter(j->!Set.of("QUEUED","PROCESSING").contains(j.status())).count();
+        assertThat(observed.processedRuns()).as("Batch progress and nested jobs must share a snapshot").isEqualTo((int)terminalJobs);
+        if(Set.of("SUCCESS","PARTIAL_SUCCESS","FAILED").contains(observed.status())) {
+            assertThat(terminalJobs).isEqualTo(observed.totalRuns());
+            if(succeeds)assertThat(observed.jobs().getFirst().runVersionId()).isNotNull();
+            else assertThat(observed.jobs().getFirst().errors()).isNotEmpty();
+        } else {
+            assertThat(observed.status()).isEqualTo("QUEUED");assertThat(observed.jobs()).extracting(JobView::status).containsExactly("QUEUED");
+        }
+        var finalView=reader.get(UUID.fromString(batch.batchId()));
+        assertThat(finalView.processedRuns()).isEqualTo(1);
+        if(succeeds) {
+            assertThat(finalView.status()).isEqualTo("SUCCESS");assertThat(finalView.jobs().getFirst().runId()).isEqualTo("RUN-P02-S100-B0000");
+            assertThat(finalView.jobs().getFirst().runVersionId()).isNotNull();assertThat(finalView.jobs().getFirst().status()).isEqualTo("READY");
+        } else {
+            assertThat(finalView.status()).isEqualTo("FAILED");assertThat(finalView.jobs().getFirst().status()).isEqualTo("INCOMPLETE");
+            assertThat(finalView.jobs().getFirst().reason()).isNotBlank();assertThat(finalView.jobs().getFirst().errors()).hasSize(1);
+            assertThat(finalView.jobs().getFirst().errors().getFirst().details()).containsEntry("path","0d_result/log/output.log");
+        }
     }
     static Path temp() { try { return Files.createTempDirectory("pipeline-"); } catch(Exception e) { throw new ExceptionInInitializerError(e); } }
     @AfterAll static void cleanup() { SourceStore.cleanup(ROOT); }

@@ -1,7 +1,6 @@
 package com.kplasma.analysisagent.ingestion;
 
 import com.kplasma.analysisagent.contract.ImportDto.*;
-import com.kplasma.analysisagent.contract.WorkspaceDto;
 import java.util.*;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
@@ -46,8 +45,16 @@ public class ImportRepository {
         jdbc.update("insert into import_idempotency(idempotency_key, request_hash, batch_id) values (?, ?, ?)", key, hash, batch);
     }
     public BatchView get(UUID id) {
-        var jobs = jdbc.query("select id, run_id, run_version_id, status, reason, errors from import_job where batch_id = ? order by created_at, id", (rs, n) -> new JobView(rs.getString(1), rs.getString(2), rs.getString(3), rs.getString(4), rs.getString(5), mapper.readValue(rs.getString(6), new TypeReference<List<WorkspaceDto.Error>>() {})), id);
-        var batches = jdbc.query("select id, status, received_bytes, total_bytes, processed_runs, total_runs from import_batch where id = ?", (rs, n) -> new BatchView(rs.getString(1), rs.getString(2), rs.getLong(3), rs.getLong(4), rs.getInt(5), rs.getInt(6), jobs), id);
+        // One statement shares a PostgreSQL snapshot, including this transaction's own intake/retry rows.
+        var batches = jdbc.query("""
+            select b.id, b.status, b.received_bytes, b.total_bytes, b.processed_runs, b.total_runs,
+                coalesce((select jsonb_agg(jsonb_build_object(
+                    'jobId', j.id::text, 'runId', j.run_id, 'runVersionId', j.run_version_id::text,
+                    'status', j.status, 'reason', j.reason, 'errors', j.errors)
+                    order by j.created_at, j.id) from import_job j where j.batch_id=b.id), '[]'::jsonb)
+            from import_batch b where b.id=?
+            """, (rs, n) -> new BatchView(rs.getString(1), rs.getString(2), rs.getLong(3), rs.getLong(4),
+                rs.getInt(5), rs.getInt(6), mapper.readValue(rs.getString(7), new TypeReference<List<JobView>>() {})), id);
         if (batches.isEmpty()) throw new IntakeException("NOT_FOUND", 404, "Import batch not found");
         return batches.getFirst();
     }
