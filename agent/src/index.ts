@@ -1,2 +1,18 @@
-// The deterministic fallback library is implemented in the subsequent agent task.
-export {};
+export * from './contracts/index.js';
+export { executeFallback } from './execute-fallback.js';
+export * as engine from './fallback/engine.js';
+export * as agentEngine from './fallback/agent-engine.js';
+export * as analysisEngine from './fallback/analysis-engine.js';
+export * as explanationEngine from './fallback/explanation-engine.js';
+export * as decisionMemory from './fallback/decision-memory.js';
+export * as recordReuse from './fallback/record-reuse.js';
+export * as manualEvidence from './fallback/manual-evidence.js';
+export * as viewModels from './fallback/view-models.js';
+export * as conversationStore from './fallback/conversation-store.js';
+export * as defaults from './fallback/defaults.js';
+export * from './fallback/engine.js';
+export * from './fallback/agent-engine.js';
+export * from './fallback/analysis-engine.js';
+export * from './fallback/explanation-engine.js';
+export * from './fallback/view-models.js';
+export { createRecord, createExperimentRecord } from './fallback/decision-memory.js';
