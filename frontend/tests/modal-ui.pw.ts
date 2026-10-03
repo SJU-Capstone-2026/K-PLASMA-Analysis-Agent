@@ -20,3 +20,10 @@ for(const width of [390,800,1008,1440]){
   const transition=await page.locator('.nav-item').first().evaluate(element=>getComputedStyle(element).transitionDuration);expect(parseFloat(transition)).toBeLessThanOrEqual(.001);
  });
 }
+test('review regression: initial native Shift+Tab and outside document keys stay recoverable',async({page})=>{
+ await page.setViewportSize({width:390,height:1000});await page.route('**/api/run-versions/*',route=>route.fulfill({json:fixtureRuns[0]}));await page.goto('/tests/harness.html');const trigger=page.getByRole('button',{name:'실험 자세히 보기'});await trigger.click();const dialog=page.getByRole('dialog');await expect(dialog).toBeFocused();await expect(dialog.getByRole('tab',{name:'Residual Convergence'})).toBeVisible();
+ await page.keyboard.press('Shift+Tab');await expect(dialog.getByRole('tab',{name:'Residual Convergence'})).toBeFocused();
+ await trigger.focus();await page.keyboard.press('Tab');await expect(dialog.getByRole('button',{name:/실험 상세 닫기/})).toBeFocused();
+ await trigger.focus();await page.keyboard.press('Shift+Tab');await expect(dialog.getByRole('tab',{name:'Residual Convergence'})).toBeFocused();
+ await trigger.focus();await page.keyboard.press('Escape');await expect(dialog).toHaveCount(0);await expect(trigger).toBeFocused();await page.keyboard.press('Tab');await expect(page.locator('.reference-tray-more summary')).toBeFocused();
+});
