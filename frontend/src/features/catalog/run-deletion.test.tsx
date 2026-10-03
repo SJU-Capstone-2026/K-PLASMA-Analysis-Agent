@@ -20,7 +20,7 @@ function api(options:{blocked?:string;cleanupPending?:boolean;reloadFails?:boole
  vi.stubGlobal('fetch',vi.fn(async(url:string,init?:RequestInit)=>{
   calls.push({url,init});
   if(url==='/api/runs/delete'){
-   if(options.blocked)return json({code:options.blocked,message:'대화 또는 판단·현재 참조에서 사용 중인 Run은 삭제할 수 없습니다.',requestId:'delete-test'},409);
+   if(options.blocked)return json({code:options.blocked,message:'판단 기록에서 사용 중인 Run은 삭제할 수 없습니다.',requestId:'delete-test'},409);
    const ids=JSON.parse(init!.body as string).runIds as string[];
    if(options.deferredDelete)return new Promise<Response>(resolve=>{finishDelete=()=>resolve(sendDelete(ids));});
    return sendDelete(ids);
@@ -45,6 +45,8 @@ test('cancel and Escape leave the selected Run intact and return focus without a
  expect(within(screen.getByRole('alertdialog')).getByRole('button',{name:'취소'})).toHaveFocus();
  expect(screen.getByRole('alertdialog')).toHaveAccessibleDescription(/등록 Run 1개.*모든 버전.*관리 원본/);
  expect(screen.getByRole('alertdialog')).toHaveTextContent('외부 원본 폴더');
+ expect(screen.getByRole('alertdialog')).toHaveTextContent('판단 기록');
+ expect(screen.getByRole('alertdialog')).not.toHaveTextContent('대화·판단');
  fireEvent.click(within(screen.getByRole('alertdialog')).getByRole('button',{name:'취소'}));
  expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();expect(screen.getByRole('button',{name:'선택 Run 삭제'})).toHaveFocus();
  fireEvent.click(screen.getByRole('button',{name:'선택 Run 삭제'}));fireEvent.keyDown(screen.getByRole('alertdialog'),{key:'Escape'});
@@ -95,6 +97,7 @@ test('navigation to analysis after deleting all Runs fetches the empty list inst
  vi.spyOn(window,'scrollTo').mockImplementation(()=>{});const server=api();render(<App/>);
  fireEvent.click(screen.getByRole('button',{name:'실험 데이터 탐색'}));await screen.findByRole('heading',{name:`${first.runId} 세부 결과`});
  fireEvent.click(screen.getByText('도구 및 도움말'));fireEvent.click(screen.getByRole('button',{name:'Run 데이터 관리'}));await screen.findByRole('button',{name:first.runId});fireEvent.click(screen.getByRole('button',{name:'전체 Run 삭제'}));confirm();await waitFor(()=>expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument());
+ await waitFor(()=>expect(server.calls.filter(call=>call.url==='/api/workspace')).toHaveLength(2));
  fireEvent.click(screen.getByRole('button',{name:'실험 데이터 탐색'}));expect(await screen.findByText('실제 Run 데이터를 찾을 수 없습니다.')).toBeInTheDocument();expect(screen.queryByRole('heading',{name:`${first.runId} 세부 결과`})).not.toBeInTheDocument();expect(server.calls.filter(call=>call.url==='/api/runs').length).toBeGreaterThanOrEqual(3);
 });
 

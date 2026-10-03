@@ -60,9 +60,10 @@ paths:
         together with associated jobs and unshared managed originals. The UI uses
         the same endpoint for one selected Run or an unfiltered snapshot of all
         registered Runs. Unregistered failed jobs and their originals remain.
-        Missing IDs are no-ops. Any target referenced by conversation, decision,
-        or current workspace reference blocks the whole request. Any queued or
-        processing import also blocks deletion. User-selected external source
+        Missing IDs are no-ops. Any target referenced by a saved decision blocks
+        the whole request. Conversation snapshots do not block deletion; matching
+        current workspace references are released. Any queued or processing import
+        also blocks deletion. User-selected external source
         folders are never modified. Old upload idempotency keys retain an empty
         batch receipt after deletion; a new upload key can register the Run again.
       requestBody:
@@ -79,7 +80,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/RunDeletionResult'
         '409':
-          description: RUN_IN_USE or IMPORT_IN_PROGRESS; no Runs are deleted.
+          description: RUN_IN_USE for a saved decision, or IMPORT_IN_PROGRESS; no Runs are deleted.
           content:
             application/json:
               schema:

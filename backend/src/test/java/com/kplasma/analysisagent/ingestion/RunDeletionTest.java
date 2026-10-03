@@ -169,7 +169,7 @@ class RunDeletionTest {
         }
     }
 
-    @Test void deletionWaitsForWorkspaceMutationAndThenSeesTheCommittedReference() throws Exception {
+    @Test void deletionWaitsForWorkspaceMutationAndThenReleasesTheCommittedReference() throws Exception {
         var batch=process(accept(files("registered",2,"workspace-lock"),"workspace-lock"));
         var job=batch.jobs().getFirst();
         try(var connection=Objects.requireNonNull(jdbc.getDataSource()).getConnection();var executor=java.util.concurrent.Executors.newVirtualThreadPerTaskExecutor()) {
@@ -181,7 +181,8 @@ class RunDeletionTest {
                     awaitDatabaseLock(response,"%workspace%for update%");
                     try(var update=connection.prepareStatement("update workspace set active_run=?::jsonb where id=1")) {update.setString(1,mapper.writeValueAsString(Map.of("runId",FIRST,"runVersionId",job.runVersionId())));update.executeUpdate();}
                 } finally {connection.commit();}
-                assertThat(response.get().statusCode()).isEqualTo(409);assertThat(count("run")).isEqualTo(1);
+                assertThat(response.get().statusCode()).isEqualTo(200);assertThat(count("run")).isZero();
+                assertThat(jdbc.queryForObject("select active_run is null from workspace where id=1",Boolean.class)).isTrue();
             }
         }
     }

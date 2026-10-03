@@ -89,3 +89,31 @@ test('a saved decision blocks both selected and all Run deletion without changin
   }
  }finally{await resetRecords(request);}
 });
+
+test('a chat reference does not block deletion and only current Agent references are released',async({page,request})=>{
+ await resetRecords(request);const before=await runs(request);const target=before[0];
+ const question='Mean Ion Energy 12–13 eV 후보 찾아줘';
+ try{
+  await page.goto('/');await navigate(page,'agent');
+  await page.locator('#agent-query').fill(question);
+  const stored=page.waitForResponse(response=>response.url().endsWith('/api/workspace/turns')&&response.request().method()==='POST');
+  await page.locator('#agent-query-form [type="submit"]').click();
+  expect((await stored).status()).toBe(200);
+  await expect(page.getByText(question,{exact:true})).toBeVisible();
+  const afterChat=await (await request.get(`${api}/api/workspace`)).json();expect(afterChat.conversation.turns).toHaveLength(1);
+  const referenced=await request.put(`${api}/api/workspace/reference`,{data:{
+   stateToken:afterChat.stateToken,
+   activeRun:{runId:target.runId,runVersionId:target.runVersionId},
+   candidateReference:{kind:'후보 집합',runs:[{runId:target.runId,runVersionId:target.runVersionId}]},
+  }});expect(referenced.status()).toBe(200);
+  await navigate(page,'catalog');await page.locator(`[data-action="catalog-select"][data-run-id="${target.runId}"]`).click();
+  await page.getByRole('button',{name:'선택 Run 삭제',exact:true}).click();
+  const deleted=page.waitForResponse(response=>response.url().endsWith('/api/runs/delete')&&response.request().method()==='POST');
+  await page.getByRole('alertdialog').getByRole('button',{name:'삭제',exact:true}).click();
+  expect((await deleted).status()).toBe(200);await expect(page.getByRole('alertdialog')).toHaveCount(0);
+  const afterDelete=await (await request.get(`${api}/api/workspace`)).json();
+  expect(afterDelete.conversation.turns).toEqual(afterChat.conversation.turns);
+  expect(afterDelete.conversation.activeRun).toBeNull();expect(afterDelete.candidateReference).toBeNull();
+  await navigate(page,'agent');await expect(page.getByText(question,{exact:true})).toBeVisible();
+ }finally{await resetRecords(request);await restoreArtificialRuns(page);}
+});

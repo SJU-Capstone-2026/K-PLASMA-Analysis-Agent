@@ -10,7 +10,7 @@ import {describeImportError,useImportBatch} from './useImportBatch';
 
 export interface CatalogState {catalogFilters:CatalogFilters;catalogSelectedRunId:string;catalogSelectedJobId:string}
 export const initialCatalogState:CatalogState={catalogFilters:{search:'',status:'',quality:''},catalogSelectedRunId:'',catalogSelectedJobId:''};
-export interface CatalogPageProps {state?:CatalogState;onStateChange?:(state:CatalogState)=>void;context?:ShellContext;onReference?:(ref:RunRef)=>void;onDecision?:(ref:RunRef)=>void;onDeleted?:(runIds:string[])=>void}
+export interface CatalogPageProps {state?:CatalogState;onStateChange?:(state:CatalogState)=>void;context?:ShellContext;onReference?:(ref:RunRef)=>void;onDecision?:(ref:RunRef)=>void;onDeleted?:(runIds:string[])=>void|Promise<void>}
 type DisplayRun=RunSummary & {sourceFiles:SourceFile[]};
 interface CatalogRow {runId:string;conditions:{label:string;value:string;unit:string}[];metrics:{label:string;value:string;unit:string}[];parsingStatus:string;parsingLabel:string;qualityStatus:string;qualityLabel:string;sourceFileCount:number;convergenceLabel:string;registeredAt:string;note:string;sourceRun:DisplayRun}
 function displayRuns(catalog:CatalogData):DisplayRun[]{return catalog.runs.map(run=>{const files=catalog.sourceFilesByVersion?.[run.runVersionId];if(!Array.isArray(files))throw new Error('Run 원본 파일 메타데이터를 확인할 수 없습니다.');return {...run,sourceFiles:files};});}
@@ -65,9 +65,9 @@ export function CatalogPage({state:external,onStateChange,onReference,onDeleted}
    setRuns(current=>current.filter(run=>!removed.has(run.runId)));
    const selectedRemoved=removed.has(state.catalogSelectedRunId),jobRemoved=jobs.some(job=>job.jobId===state.catalogSelectedJobId&&job.runId&&removed.has(job.runId));
    if(selectedRemoved||jobRemoved){update({catalogSelectedRunId:selectedRemoved?'':state.catalogSelectedRunId,catalogSelectedJobId:jobRemoved?'':state.catalogSelectedJobId});setFull(null);setFullError('');setFiles(null);setFileError(null);}
-   imports.forgetDeletedRuns(runIds);setDeletion(null);onDeleted?.(runIds);
+   imports.forgetDeletedRuns(runIds);setDeletion(null);
    setDeleteNotice(result.cleanupPending?`등록 Run ${result.deletedRunIds.length}개의 DB 삭제가 완료되었습니다. 관리 원본 파일 정리는 서버 재시작 시 재시도합니다.`:`등록 Run ${result.deletedRunIds.length}개를 삭제했습니다.`);
-   const refreshed=await Promise.allSettled([fetchRuns(controller.signal),load(controller.signal)]);
+   const refreshed=await Promise.allSettled([Promise.resolve(onDeleted?.(runIds)),fetchRuns(controller.signal),load(controller.signal)]);
    if(!controller.signal.aborted){const failure=refreshed.find(item=>item.status==='rejected');if(failure?.status==='rejected')setRefreshError(`Run 삭제는 완료되었지만 목록 새로고침에 실패했습니다. 화면을 다시 열어 목록을 확인하세요. ${describeImportError(failure.reason)}`);}
   }catch(cause){if(!controller.signal.aborted)setDeleteError(describeImportError(cause));}
   finally{deletionRunning.current=false;if(!controller.signal.aborted)setDeleting(false);}
@@ -89,7 +89,7 @@ export function CatalogPage({state:external,onStateChange,onReference,onDeleted}
   <div className="confirm-icon confirm-icon--warning" aria-hidden="true">!</div><h2 id="run-delete-title">{deletion.all?'등록된 전체 Run을 삭제할까요?':'선택 Run을 삭제할까요?'}</h2>
   <p id="run-delete-description">{deletion.all?'현재 필터와 관계없이 ':''}등록 Run {deletion.runIds.length}개의 모든 버전과 관리 원본 파일을 삭제합니다. 외부 원본 폴더는 유지됩니다.</p>
   {!deletion.all&&<p className="run-delete-id">{deletion.runIds[0]}</p>}
-  <p>대화·판단 기록·현재 참조에서 사용 중인 Run이 있으면 전체 삭제 요청이 취소됩니다.</p>
+  <p>저장된 판단 기록에서 사용 중인 Run이 있으면 전체 삭제 요청이 취소됩니다. 일반 채팅에서 조회한 Run은 삭제할 수 있습니다.</p>
   {deleteError&&<p role="alert">{deleteError}</p>}
   <div className="form-actions"><button className="button button--ghost" type="button" disabled={deleting} data-delete-cancel onClick={closeDeletion}>취소</button><button className="button button--danger" type="button" disabled={deleteDisabled} onClick={()=>void confirmDeletion()}>{deleting?'삭제 중…':'삭제'}</button></div>
  </Modal>}</>;

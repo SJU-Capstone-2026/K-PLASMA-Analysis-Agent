@@ -17,6 +17,7 @@ import tools.jackson.databind.ObjectMapper;
 public class RunDeletionService {
     private static final Pattern RUN_ID = Pattern.compile("[A-Za-z0-9][A-Za-z0-9_-]{0,63}");
     private record Job(UUID id, UUID batch, String root) {}
+    private record CurrentReferences(String active, String candidates) {}
     private final JdbcTemplate jdbc;
     private final NamedParameterJdbcTemplate named;
     private final ImportRepository imports;
@@ -73,6 +74,7 @@ public class RunDeletionService {
         List<String> deleted = named.queryForList("select run_id from run where run_id in (:ids) order by run_id", parameters, String.class);
         if (deleted.isEmpty()) return List.of();
         rejectReferences(new HashSet<>(deleted));
+        releaseCurrentReferences(new HashSet<>(deleted));
         var selected = Map.of("ids", deleted);
         List<UUID> sources = named.queryForList("select distinct source_id from run_version where run_id in (:ids)", selected, UUID.class);
         List<Job> jobs = named.query("select id,batch_id,source_root from import_job where run_id in (:ids) or run_version_id in (select id from run_version where run_id in (:ids))", selected,
@@ -122,16 +124,33 @@ public class RunDeletionService {
 
     private void rejectReferences(Set<String> ids) {
         Map<String, Set<String>> uses = new TreeMap<>();
-        for (String json : jdbc.queryForList("select active_run::text from workspace where active_run is not null union all select candidate_reference::text from workspace where candidate_reference is not null", String.class))
-            collectReferences(mapper.readTree(json), ids, "현재 참조", uses);
-        for (String json : jdbc.queryForList("select snapshot::text from conversation_turn", String.class))
-            collectReferences(mapper.readTree(json), ids, "대화", uses);
         for (String json : jdbc.queryForList("select record::text from decision", String.class))
             collectReferences(mapper.readTree(json), ids, "판단 기록", uses);
         if (!uses.isEmpty()) {
             String message = String.join(", ", uses.entrySet().stream().map(e -> e.getKey() + " (" + String.join("·", e.getValue()) + ")").toList());
-            throw new IntakeException("RUN_IN_USE", 409, "사용 중인 Run은 삭제할 수 없습니다: " + message + ". 참조를 해제하거나 해당 기록을 초기화한 뒤 다시 시도해 주세요.");
+            throw new IntakeException("RUN_IN_USE", 409, "판단 기록에서 사용 중인 Run은 삭제할 수 없습니다: " + message + ". 판단 기록을 초기화하거나 Run을 유지해 주세요.");
         }
+    }
+
+    private void releaseCurrentReferences(Set<String> ids) {
+        CurrentReferences current = jdbc.queryForObject("select active_run::text,candidate_reference::text from workspace where id=1",
+                (rs, n) -> new CurrentReferences(rs.getString(1), rs.getString(2)));
+        boolean active = current != null && containsReference(current.active(), ids);
+        boolean candidates = current != null && containsReference(current.candidates(), ids);
+        if (active || candidates) jdbc.update("""
+            update workspace set
+                active_run=case when ? then null else active_run end,
+                candidate_reference=case when ? then null else candidate_reference end,
+                revision=revision+1
+            where id=1
+            """, active, candidates);
+    }
+
+    private boolean containsReference(String json, Set<String> ids) {
+        if (json == null) return false;
+        Map<String, Set<String>> found = new HashMap<>();
+        collectReferences(mapper.readTree(json), ids, "현재 참조", found);
+        return !found.isEmpty();
     }
 
     private void collectReferences(JsonNode node, Set<String> ids, String kind, Map<String, Set<String>> uses) {
