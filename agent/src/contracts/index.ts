@@ -51,6 +51,7 @@ export type Intent = 'FORWARD_LOOKUP' | 'REVERSE_SEARCH' | 'CHANGE_EXPLANATION' 
 export interface AgentRequest { text: string; baseline?: RunRef; candidateReferences: RunRef[]; clarification?: Snapshot }
 export interface AgentResponse { intent: Intent; status: string; candidates: RunRef[]; explanation: Snapshot | null; answerSnapshot: Snapshot; usedRunRefs: RunRef[] }
 export interface AgentContext {
+  latestCandidateReferences?: RunRef[];
   candidateRunsLatest: RunSummary[]; referenceRunsByVersion: ReadonlyMap<string, FullRun>;
   decisionRecords: DecisionRecord[]; hydrateFullRun(ref: RunRef): Promise<FullRun>;
 }

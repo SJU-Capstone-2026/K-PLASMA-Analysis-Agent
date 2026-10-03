@@ -5,6 +5,7 @@ import * as viewModelsModule from './fallback/view-models.js';
 import { entries } from './fallback/manual-evidence.js';
 import { contextualAgentRequest } from './fallback/contextual-request.js';
 import { compactAgentAnswer } from './fallback/answer-snapshot.js';
+import * as recordReuse from './fallback/record-reuse.js';
 import { executeMemoryQuestion } from './fallback/memory-request.js';
 // Legacy algorithms accept their original query/result shapes inside this typed boundary.
 const engine = engineModule;
@@ -34,9 +35,22 @@ export async function executeFallback(input: AgentRequest, context: AgentContext
     ? { kind: input.candidateReferences.length === 1 ? '단일 Run' : '후보 집합', ids: input.candidateReferences.map(r => r.runId) }
     : baseline ? { kind: '단일 Run', ids: [baseline.runId] } : null;
   const options = input.clarification ?? {};
+  const memoryParsed = recordReuse.parse(input.text);
+  const latestRefs = memoryParsed ? (context.latestCandidateReferences ?? []) : [];
+  const latestRuns = await Promise.all(latestRefs.map(hydrate));
+  const latestReference = latestRefs.length ? { kind: latestRefs.length === 1 ? '단일 Run' : '후보 집합', ids: latestRefs.map(r => r.runId) } : null;
+  const suppliedReference = options.useSuppliedMemoryReference === true ? reference : undefined;
+  let memoryVersions: Map<string, RunSummary> | undefined;
+  let memoryContextRuns = references;
   const memoryAnswer: Snapshot | null = executeMemoryQuestion(input.text, context.candidateRunsLatest, context.decisionRecords, reference, baseline?.runId ?? null,
-    typeof options.threshold === 'number' || options.threshold === null ? options.threshold : undefined, undefined, options.undo === true);
-  if (memoryAnswer) return response('RECORD_REUSE', typeof memoryAnswer.status === 'string' ? memoryAnswer.status : (memoryAnswer.notice || memoryAnswer.pendingThreshold ? 'NEEDS_INPUT' : 'READY'), memoryAnswer);
+    typeof options.threshold === 'number' || options.threshold === null ? options.threshold : undefined, suppliedReference, options.undo === true, latestReference);
+  if (memoryAnswer) {
+    // The selected legacy reference retains identity; overlapping display IDs must resolve its version.
+    if (memoryAnswer.reference === latestReference) memoryContextRuns = latestRuns;
+    memoryVersions = new Map([...memoryContextRuns, ...(baseline ? [baseline] : []), ...context.candidateRunsLatest].map(run => [run.runId, run]));
+    for (const run of [...(baseline ? [baseline] : []), ...memoryContextRuns]) memoryVersions.set(run.runId, run);
+    return response('RECORD_REUSE', typeof memoryAnswer.status === 'string' ? memoryAnswer.status : (memoryAnswer.notice || memoryAnswer.pendingThreshold ? 'NEEDS_INPUT' : 'READY'), memoryAnswer);
+  }
 
   const request = contextualAgentRequest(input.text, baseline, context.candidateRunsLatest, options);
   let result: unknown = null;
@@ -80,13 +94,17 @@ export async function executeFallback(input: AgentRequest, context: AgentContext
       ...objects(groups?.groups).flatMap(group => objects(group.candidates).flatMap(run => typeof run.runId === 'string' ? [run.runId] : [])),
       ...objects(memory?.excluded).flatMap(run => typeof run.runId === 'string' ? [run.runId] : [])];
     // Numeric record search always resolves latest results; scoped record reuse resolves explicit versions.
-    const versionSource = searchedLatest || (intent === 'RECORD_REUSE' && answerSnapshot.numeric) ? new Map(context.candidateRunsLatest.map(r => [r.runId, r])) : byId;
+    const versionSource = searchedLatest || (intent === 'RECORD_REUSE' && answerSnapshot.numeric) ? new Map(context.candidateRunsLatest.map(r => [r.runId, r])) : (memoryVersions ?? byId);
     const resolved = (id: string) => versionSource.get(id);
     const candidates = candidateIds.map(resolved).filter((r): r is RunSummary => Boolean(r)).map(asRef);
+    // Compact immutable identity extension: role metadata disambiguates equal display IDs.
+    answerSnapshot.candidateRunRefs = candidates.map(r => ({ ...r }));
     // Pending/notice answers retain selected context even when no result IDs exist.
     // Resolve this context from explicit versions, independently of latest searched candidates.
     const contextIds = new Set(stringIds(object(answerSnapshot.reference)?.ids));
-    const contextRefs = references.filter(run => contextIds.has(run.runId)).map(asRef);
+    const memoryRequest = object(answerSnapshot.memoryRequest);
+    if (memoryRequest && memoryVersions) memoryRequest.referenceRunRefs = [...contextIds].map(id => memoryVersions!.get(id)).filter((r): r is RunSummary => Boolean(r)).map(r => ({ runId: r.runId, runVersionId: r.runVersionId }));
+    const contextRefs = memoryContextRuns.filter(run => contextIds.has(run.runId)).map(asRef);
     const used = [...(baseline ? [asRef(baseline)] : []), ...contextRefs,
       ...ids.map(resolved).filter((r): r is RunSummary => Boolean(r)).map(asRef)];
     const usedRunRefs = [...new Map(used.map(r => [r.runVersionId, r])).values()];

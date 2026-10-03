@@ -59,7 +59,12 @@ describe.skipIf(!root)('external v12.3.1 parity (hashes only)', () => {
     const expected = vm.runInContext('originalAnswer(currentText,currentOptions)', original);
     const actual = await executeFallback({ ...request(text), baseline: baseline ? { runId: baseline.runId, runVersionId: baseline.runVersionId } : undefined,
       candidateReferences: candidates.map(r => ({ runId: r.runId, runVersionId: r.runVersionId })), clarification: options }, ctx);
-    expect(digest(actual.answerSnapshot)).toBe(digest(expected));
+    // R15 identity-only migration metadata is compared separately; physical and behavioral fields remain exact.
+    const physicalSnapshot = JSON.parse(JSON.stringify(actual.answerSnapshot));
+    delete physicalSnapshot.candidateRunRefs;
+    if (physicalSnapshot.memoryRequest) delete physicalSnapshot.memoryRequest.referenceRunRefs;
+    expect(digest(actual.answerSnapshot.candidateRunRefs)).toBe(digest(actual.candidates));
+    expect(digest(physicalSnapshot)).toBe(digest(expected));
     expect(actual.intent).toBe(expected.intent);
     if (expected.status) expect(actual.status).toBe(expected.status);
     expect(digest(actual.candidates.map(r => r.runId))).toBe(digest(expected.runIds));

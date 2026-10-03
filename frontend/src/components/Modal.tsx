@@ -1,6 +1,6 @@
 import {useEffect,useLayoutEffect,useRef,type ReactNode} from 'react';
 import {createPortal} from 'react-dom';
-export function Modal({titleId,onClose,children,className='decision-modal',focusKey,synchronousFocus=false}:{titleId:string;onClose:()=>void;children:ReactNode;className?:string;focusKey?:string;synchronousFocus?:boolean}){
+export function Modal({titleId,onClose,children,className='decision-modal',focusKey,synchronousFocus=false,role='dialog',descriptionId}:{titleId:string;onClose:()=>void;children:ReactNode;className?:string;focusKey?:string;synchronousFocus?:boolean;role?:'dialog'|'alertdialog';descriptionId?:string}){
  const panel=useRef<HTMLElement>(null);const trigger=useRef<HTMLElement|null>(null);const close=useRef(onClose);close.current=onClose;
  useLayoutEffect(()=>{trigger.current=document.activeElement instanceof HTMLElement?document.activeElement:null;document.body.classList.add('modal-open');return()=>{document.body.classList.remove('modal-open');if(trigger.current?.isConnected)trigger.current.focus();};},[]);
  useEffect(()=>{if(synchronousFocus){panel.current?.focus();return;}const frame=requestAnimationFrame(()=>panel.current?.focus());return()=>cancelAnimationFrame(frame);},[focusKey,synchronousFocus]);
@@ -16,6 +16,6 @@ export function Modal({titleId,onClose,children,className='decision-modal',focus
  }
  document.addEventListener('keydown',onKeyDown);return()=>document.removeEventListener('keydown',onKeyDown);
  },[]);
- const content=<div className="modal-backdrop"><section ref={panel} className={className} role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1} data-modal-panel>{children}</section></div>;
+ const content=<div className="modal-backdrop"><section ref={panel} className={className} role={role} aria-modal="true" aria-describedby={descriptionId} aria-labelledby={titleId} tabIndex={-1} data-modal-panel>{children}</section></div>;
  const root=document.getElementById('modal-root');return root?createPortal(content,root):content;
 }
