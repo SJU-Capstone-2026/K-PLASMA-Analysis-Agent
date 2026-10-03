@@ -1,0 +1,2 @@
+import {defineConfig} from '@playwright/test';
+export default defineConfig({testDir:'.',testMatch:'catalog.pw.ts',workers:1,reporter:'list',outputDir:'../../../../backend/.runtime/task-11-logs/browser',use:{launchOptions:process.env.KPLASMA_BROWSER_EXECUTABLE?{executablePath:process.env.KPLASMA_BROWSER_EXECUTABLE}:{},baseURL:'http://127.0.0.1:5181',viewport:{width:1440,height:1000},deviceScaleFactor:1},webServer:{command:'npm run dev -- --port 5181',url:'http://127.0.0.1:5181',reuseExistingServer:true}});
