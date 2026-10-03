@@ -9,6 +9,7 @@ import {comparePrototypeAssertions} from './compare-tests.mjs';
 import {repo,startBackend,command,createZip,upload,get,terminalBatch,syntheticFolder} from './runtime.mjs';
 import {serveReference} from './server.mjs';
 import {recordBrowserEvidence} from './browser-evidence.mjs';
+import {syntheticFailureDiagnostics} from './browser-diagnostics.mjs';
 
 const actual=process.argv.includes('--reference');
 // Explicit reference commands fail before provisioning or returning a misleading green skip.
@@ -65,6 +66,7 @@ try {
     try{await command(join(repo,'node_modules/.bin/playwright'),['test','--config','playwright.config.ts'],{cwd:join(repo,'frontend'),env,log:join(output,attempt===1?'browser.log':`browser-attempt-${attempt}.log`)});summary.browserAttempts.push({attempt,directory,status:'PASS'});break;}
     catch(error){
       summary.browserAttempts.push({attempt,directory,status:'FAIL'});
+      for(const diagnostic of await syntheticFailureDiagnostics(output,{mode:summary.mode,directory,logFile:attempt===1?'browser.log':`browser-attempt-${attempt}.log`}))console.error(diagnostic);
       if(process.env.KPLASMA_VERIFY_DEBUG_HOLD!=='true'||attempt>=3)throw error;
       // Explicit local diagnosis option. Keep this isolated DB/API alive, with no repeat imports.
       const safeEnv=Object.fromEntries(Object.entries(env).filter(([key])=>key.startsWith('KPLASMA_E2E_')||['KPLASMA_PROTOTYPE_URL','KPLASMA_BROWSER_EXECUTABLE'].includes(key)));
