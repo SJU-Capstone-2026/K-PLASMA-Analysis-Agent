@@ -47,7 +47,7 @@ export function toRunSummary(full: FullRun): RunSummary {
 /** Compact original engine objects; physical Run/analysis/graph payloads are forbidden in persisted snapshots. */
 export type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
 export type Snapshot = { [key: string]: JsonValue };
-export type Intent = 'FORWARD_LOOKUP' | 'REVERSE_SEARCH' | 'CHANGE_EXPLANATION' | 'CONCEPT_EXPLANATION' | 'RECORD_REUSE' | 'UNSUPPORTED';
+export type Intent = 'FORWARD_LOOKUP' | 'REVERSE_SEARCH' | 'CHANGE_EXPLANATION' | 'CONCEPT_EXPLANATION' | 'RECORD_REUSE' | 'CLARIFICATION' | 'UNSUPPORTED';
 export interface AgentRequest { text: string; baseline?: RunRef; candidateReferences: RunRef[]; clarification?: Snapshot }
 export interface AgentResponse { intent: Intent; status: string; candidates: RunRef[]; explanation: Snapshot | null; answerSnapshot: Snapshot; usedRunRefs: RunRef[] }
 export interface AgentContext {
@@ -83,7 +83,9 @@ export type DecisionRecord = ReviewRecord | ExperimentRecord;
 export interface DecisionWrite { workspaceEpoch: number; record: DecisionRecord; runRefs: RunRef[] }
 export interface ApiError { code: string; message: string; field?: string; details?: Snapshot; requestId: string }
 export interface ManifestFile { path: string; kind: string; size: number; sha256: string }
-export interface UploadManifest { version: 1; files: ManifestFile[] }
+/** Client intake maps multipart parts only; hashes, sizes and classification are computed by the server. */
+export interface UploadEntry { partName: string; relativePath: string }
+export interface UploadManifest { mode: 'FOLDER' | 'ZIP'; entries: UploadEntry[] }
 export interface JobView { jobId: string; runId: string | null; runVersionId: string | null; status: JobStatus; reason: string | null; errors: ApiError[] }
 export interface BatchView { batchId: string; status: JobStatus | 'SUCCESS' | 'PARTIAL_SUCCESS' | 'FAILED'; receivedBytes: number; totalBytes: number; processedRuns: number; totalRuns: number; jobs: JobView[] }
 export interface CatalogView { runs: RunSummary[]; jobs: JobView[] }

@@ -132,31 +132,18 @@ paths:
         content:
           multipart/form-data:
             schema:
-              oneOf:
-              - type: object
-                additionalProperties: false
-                required:
-                - manifest
-                - files
-                properties:
-                  manifest:
-                    $ref: '#/components/schemas/UploadManifest'
-                  files:
-                    type: array
-                    items:
-                      type: string
-                      format: binary
-              - type: object
-                additionalProperties: false
-                required:
-                - manifest
-                - archive
-                properties:
-                  manifest:
-                    $ref: '#/components/schemas/UploadManifest'
-                  archive:
-                    type: string
-                    format: binary
+              type: object
+              required:
+              - manifest
+              properties:
+                manifest:
+                  $ref: '#/components/schemas/UploadManifest'
+              additionalProperties:
+                type: string
+                format: binary
+              description: Binary multipart part names must match manifest.entries[].partName.
+                FOLDER uses separate file parts; ZIP uses one archive part. The manifest
+                is JSON, and size/hash/type are computed on the server.
             encoding:
               manifest:
                 contentType: application/json
@@ -206,15 +193,16 @@ paths:
   /api/import-jobs/{id}/reprocess:
     post:
       operationId: postApiImportJobsIdReprocess
-      description: Create a new processing job; a failed version cannot replace the
-        latest successful search version.
+      description: Create a new processing batch containing the reprocess job; return
+        BatchView progress and nested jobs. A failed version cannot replace the latest
+        successful search version.
       responses:
         '202':
           description: Accepted
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/JobView'
+                $ref: '#/components/schemas/BatchView'
         default:
           description: Explicit failure with code, message and requestId; no fake
             success
@@ -867,6 +855,7 @@ components:
       - CHANGE_EXPLANATION
       - CONCEPT_EXPLANATION
       - RECORD_REUSE
+      - CLARIFICATION
       - UNSUPPORTED
     AgentRequest:
       type: object
@@ -1292,17 +1281,35 @@ components:
       type: object
       additionalProperties: false
       required:
-      - version
-      - files
+      - mode
+      - entries
       properties:
-        version:
-          type: integer
-          const: 1
-        files:
+        mode:
+          type: string
+          enum:
+          - FOLDER
+          - ZIP
+        entries:
           type: array
           items:
-            $ref: '#/components/schemas/ManifestFile'
+            $ref: '#/components/schemas/UploadEntry'
+          minItems: 1
           maxItems: 5000
+      allOf:
+      - if:
+          properties:
+            mode:
+              const: ZIP
+          required:
+          - mode
+        then:
+          properties:
+            entries:
+              minItems: 1
+              maxItems: 1
+      description: Intake manifest only. FOLDER maps each file part; ZIP maps exactly
+        one archive part. Server validates relative paths, part-name correspondence
+        and limits, then computes a separate full file inventory.
     JobView:
       type: object
       additionalProperties: false
@@ -1442,3 +1449,19 @@ components:
           $ref: '#/components/schemas/StateToken'
         candidateReference:
           $ref: '#/components/schemas/ReferenceState'
+    UploadEntry:
+      type: object
+      additionalProperties: false
+      required:
+      - partName
+      - relativePath
+      properties:
+        partName:
+          type: string
+          minLength: 1
+        relativePath:
+          type: string
+          minLength: 1
+      description: Client mapping from one multipart part name to its relative path.
+        Same basenames in distinct directories remain separate. No client hash, size
+        or classification required.

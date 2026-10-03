@@ -1,10 +1,10 @@
 import { copyFile, mkdir, realpath, writeFile, access } from 'node:fs/promises';
-import { basename, dirname, join, relative, resolve } from 'node:path';
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { listFiles, loadReference, sha256 } from './load.mjs';
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
-function inside(parent, child) { const rel = relative(parent, child); return rel === '' || (!rel.startsWith('..') && !rel.startsWith('/')); }
+function inside(parent, child) { const rel = relative(parent, child); return rel === '' || (rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel)); }
 async function canonicalOutput(path) {
   path = resolve(path);
   try { return await realpath(path); }

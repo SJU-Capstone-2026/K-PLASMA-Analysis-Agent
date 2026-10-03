@@ -49,4 +49,31 @@ class ContractSerializationTest {
         var value = mapper.treeToValue(experiment, WorkspaceDto.DecisionRecord.class);
         assertEquals(2, mapper.valueToTree(value).get("version").intValue());
     }
+    @Test void uploadIntakeKeepsFolderPartPathsAndOneArchiveWithoutClientComputedInventory() throws Exception {
+        var fixture = mapper.readTree(Files.readString(Path.of("../agent/tests/support/contract-wire.json")));
+        for (var name : new String[]{"folderUpload", "archiveUpload"}) {
+            var manifest = mapper.treeToValue(fixture.get(name), ImportDto.UploadManifest.class);
+            assertEquals(fixture.get(name), mapper.valueToTree(manifest));
+        }
+    }
+    @Test void clarificationResponseAndTurnPreserveOriginalIntentAndCompactSnapshot() throws Exception {
+        var fixture = mapper.readTree(Files.readString(Path.of("../agent/tests/support/contract-wire.json")));
+        var response = mapper.treeToValue(fixture.get("clarificationResponse"), WorkspaceDto.AgentResponse.class);
+        var turn = mapper.treeToValue(fixture.get("clarificationTurn"), WorkspaceDto.TurnSnapshot.class);
+        assertEquals("CLARIFICATION", response.intent());
+        assertEquals("CLARIFICATION", turn.intent());
+        assertEquals(fixture.get("clarificationResponse"), mapper.valueToTree(response));
+        assertEquals(fixture.get("clarificationTurn"), mapper.valueToTree(turn));
+    }
+    @Test void reprocessBatchPreservesNestedJobAndProgressWireShape() throws Exception {
+        var fixture = mapper.readTree(Files.readString(Path.of("../agent/tests/support/contract-wire.json")));
+        var batch = mapper.treeToValue(fixture.get("reprocessBatch"), ImportDto.BatchView.class);
+        assertEquals("00000000-0000-4000-8000-000000000002", batch.batchId());
+        assertEquals(1, batch.jobs().size());
+        assertEquals(12, batch.receivedBytes());
+        assertTrue(fixture.get("reprocessBatch").equals((left, right) -> left.isNumber() && right.isNumber()
+                ? Double.compare(left.doubleValue(), right.doubleValue()) : left.equals(right) ? 0 : 1,
+                mapper.valueToTree(batch)));
+    }
+
 }

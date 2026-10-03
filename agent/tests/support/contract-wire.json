@@ -300,5 +300,83 @@
       "metastableFluxRaw": 14,
       "neutralFluxRaw": 15
     }
+  },
+  "folderUpload": {
+    "mode": "FOLDER",
+    "entries": [
+      {
+        "partName": "file0",
+        "relativePath": "artificial/IED/Ar+.txt"
+      },
+      {
+        "partName": "file1",
+        "relativePath": "artificial/IAD/Ar+.txt"
+      }
+    ]
+  },
+  "archiveUpload": {
+    "mode": "ZIP",
+    "entries": [
+      {
+        "partName": "archive",
+        "relativePath": "artificial.zip"
+      }
+    ]
+  },
+  "clarificationResponse": {
+    "intent": "CLARIFICATION",
+    "status": "NEEDS_INPUT",
+    "candidates": [],
+    "explanation": null,
+    "answerSnapshot": {
+      "intent": "CLARIFICATION",
+      "status": "NEEDS_INPUT",
+      "missingConditions": [
+        "biasPower"
+      ]
+    },
+    "usedRunRefs": []
+  },
+  "clarificationTurn": {
+    "id": "turn-artificial",
+    "askedAt": "2000-01-01T00:00:00Z",
+    "question": "artificial incomplete condition question",
+    "intent": "CLARIFICATION",
+    "context": null,
+    "answerRunRefs": [],
+    "answerSnapshot": {
+      "intent": "CLARIFICATION",
+      "status": "NEEDS_INPUT",
+      "missingConditions": [
+        "biasPower"
+      ]
+    },
+    "ui": {
+      "collapsed": false,
+      "openRunIds": [],
+      "runDetailTabs": {},
+      "activeCandidateGroup": "common",
+      "continuedRunId": null,
+      "lookupExpanded": false,
+      "selectedCandidateRunId": null
+    }
+  },
+  "reprocessBatch": {
+    "batchId": "00000000-0000-4000-8000-000000000002",
+    "status": "QUEUED",
+    "receivedBytes": 12,
+    "totalBytes": 12,
+    "processedRuns": 0,
+    "totalRuns": 1,
+    "jobs": [
+      {
+        "jobId": "00000000-0000-4000-8000-000000000003",
+        "runId": null,
+        "runVersionId": null,
+        "status": "QUEUED",
+        "reason": null,
+        "errors": []
+      }
+    ]
   }
 }

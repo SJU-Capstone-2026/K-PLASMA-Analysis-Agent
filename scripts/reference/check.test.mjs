@@ -1,8 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, writeFile, rm, realpath, symlink } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, rm, realpath, symlink, lstat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { loadReference } from './load.mjs';
 import { prepareReference } from './prepare.mjs';
@@ -80,4 +80,18 @@ test('prepare refuses overwrite and source/output overlap', async t => {
   await assert.rejects(prepareReference({ ...options, output: join(root, 'prototype/child') }), /must not overlap/);
   await mkdir(join(root, 'existing'));
   await assert.rejects(prepareReference({ ...options, output: join(root, 'existing') }), /already exists/);
+});
+
+test('prepare rejects repository child names starting with two dots before writing', async t => {
+  const { root } = await fixture(t);
+  const output = new URL(`../../..reference-${basename(root)}`, import.meta.url).pathname;
+  t.after(() => rm(output, { recursive: true, force: true }));
+  await assert.rejects(prepareReference({ prototype: join(root, 'prototype'), raw: join(root, 'raw'), tests: join(root, 'tests'), output }), /outside the repository/);
+  await assert.rejects(lstat(output), { code: 'ENOENT' });
+});
+test('prepare rejects source child names starting with two dots before writing', async t => {
+  const { root } = await fixture(t);
+  const output = join(root, 'prototype/..reference');
+  await assert.rejects(prepareReference({ prototype: join(root, 'prototype'), raw: join(root, 'raw'), tests: join(root, 'tests'), output }), /must not overlap/);
+  await assert.rejects(lstat(output), { code: 'ENOENT' });
 });

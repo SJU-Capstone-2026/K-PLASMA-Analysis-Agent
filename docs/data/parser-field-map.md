@@ -106,6 +106,8 @@ REV는 version 필드가 없는 ReviewRecord, EXP는 version=2인 ExperimentReco
 
 AgentRequest/Response와 AgentContext의 hydrateFullRun는 RunRef를 사용한다. 현재 후보는 최신 summary, 과거 참조는 version별 FullRun이다. 스냅샷의 유연한 순수 JSON 객체는 원본 검색/목표/설명 구조를 손실 없이 보존하기 위한 경계이며 새로운 수치·가상 Run을 만들 허가가 아니다.
 
+업로드 intake `UploadManifest`는 `{mode:"FOLDER"|"ZIP",entries:[{partName,relativePath}]}`이다. FOLDER는 같은 basename도 디렉터리별 상대경로와 별도 partName으로 구분하고, ZIP은 archive part 하나만 매핑한다. 클라이언트는 hash/size/kind를 제출하지 않는다. 서버가 보관하면서 계산한 `ManifestFile{path,kind,size,sha256}`는 전체 원본 inventory 응답이다. 재처리의 202 응답은 nested jobs와 진행률을 포함한 `BatchView`다. 추가 조건이 필요한 원본 `CLARIFICATION` intent는 AgentResponse와 TurnSnapshot 모두에 보존한다.
+
 ## 외부 기준 패키지
 
 `prototype/`, `raw/`, `tests/`, `manifest.json`을 외부 폴더에 둔다. manifest는 `version:"v12.3.1"`, `files:{relativePath:sha256}`이고 모든 원본 byte를 추적한다. prepare는 `--prototype --raw --tests --output` 명시 루트만 읽고 저장소 안 output, 소스/output 겹침, overwrite, symlink를 거부한다. loader는 원본 JS를 실행하지 않고 필수 파일/전체 inventory/경로/SHA-256을 검증한다. 출력과 원본 각각 hash를 비교해 원본 보존도 확인한다.
