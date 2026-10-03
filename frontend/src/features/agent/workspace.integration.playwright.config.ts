@@ -1,0 +1,2 @@
+import {defineConfig} from '@playwright/test';
+export default defineConfig({testDir:'.',testMatch:'**/workspace.integration.pw.ts',workers:1,reporter:'list',outputDir:'../../../../backend/.runtime/task-10-logs/actual-workspace',timeout:120_000,use:{launchOptions:process.env.KPLASMA_BROWSER_EXECUTABLE?{executablePath:process.env.KPLASMA_BROWSER_EXECUTABLE}:{},baseURL:process.env.KPLASMA_E2E_BASE_URL??'http://127.0.0.1:5187',viewport:{width:1440,height:1000},deviceScaleFactor:1}});
