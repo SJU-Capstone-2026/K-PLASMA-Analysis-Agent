@@ -1,9 +1,9 @@
 import {useEffect,useLayoutEffect,useRef,type ReactNode} from 'react';
 import {createPortal} from 'react-dom';
-export function Modal({titleId,onClose,children,className='decision-modal',focusKey,synchronousFocus=false,role='dialog',descriptionId}:{titleId:string;onClose:()=>void;children:ReactNode;className?:string;focusKey?:string;synchronousFocus?:boolean;role?:'dialog'|'alertdialog';descriptionId?:string}){
+export function Modal({titleId,onClose,children,className='decision-modal',focusKey,synchronousFocus=false,role='dialog',descriptionId,initialFocusSelector}:{titleId:string;onClose:()=>void;children:ReactNode;className?:string;focusKey?:string;synchronousFocus?:boolean;role?:'dialog'|'alertdialog';descriptionId?:string;initialFocusSelector?:string}){
  const panel=useRef<HTMLElement>(null);const trigger=useRef<HTMLElement|null>(null);const close=useRef(onClose);close.current=onClose;
  useLayoutEffect(()=>{trigger.current=document.activeElement instanceof HTMLElement?document.activeElement:null;document.body.classList.add('modal-open');return()=>{document.body.classList.remove('modal-open');if(trigger.current?.isConnected)trigger.current.focus();};},[]);
- useEffect(()=>{if(synchronousFocus){panel.current?.focus();return;}const frame=requestAnimationFrame(()=>panel.current?.focus());return()=>cancelAnimationFrame(frame);},[focusKey,synchronousFocus]);
+ useEffect(()=>{const focus=()=>{const target=initialFocusSelector?panel.current?.querySelector<HTMLElement>(initialFocusSelector):null;(target??panel.current)?.focus();};if(synchronousFocus){focus();return;}const frame=requestAnimationFrame(focus);return()=>cancelAnimationFrame(frame);},[focusKey,synchronousFocus,initialFocusSelector]);
  useEffect(()=>{
  function onKeyDown(event:KeyboardEvent){
   if(event.key==='Escape'){event.preventDefault();close.current();return;}

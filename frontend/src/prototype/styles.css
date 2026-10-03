@@ -1197,6 +1197,9 @@ select:focus { border-color: var(--color-primary); box-shadow: 0 0 0 3px rgba(65
 .confirm-modal h2 { margin: 10px 0 5px; color: var(--color-navy); }
 .confirm-modal p { margin: 0; color: var(--color-muted); }
 .confirm-modal .form-actions { justify-content: center; margin-top: 20px; }
+.run-delete-modal { max-height: calc(100dvh - 32px); overflow-y: auto; }
+.run-delete-modal p + p { margin-top: 12px; }
+.run-delete-modal p { overflow-wrap: anywhere; }
 .confirm-icon--warning { color: var(--color-warning); background: var(--color-warning-soft); }
 
 .toast { padding: 12px 14px; color: #fff; background: #24304d; border-radius: 10px; box-shadow: var(--shadow-float); font-size: 13px; font-weight: 650; animation: toast-in 180ms ease both; }

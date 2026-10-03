@@ -19,5 +19,6 @@ export function useImportBatch(onComplete:(signal:AbortSignal)=>Promise<void>){
   };
   try{await receive(await operation(crypto.randomUUID(),{signal:current.signal,onProgress:value=>{if(mounted.current&&!current.signal.aborted)setProgress(value);}}));}catch(cause){fail(cause);}
  }
- return {batch,progress,pending,error,uploadFolder:(files:File[])=>start((key,options)=>uploadFolder(files,key,options)),uploadZip:(file:File)=>start((key,options)=>uploadZip(file,key,options)),reprocess:(jobId:string)=>start((key,options)=>reprocess(jobId,key,options))};
+ function forgetDeletedRuns(runIds:string[]){setBatch(current=>current&&terminalBatch(current)&&current.jobs.some(job=>job.runId&&runIds.includes(job.runId))?null:current);}
+ return {batch,progress,pending,error,forgetDeletedRuns,uploadFolder:(files:File[])=>start((key,options)=>uploadFolder(files,key,options)),uploadZip:(file:File)=>start((key,options)=>uploadZip(file,key,options)),reprocess:(jobId:string)=>start((key,options)=>reprocess(jobId,key,options))};
 }
