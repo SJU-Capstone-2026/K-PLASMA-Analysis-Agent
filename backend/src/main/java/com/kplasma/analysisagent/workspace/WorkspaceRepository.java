@@ -32,7 +32,14 @@ public class WorkspaceRepository {
     public void advance() {jdbc.update("update workspace set revision=revision+1 where id=1");}
     public void clear(boolean reset) {
         jdbc.update("delete from conversation_turn where workspace_id=1");
-        if(reset)jdbc.update("delete from decision where workspace_id=1");
+        if(reset) {
+            jdbc.update("delete from decision where workspace_id=1");
+            jdbc.update("delete from workspace_idempotency");
+        } else {
+            // The epochs reject old turns before replay; their cleared content must not survive here.
+            // Decision retries remain valid across conversations in the current workspace epoch.
+            jdbc.update("delete from workspace_idempotency where scope='TURN'");
+        }
         jdbc.update("update workspace set active_run=null,candidate_reference=null,conversation_epoch=conversation_epoch+1,workspace_epoch=workspace_epoch+?,revision=revision+1 where id=1",reset?1:0);
     }
     public String replay(long workspace,long conversation,String scope,String key,Object payload) {
