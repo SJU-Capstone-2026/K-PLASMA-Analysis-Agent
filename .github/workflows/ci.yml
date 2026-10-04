@@ -19,6 +19,14 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
+      - uses: actions/setup-python@v5
+        with:
+          python-version-file: agent/python/.python-version
+      - run: python -m pip install uv==0.12.23
+      - run: uv sync --project agent/python --frozen
+      - run: uv run --project agent/python --frozen pytest agent/python/tests agent/python/evals
+      - run: uv run --project agent/python --frozen ruff check agent/python/src agent/python/tests agent/python/evals
+      - run: uv run --project agent/python --frozen mypy agent/python/src
       - run: npm ci
       - run: npm run verify:public-files
       - run: npm test

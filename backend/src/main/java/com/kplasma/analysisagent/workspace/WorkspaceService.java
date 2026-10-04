@@ -10,7 +10,7 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class WorkspaceService {
     private static final String INVALID="INVALID_WORKSPACE";
-    private static final Set<String> INTENTS=Set.of("FORWARD_LOOKUP","REVERSE_SEARCH","CHANGE_EXPLANATION","CONCEPT_EXPLANATION","RECORD_REUSE","CLARIFICATION","UNSUPPORTED");
+    private static final Set<String> INTENTS=Set.of("FORWARD_LOOKUP","REVERSE_SEARCH","RUN_COMPARISON","CHANGE_EXPLANATION","CONCEPT_EXPLANATION","RECORD_REUSE","CLARIFICATION","UNSUPPORTED");
     private static final Set<String> UI_KEYS=Set.of("collapsed","openRunIds","runDetailTabs","activeCandidateGroup","continuedRunId","lookupExpanded","selectedCandidateRunId");
     private final WorkspaceRepository repository;
     private final SnapshotValidator validate;
@@ -64,6 +64,7 @@ public class WorkspaceService {
         var current=repository.lock();epochs(token,current.stateToken());revision(token,current.stateToken());
         if(active!=null)validate.ref(active,INVALID);
         if(reference!=null){validate.require(Set.of("단일 Run","후보 집합").contains(reference.kind()==null?"":reference.kind()),INVALID,"Invalid reference kind");validate.refs(reference.runs(),INVALID,true);validate.require(!reference.runs().isEmpty()&&(!reference.kind().equals("단일 Run")||reference.runs().size()==1),INVALID,"Reference cardinality does not match kind");}
+        if(!Objects.equals(reference,current.candidateReference())||!Objects.equals(active,current.conversation().activeRun()))repository.invalidateAgentReferences(current.stateToken());
         repository.references(reference,active);repository.advance();return repository.lock();
     }
     @Transactional public WorkspaceView newConversation(StateToken token){return clear(token,false);}

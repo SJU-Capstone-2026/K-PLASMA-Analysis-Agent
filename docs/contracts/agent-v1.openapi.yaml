@@ -1,0 +1,304 @@
+openapi: 3.1.0
+info:
+  title: K-PLASMA Agent Graph v1
+  version: 1.0.0
+  description: |
+    Python LangGraph worker; Spring owns durable request acceptance and final turns.
+    Existing fallback is preserved as source but is not invoked by v1.
+    All worker endpoints require X-Agent-Token configured by AGENT_WORKER_TOKEN.
+    The worker has no database credentials. A synchronous HTTP checkpoint adapter
+    stores typed serializer bytes as JSON/base64 in PostgreSQL under the same
+    transaction/row lock as generation, request revision, status and lease checks.
+    This deliberately replaces the draft plan's worker SQL role/SECURITY DEFINER
+    function. All put/put_writes calls must await this endpoint. Do not use pickle.
+    Transient checkpoint/manifest erasure is atomic with completion/failure/reset
+    instead of asynchronous cleanup; a transaction failure rolls back the state
+    transition so the same operation is retryable without orphaned drafts.
+    All statuses are workflow states, separate from domain result statuses.
+    Lock order is intake (Run deletion only), workspace, request. Checkpoint writes
+    and claim lock request only; heartbeat follows workspace then request when
+    resolving deferred dependency invalidation. Before operation classification,
+    a reference change or referenced Run deletion marks the captured context invalid.
+    Classification cancels dependent work under the same lock, while independent
+    operations such as concept explanation may continue. New conversation/reset
+    always cancel immediately. No model call holds a DB transaction.
+paths:
+  /api/agent/requests:
+    post:
+      operationId: submitAgentRequest
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/Submission' }
+      responses:
+        '200': { $ref: '#/components/responses/Request' }
+        '409': { description: STALE_CONTEXT, REQUEST_IN_PROGRESS or IDEMPOTENCY_CONFLICT }
+  /api/agent/requests/{id}:
+    parameters: [{ $ref: '#/components/parameters/RequestId' }]
+    get:
+      operationId: getAgentRequest
+      responses:
+        '200': { $ref: '#/components/responses/Request' }
+        '404': { description: Request not found }
+  /api/agent/requests/{id}/resume:
+    parameters: [{ $ref: '#/components/parameters/RequestId' }]
+    post:
+      operationId: resumeAgentRequest
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [expectedRequestRevision, pendingInputId, input]
+              properties:
+                expectedRequestRevision: { type: integer, minimum: 0 }
+                pendingInputId: { type: string }
+                input:
+                  type: object
+                  description: Natural language uses text; structured slot responses remain JSON.
+                  additionalProperties: true
+      responses:
+        '200': { $ref: '#/components/responses/Request' }
+        '409': { description: STALE_REQUEST, INPUT_LIMIT or IDEMPOTENCY_CONFLICT }
+  /api/agent/requests/{id}/cancel:
+    parameters: [{ $ref: '#/components/parameters/RequestId' }]
+    post:
+      operationId: cancelAgentRequest
+      responses:
+        '200': { $ref: '#/components/responses/Request' }
+  /internal/agent/claim:
+    post:
+      operationId: claimAgentRequest
+      security: [{ workerToken: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [workerId]
+              properties:
+                workerId: { type: string, maxLength: 200 }
+                leaseSeconds: { type: integer, minimum: 5, maximum: 300, default: 60 }
+      responses:
+        '200':
+          description: >-
+            No work returns request null. Expired RUNNING requests can be reclaimed.
+            Each request revision reserves at most three claims durably. After the third
+            lease expires, the next claim atomically marks it FAILED with CLAIM_ATTEMPT_LIMIT,
+            fences old workers, and purges transient checkpoints before continuing the queue.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [request]
+                properties:
+                  request: { oneOf: [{ $ref: '#/components/schemas/RequestView' }, { type: 'null' }] }
+                  claimGeneration: { type: integer }
+                  requestRevision: { type: integer }
+                  context: { type: object }
+                  inputEvents: { type: array, items: { type: object } }
+  /internal/agent/requests/{id}/heartbeat:
+    parameters: [{ $ref: '#/components/parameters/RequestId' }]
+    post:
+      operationId: heartbeatAgentRequest
+      security: [{ workerToken: [] }]
+      requestBody: { $ref: '#/components/requestBodies/Mutation' }
+      responses:
+        '200': { $ref: '#/components/responses/Request' }
+        '409': { $ref: '#/components/responses/StaleClaim' }
+  /internal/agent/requests/{id}/context:
+    parameters: [{ $ref: '#/components/parameters/RequestId' }]
+    get:
+      operationId: getAgentManifest
+      security: [{ workerToken: [] }]
+      parameters: [{ $ref: '#/components/parameters/Generation' }, { $ref: '#/components/parameters/Revision' }]
+      responses:
+        '200': { $ref: '#/components/responses/Manifest' }
+        '409': { $ref: '#/components/responses/StaleClaim' }
+    post:
+      operationId: pinAgentManifestWithExactVersions
+      security: [{ workerToken: [] }]
+      description: |
+        requiredRunRefs adds exact historical versions. First call fixes ordered
+        latest scalar summaries and available acceptance refs in one SQL snapshot.
+        Deleted versions mentioned in previous answers are optional interpretation
+        context and do not block an unrelated lookup; explicit requiredRunRefs are
+        checked. A selected unavailable role must lead to a clarification.
+        Later calls can append exact versions to referencedRuns but never refresh
+        runs or replace existing scalar values. explain_concept skips this API.
+      requestBody: { $ref: '#/components/requestBodies/Mutation' }
+      responses:
+        '200': { $ref: '#/components/responses/Manifest' }
+        '409': { $ref: '#/components/responses/StaleClaim' }
+  /internal/agent/requests/{id}/checkpoint:
+    parameters: [{ $ref: '#/components/parameters/RequestId' }]
+    get:
+      operationId: getAgentCheckpoint
+      security: [{ workerToken: [] }]
+      parameters: [{ $ref: '#/components/parameters/Generation' }, { $ref: '#/components/parameters/Revision' }]
+      responses:
+        '200':
+          description: Current opaque checkpoint envelope; payload null when absent.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  payload: { type: [object, 'null'] }
+        '409': { $ref: '#/components/responses/StaleClaim' }
+    post:
+      operationId: putAgentCheckpoint
+      security: [{ workerToken: [] }]
+      requestBody: { $ref: '#/components/requestBodies/Mutation' }
+      responses:
+        '200': { description: Saved under the same claim fence transaction. }
+        '409': { $ref: '#/components/responses/StaleClaim' }
+  /internal/agent/requests/{id}/attempt:
+    parameters: [{ $ref: '#/components/parameters/RequestId' }]
+    post:
+      operationId: reserveModelAttempt
+      security: [{ workerToken: [] }]
+      description: |
+        Call before each external model call. interpret and interpret_repair share
+        a maximum of 4 reservations per request revision; explain/explain_repair
+        share another 4. A worker crash never refunds a reserved attempt.
+      requestBody: { $ref: '#/components/requestBodies/Mutation' }
+      responses:
+        '200': { description: Object with attempt and limit. }
+        '409': { description: STALE_CLAIM or MODEL_ATTEMPT_LIMIT }
+  /internal/agent/requests/{id}/needs-input:
+    parameters: [{ $ref: '#/components/parameters/RequestId' }]
+    post:
+      operationId: suspendAgentRequest
+      security: [{ workerToken: [] }]
+      description: Save interrupt checkpoint before this call. Lease is released. Resume preserves checkpoint.
+      requestBody: { $ref: '#/components/requestBodies/Mutation' }
+      responses:
+        '200': { $ref: '#/components/responses/Request' }
+        '409': { $ref: '#/components/responses/StaleClaim' }
+  /internal/agent/requests/{id}/finalize:
+    parameters: [{ $ref: '#/components/parameters/RequestId' }]
+    post:
+      operationId: finalizeAgentRequest
+      security: [{ workerToken: [] }]
+      description: |
+        Pass answer as the existing AgentResponse contract. Server builds a final
+        turn with id=requestId and original question/time. One transaction appends
+        the turn, advances workspace, completes request and removes transient data.
+        Exact answer replay returns completed state; altered payload conflicts.
+      requestBody: { $ref: '#/components/requestBodies/Mutation' }
+      responses:
+        '200': { $ref: '#/components/responses/Request' }
+        '409': { description: STALE_CLAIM, STALE_CONTEXT or IDEMPOTENCY_CONFLICT }
+  /internal/agent/requests/{id}/fail:
+    parameters: [{ $ref: '#/components/parameters/RequestId' }]
+    post:
+      operationId: failAgentRequest
+      security: [{ workerToken: [] }]
+      description: |
+        error includes a safe code/message, never raw provider response or secrets.
+        Only explain_change may retain a validated comparison partialResult with
+        explanationComplete=false and both usedRunRefs. Raw drafts stay private.
+      requestBody: { $ref: '#/components/requestBodies/Mutation' }
+      responses:
+        '200': { $ref: '#/components/responses/Request' }
+        '409': { $ref: '#/components/responses/StaleClaim' }
+components:
+  securitySchemes:
+    workerToken: { type: apiKey, in: header, name: X-Agent-Token }
+  parameters:
+    RequestId: { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    IdempotencyKey: { name: Idempotency-Key, in: header, required: true, schema: { type: string, minLength: 1, maxLength: 200 } }
+    Generation: { name: claimGeneration, in: query, required: true, schema: { type: integer } }
+    Revision: { name: requestRevision, in: query, required: true, schema: { type: integer } }
+  requestBodies:
+    Mutation:
+      required: true
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Mutation' }
+  responses:
+    Request:
+      description: Durable request state.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/RequestView' }
+    StaleClaim:
+      description: STALE_CLAIM; discard local work. No state or checkpoint was written.
+    Manifest:
+      description: Ordered scalar summaries only, never raw source files or graph arrays.
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [runs, referencedRuns, context, createdAt]
+            properties:
+              runs: { type: array, items: { type: object, description: RunSummary plus nullable sourceFileCount } }
+              referencedRuns: { type: array, items: { type: object } }
+              context: { type: object }
+              createdAt: { type: string, format: date-time }
+  schemas:
+    RunRef:
+      type: object
+      required: [runId, runVersionId]
+      properties:
+        runId: { type: string }
+        runVersionId: { type: string, format: uuid }
+    StateToken:
+      type: object
+      required: [workspaceEpoch, conversationEpoch, revision]
+      properties:
+        workspaceEpoch: { type: integer }
+        conversationEpoch: { type: integer }
+        revision: { type: integer }
+    Submission:
+      type: object
+      required: [text, stateToken]
+      properties:
+        text: { type: string, minLength: 1, maxLength: 16000 }
+        stateToken: { $ref: '#/components/schemas/StateToken' }
+        baseline: { $ref: '#/components/schemas/RunRef' }
+        selectedRunRef: { $ref: '#/components/schemas/RunRef' }
+        candidateReferences: { type: array, items: { $ref: '#/components/schemas/RunRef' } }
+    RequestView:
+      type: object
+      required: [requestId, requestRevision, status, stage, graphVersion, inputEvents]
+      properties:
+        requestId: { type: string, format: uuid }
+        requestRevision: { type: integer }
+        status: { enum: [QUEUED, RUNNING, NEEDS_INPUT, COMPLETED, FAILED, CANCELLED] }
+        stage: { type: string }
+        graphVersion: { const: v1 }
+        question: { type: [string, 'null'] }
+        pendingInput: { type: [object, 'null'], description: At least id and message; optional slots/options. }
+        error: { type: [object, 'null'] }
+        partialResult: { type: [object, 'null'] }
+        turnId: { type: [string, 'null'] }
+        answerSnapshot: { type: [object, 'null'] }
+        intent: { type: [string, 'null'] }
+        usedRunRefs: { type: array, items: { $ref: '#/components/schemas/RunRef' } }
+        inputEvents: { type: array, items: { type: object, description: id, requestRevision, input, createdAt } }
+        createdAt: { type: string, format: date-time }
+    Mutation:
+      type: object
+      required: [claimGeneration, requestRevision]
+      properties:
+        claimGeneration: { type: integer }
+        requestRevision: { type: integer }
+        leaseSeconds: { type: integer, minimum: 5, maximum: 300 }
+        stage: { type: string }
+        operationKind: { enum: [forward_lookup, reverse_search, compare_runs, explain_change, explain_concept, unsupported] }
+        dependsOnContext: { type: boolean }
+        payload: { type: object, description: Opaque bounded checkpoint envelope. }
+        pendingInput: { type: object, required: [id, message] }
+        error: { type: object, required: [code, message] }
+        partialResult: { type: object }
+        usedRunRefs: { type: array, items: { $ref: '#/components/schemas/RunRef' } }
+        requiredRunRefs: { type: array, items: { $ref: '#/components/schemas/RunRef' } }
+        answer: { type: object, description: Existing AgentResponse with v1 answerSnapshot. }
+        limit: { type: integer, minimum: 1, maximum: 4 }

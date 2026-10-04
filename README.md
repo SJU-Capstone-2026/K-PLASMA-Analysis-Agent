@@ -3,7 +3,7 @@
 
 ## 프로젝트 방향
 
-K-PLASMA 프로토타입 v12.3.1의 UI·UX와 기능을 실제 애플리케이션으로 이관합니다. 초기에는 기존 결정론적 fallback을 사용하며 실제 파일 업로드·파싱·재처리를 구현합니다. 1차 사용 환경은 팀원 각자의 로컬 개발 환경입니다.
+K-PLASMA 프로토타입 v12.3.1의 UI·UX와 기능을 실제 애플리케이션으로 이관합니다. 신규 질문은 Python LangGraph v1에서 처리합니다. 순방향 조회·역방향 탐색·Run 비교·변화 설명·개념 설명을 지원하며, 실제 파일 업로드·파싱·재처리를 제공합니다. 1차 사용 환경은 팀원 각자의 로컬 개발 환경입니다.
 
 주요 제품 코드 영역은 `backend/`, `frontend/`, `agent/`로 구성합니다.
 
@@ -11,10 +11,12 @@ K-PLASMA 프로토타입 v12.3.1의 UI·UX와 기능을 실제 애플리케이�
 - 프론트엔드: React + TypeScript + Vite
 - 데이터베이스: PostgreSQL
 
-`frontend`는 화면, `backend`는 업로드·파싱·원본 보관·DB, `agent`는 기존 JavaScript fallback 라이브러리를 담당합니다. 초기에는 Agent를 별도 서버로 실행하지 않습니다.
+`frontend`는 화면, `backend`는 데이터와 요청·결과의 영속 저장, `agent/python`은 LangGraph v1 worker를 담당합니다. 기존 JavaScript fallback 소스·테스트·과거 답변 렌더러는 보존하지만 신규 질문 경로에서는 호출하지 않습니다. 모델 연결 오류는 명시적으로 표시합니다.
 
 ## 설계와 계획
 
+- [Agent Graph v1 구현 계획](docs/superpowers/plans/2026-10-04-agent-graph-v1-plan.md): 다섯 도구·질문 해석·수치 검증·장애 복구 계약.
+- [Agent v1 구현·검증 기록](docs/verification/agent-v1.md): 실제 모델·프로세스 장애·원본 scalar 대조 결과와 남은 검토 범위.
 - [v12.3.1 실제 구현 설계](docs/superpowers/specs/2026-10-03-v12.3.1-implementation-design.md): 사용자 승인된 기능·데이터 정책과 검증 기준. 데이터 범위는 기존 3변수의 150 Run입니다.
 - [상세 구현 계획](docs/superpowers/plans/2026-10-03-v12.3.1-implementation-plan.md): 12개 구현 작업, 공통 계약, 의존 순서·PR 단위·검증 기준. 사용자가 승인했으며 작업별 구현·검토 방식으로 진행합니다.
 - [기준 프로토타입 조사](docs/superpowers/research/2026-10-03-v12.3.1-discovery.md): 화면·fallback·수치·원본 파일과 기존 테스트 확인 결과.
@@ -23,11 +25,13 @@ K-PLASMA 프로토타입 v12.3.1의 UI·UX와 기능을 실제 애플리케이�
 
 ## 로컬 실행과 검증
 
-Java 21, Node 22.23.3, npm 10.9.9와 Docker를 준비한 뒤 [팀 실행 문서](docs/development.md)를 따라 PostgreSQL·backend·frontend를 시작합니다. `agent`는 frontend가 사용하는 라이브러리입니다. `.env`의 셸 특수문자가 있는 값은 작은따옴표로 감싸고, DB 포트를 변경하면 `POSTGRES_PORT`와 `DB_URL`을 함께 갱신합니다.
+Java 21, Node 22.23.3, npm 10.9.9, uv와 Docker를 준비한 뒤 [팀 실행 문서](docs/development.md)를 따라 PostgreSQL·backend·Python worker·frontend를 시작합니다. Python은 `agent/python/.python-version`과 `uv.lock`으로 고정합니다. `OPENAI_API_KEY`, `OPENAI_MODEL=gpt-5.6-luna`, `OPENAI_REASONING_EFFORT=none`, backend·worker 공통 `AGENT_WORKER_TOKEN`을 설정합니다.
 
 ```sh
 npm ci
+uv sync --project agent/python --frozen
 npm test
+npm run test:agent
 npm run typecheck
 npm run lint
 npm run build
@@ -37,7 +41,7 @@ npm run test:e2e
 npm run verify:public-files
 ```
 
-`test:e2e`는 독립 PostgreSQL과 실제 backend를 사용한 인공 데이터 검증입니다. 실제 150 Run과 기준 패키지를 외부에서 제공받은 뒤 `KPLASMA_REFERENCE_ROOT`를 설정하고 `npm run verify:reference`를 실행합니다. 환경변수가 없으면 명시적인 외부 검증은 실패합니다. 기본 CI는 실제 데이터를 포함하지 않으며 검증 artifact를 업로드하지 않습니다.
+`test:e2e`는 독립 PostgreSQL·backend·Python 그래프와 고정 모델 응답을 사용하는 인공 데이터 검증입니다. `test:e2e:live`는 실제 LLM을 연결합니다. 이전 fallback의 원본 비교 실행기는 보존했으며 현재 v1 통과 기준과의 차이는 [실행 문서](docs/development.md)에 설명합니다. 기본 CI는 실제 데이터나 API 키를 포함하지 않으며 검증 artifact를 업로드하지 않습니다.
 
 [수용 검증](docs/verification/acceptance.md)과 [원본 102개 대응표](docs/verification/prototype-test-map.md)는 통과·실패·유예·미검증 범위를 구분합니다. D1–D5와 남은 차이가 있으므로 전체 100% 동등성으로 표현하지 않습니다. 새 대화와 데모 초기화는 업로드한 Run·그래프·원본을 유지합니다. 종료 절차는 DB volume과 원본을 보존합니다.
 

@@ -1,5 +1,6 @@
 import {createElement,Fragment,type CSSProperties,type ReactNode} from 'react';
-import type {TurnSnapshot} from 'agent';
+import {isV1AnswerSnapshot,type TurnSnapshot} from 'agent';
+import {V1AnswerView} from './V1AnswerView';
 import {renderAgentAnswer} from './answer-markup';
 export type AnswerAction=(action:string,element:HTMLElement)=>void;
 const tags=new Set('article section div span strong small p h3 h4 ol li details summary i em b button input header footer'.split(' '));
@@ -21,4 +22,4 @@ function nodes(markup:string,onAction:AnswerAction):ReactNode{
  }
  return <Fragment>{Array.from(template.content.childNodes).map((node,index)=>convert(node,String(index)))}</Fragment>;
 }
-export function AnswerView({turn,onAction}:{turn:TurnSnapshot;onAction:AnswerAction}){return nodes(renderAgentAnswer(turn.answerSnapshot,{...turn,contextRunId:turn.context?.runId??null}),onAction);}
+export function AnswerView({turn,onAction}:{turn:TurnSnapshot;onAction:AnswerAction}){return isV1AnswerSnapshot(turn.answerSnapshot)?<V1AnswerView turn={turn} onAction={onAction}/>:nodes(renderAgentAnswer(turn.answerSnapshot,{...turn,contextRunId:turn.context?.runId??null}),onAction);}
