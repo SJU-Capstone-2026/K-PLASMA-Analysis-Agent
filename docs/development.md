@@ -77,12 +77,15 @@ npm run build
 backend/gradlew -p backend test --console=plain
 npm exec --workspace frontend -- playwright install chromium
 npm run test:e2e
+npm run test:agent:restart
 npm run verify:public-files
 ```
 
 Linux에서 브라우저 시스템 의존성이 없으면 `playwright install --with-deps chromium`을 사용한다. `test:e2e`는 인공 입력 3 Run을 만들고 독립 PostgreSQL·backend JAR·Python worker·Vite를 시작한다. 다섯 v1 답변, 정확한 Run 버전, 추가 입력 대기·resume·reload와 페이지 배치를 390/800/1008/1440px에서 검사한다. HTTP·그래프·체크포인트·수치 계산은 실제 구현을 쓰며 모델만 테스트 모듈의 고정 응답으로 대체한다. 이는 실제 LLM 품질 검증이 아니다. `npm run test:e2e:live`는 동일 흐름에 실제 `gpt-5.6-luna`/`none`을 연결하며 키와 API 사용량이 필요하다. 제품 worker에는 테스트 모델 선택 옵션이 없다.
 
 DB는 테스트 전용 이름과 임의 localhost 포트로 생성하며 자기 컨테이너만 정리한다. 다른 개발 DB나 서버를 재사용하지 않는다. Gradle build 출력과 project cache도 실행별로 나뉘고 복사한 JAR로 서버를 실행한다. 기본 제품 서버의 Clock을 변경하지 않는다. v1 검증 결과는 Git에서 제외한 `agent/python/.runtime/`에만 보관한다. 질문·응답·체크포인트·trace·토큰이 포함될 수 있는 연결 파일을 게시하지 않는다.
+
+`test:agent:restart`는 독립 인공 환경의 Spring 서버만 SIGKILL하고 같은 DB·보관소·포트로 다시 시작한다. 접수 상태, 추가 입력/checkpoint, 완료 답변과 같은 요청의 멱등 재개를 세 시나리오로 확인한다. 실제 그래프·HTTP·DB를 사용하고 모델만 고정 테스트 응답이며, OpenAI 호출은 없다. 기본 CI에도 포함한다.
 
 `frontend/playwright.config.ts`와 `test:e2e:legacy`는 이전 fallback UI 검증을 보존한 역사적 실행기다. v1에서 같은 답변 문구·카드 구조를 요구하지 않으므로 현재 기본 CI 통과 기준으로 사용하지 않는다. fallback 순수 함수 테스트는 계속 `npm test`에 포함된다. 외부 원본 파싱·수치 비교용 `verify:reference`의 기존 전체 UI 단계도 이 역사적 검증 범위이며, v1의 실제 LLM 평가와 혼동하지 않는다.
 

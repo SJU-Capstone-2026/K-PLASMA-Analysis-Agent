@@ -39,6 +39,6 @@ export async function startV1Environment(output,mode='stub'){
       const log=createWriteStream(join(output,'worker.log'));worker.stdout.pipe(log,{end:false});worker.stderr.pipe(log,{end:false});worker.on('exit',()=>log.end());
       metadata.workerPid=worker.pid;await writeFile(connection,JSON.stringify(metadata),{mode:0o600});
     }
-    return {url:backend.url,connection,worker,close};
+    return {url:backend.url,connection,worker,close,restartBackend:backend.restart};
   }catch(error){await close();throw error;}
 }

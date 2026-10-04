@@ -36,4 +36,5 @@ jobs:
       - run: backend/gradlew -p backend test --console=plain
       - run: npm exec --workspace frontend -- playwright install --with-deps chromium
       - run: npm run test:e2e
+      - run: npm run test:agent:restart
       # Deliberately no upload-artifact step. External sources, traces, payloads and screenshots stay local.
