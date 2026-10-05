@@ -1,7 +1,6 @@
 package com.kplasma.analysisagent.agent;
 
 import com.kplasma.analysisagent.contract.RunDto.RunRef;
-import com.kplasma.analysisagent.contract.RunDto.Summary;
 import com.kplasma.analysisagent.contract.WorkspaceDto.*;
 import com.kplasma.analysisagent.ingestion.IntakeException;
 import com.kplasma.analysisagent.workspace.*;
@@ -27,7 +26,8 @@ public class AgentRequestService {
     public record Resume(long expectedRequestRevision,String pendingInputId,Map<String,Object> input) {}
     public record Claim(String workerId,int leaseSeconds) {}
     public record Mutation(long claimGeneration,long requestRevision,Integer leaseSeconds,String stage,String operationKind,Boolean dependsOnContext,
-        Map<String,Object> payload,Map<String,Object> pendingInput,Map<String,Object> error,Map<String,Object> partialResult,List<RunRef> usedRunRefs,AgentResponse answer,Integer limit,List<RunRef> requiredRunRefs) {}
+        Map<String,Object> payload,Map<String,Object> pendingInput,Map<String,Object> error,Map<String,Object> partialResult,List<RunRef> usedRunRefs,AgentResponse answer,Integer limit,List<RunRef> requiredRunRefs,
+        Map<String,Object> reverseQuery,Boolean referencesOnly) {}
     private void require(boolean condition,String message){validate.require(condition,INVALID,message);}
     private void conflict(String code,String message){throw new IntakeException(code,409,message);}
     @Transactional public Map<String,Object> submit(Submission body,String key){
@@ -92,28 +92,53 @@ public class AgentRequestService {
     @Transactional public Map<String,Object> attempt(UUID id,Mutation body){var row=fence(id,body.claimGeneration(),body.requestRevision());validate.text(body.stage(),INVALID,"stage");require(Set.of("interpret","explain","interpret_repair","explain_repair").contains(body.stage()),"Unknown model stage");int limit=body.limit()==null?4:body.limit();require(limit>=1&&limit<=4,"attempt limit must be 1..4");Map<String,Object> counts=new LinkedHashMap<>(row.attempts());String key=(body.stage().startsWith("interpret")?"interpret":"explain")+":"+row.revision();int count=((Number)counts.getOrDefault(key,0)).intValue();if(count>=limit)conflict("MODEL_ATTEMPT_LIMIT","Model attempt limit exhausted");counts.put(key,count+1);jdbc.update("update agent_request set attempts=?::jsonb,stage=?,updated_at=now() where id=?",requests.json(counts),body.stage(),id);return Map.of("attempt",count+1,"limit",limit);}
     @Transactional public Map<String,Object> context(UUID id,long generation,long revision){return context(id,generation,revision,List.of());}
     @Transactional public Map<String,Object> context(UUID id,long generation,long revision,List<RunRef> required){
+        return context(id,generation,revision,required,null,false);
+    }
+    @Transactional public Map<String,Object> context(UUID id,long generation,long revision,List<RunRef> required,Map<String,Object> reverseQuery,Boolean referencesOnly){
         var current=workspace.lock();var row=fence(id,generation,revision);epochs(row,current);if(required==null)required=List.of();validate.refs(required,INVALID,false);
-        if(row.manifest()!=null){
-            Map<String,Object> manifest=new LinkedHashMap<>(row.manifest());Set<String> pinned=new HashSet<>();collectVersions(manifest.get("referencedRuns"),pinned);
-            List<String> missing=required.stream().map(RunRef::runVersionId).filter(v->!pinned.contains(v)).toList();if(missing.isEmpty())return manifest;
-            List<Object> historical=new ArrayList<>((List<?>)manifest.get("referencedRuns"));
-            historical.addAll(jdbc.query("select summary::text,jsonb_array_length(full_run->'sourceFiles') from run_version where id::text=any(?) order by run_id,registration_sequence",(rs,n)->{Map<String,Object> item=scalarSummary(rs.getString(1));item.put("sourceFileCount",rs.getObject(2));return item;},(Object)missing.toArray(String[]::new)));
-            manifest.put("referencedRuns",historical);jdbc.update("update agent_request set manifest=?::jsonb,updated_at=now() where id=?",requests.json(manifest),id);return manifest;
+        boolean only=Boolean.TRUE.equals(referencesOnly);require(!only||reverseQuery==null,"referencesOnly and reverseQuery are mutually exclusive");
+        ReverseContextQuery query=reverseQuery==null?null:new ReverseContextQuery(reverseQuery);
+        Map<String,Object> manifest=row.manifest()==null?new LinkedHashMap<>():new LinkedHashMap<>(row.manifest());
+        if(manifest.get("reverseQuery")!=null&&query!=null&&!mapper.valueToTree(manifest.get("reverseQuery")).equals(mapper.valueToTree(query.normalized())))conflict("MANIFEST_QUERY_CONFLICT","A materialized reverse query cannot change");
+        boolean changed=row.manifest()==null;
+        if(row.manifest()==null){
+            // Pin identities before any context-derived numerical condition is calculated.
+            var inventory=jdbc.query("select r.run_id,r.current_version_id::text from run r where r.current_version_id is not null order by r.run_id",(rs,n)->Map.of("runId",rs.getString(1),"runVersionId",rs.getString(2)));
+            manifest.put("catalogRunRefs",inventory);manifest.put("runs",List.of());manifest.put("referencedRuns",List.of());manifest.put("context",row.context());manifest.put("createdAt",Instant.now().toString());
+        }else if(!manifest.containsKey("catalogRunRefs")){
+            List<Map<String,Object>> inventory=new ArrayList<>();for(Object value:(List<?>)manifest.get("runs")){Map<?,?> run=(Map<?,?>)value;inventory.add(Map.of("runId",run.get("runId"),"runVersionId",run.get("runVersionId")));}
+            manifest.put("catalogRunRefs",inventory);changed=true;
         }
-        // One SQL statement fixes latest and historical scalar versions, their order and source counts.
         Set<String> refs=new LinkedHashSet<>();
         // Stored answers can outlive deleted Runs. They are interpretation context,
         // not mandatory dependencies of an unrelated new lookup.
         if(row.context()!=null)for(String key:List.of("activeRun","selectedRunRef","candidateReferences","comparisonContext"))collectVersions(row.context().get(key),refs);
         required.forEach(ref->refs.add(ref.runVersionId()));
-        List<Map<String,Object>> all=jdbc.query("select v.id,v.summary::text,jsonb_array_length(v.full_run->'sourceFiles') as file_count, r.current_version_id=v.id as latest from run_version v join run r on r.run_id=v.run_id where r.current_version_id=v.id or v.id::text=any(?) order by r.run_id,v.registration_sequence",(rs,n)->{Map<String,Object> item=scalarSummary(rs.getString(2));item.put("sourceFileCount",rs.getObject(3));item.put("_latest",rs.getBoolean(4));return item;},(Object)refs.toArray(String[]::new));
-        List<Map<String,Object>> latest=new ArrayList<>(),historical=new ArrayList<>();
-        for(var item:all){boolean isLatest=(Boolean)item.remove("_latest");if(isLatest)latest.add(item);String version=(String)item.get("runVersionId");if(refs.contains(version))historical.add(item);}
-        Map<String,Object> manifest=new LinkedHashMap<>();manifest.put("runs",latest);manifest.put("referencedRuns",historical);manifest.put("context",row.context());manifest.put("createdAt",Instant.now().toString());
-        jdbc.update("update agent_request set manifest=?::jsonb,updated_at=now() where id=?",requests.json(manifest),id);return manifest;
+        Set<String> fetched=new HashSet<>();collectVersions(manifest.get("referencedRuns"),fetched);refs.removeAll(fetched);
+        if(!refs.isEmpty()){
+            List<Object> historical=new ArrayList<>((List<?>)manifest.get("referencedRuns"));historical.addAll(scalarVersions(refs.toArray(String[]::new)));
+            manifest.put("referencedRuns",historical);changed=true;
+        }
+        Set<String> pinned=new LinkedHashSet<>();collectVersions(manifest.get("catalogRunRefs"),pinned);
+        if(query!=null&&manifest.get("reverseQuery")==null){
+            var sql=query.select(pinned.toArray(String[]::new));
+            manifest.put("runs",jdbc.query(sql.text(),(rs,n)->scalarRow(rs.getString(1),rs.getObject(2)),sql.arguments().toArray()));
+            manifest.put("reverseQuery",query.normalized());manifest.put("catalogMaterialized",true);changed=true;
+        }else if(!only&&query==null&&!Boolean.TRUE.equals(manifest.get("catalogMaterialized"))){
+            manifest.put("runs",scalarVersions(pinned.toArray(String[]::new)));manifest.put("catalogMaterialized",true);changed=true;
+        }
+        if(changed)jdbc.update("update agent_request set manifest=?::jsonb,updated_at=now() where id=?",requests.json(manifest),id);
+        return manifest;
     }
+    private List<Map<String,Object>> scalarVersions(String[] versions){return jdbc.query("select summary::text,jsonb_array_length(full_run->'sourceFiles') from run_version where id=any(?::uuid[]) order by run_id,registration_sequence",(rs,n)->scalarRow(rs.getString(1),rs.getObject(2)),(Object)versions);}
+    private Map<String,Object> scalarRow(String json,Object sourceFileCount){var item=scalarSummary(json);item.put("sourceFileCount",sourceFileCount);return item;}
     private void collectVersions(Object value,Set<String> refs){if(value instanceof Map<?,?> map){if(map.get("runVersionId") instanceof String id)refs.add(id);for(var v:map.values())collectVersions(v,refs);}else if(value instanceof List<?> list)list.forEach(v->collectVersions(v,refs));}
-    private Map<String,Object> scalarSummary(String json){return new LinkedHashMap<>(requests.read(requests.json(mapper.readValue(json,Summary.class))));}
+    private Map<String,Object> scalarSummary(String json){
+        Map<String,Object> source=requests.read(json),result=new LinkedHashMap<>();
+        for(String key:List.of("runId","runVersionId","pressure","sourcePower","biasPower","metrics","units","convergenceStatus","qualityStatus","catalogStatus","registeredAt","presentationScore","note"))if(source.containsKey(key))result.put(key,source.get(key));
+        if(source.get("analysis") instanceof Map<?,?> analysis){Map<String,Object> scalars=new LinkedHashMap<>();for(String key:List.of("hasDistribution","strictConvergence","finalResidualMax","electronTemperature","ionTemperature","gasTemperature","absorbedPower","alpha","plasmaResistance","plasmaReactance","dcOffset","peakToPeak","currentDensityPeak","electronDensity","ionDensity","metastableDensity","neutralDensity","ionFluxRaw","metastableFluxRaw","neutralFluxRaw"))if(analysis.containsKey(key))scalars.put(key,analysis.get(key));result.put("analysis",scalars);}
+        return result;
+    }
     @Transactional public Map<String,Object> needsInput(UUID id,Mutation body){fence(id,body.claimGeneration(),body.requestRevision());require(body.pendingInput()!=null,"pendingInput is required");validate.text((String)body.pendingInput().get("id"),INVALID,"pendingInput.id");validate.text((String)body.pendingInput().get("message"),INVALID,"pendingInput.message");require(requests.json(body.pendingInput()).length()<=20000,"pendingInput is too large");jdbc.update("update agent_request set status='NEEDS_INPUT',stage='wait_input',pending_input=?::jsonb,lease_until=null,updated_at=now() where id=?",requests.json(body.pendingInput()),id);return requests.view(requests.get(id,false));}
     @Transactional public Map<String,Object> fail(UUID id,Mutation body){
         var current=workspace.lock();var row=fence(id,body.claimGeneration(),body.requestRevision());epochs(row,current);require(body.error()!=null,"error is required");String code=(String)body.error().get("code"),message=(String)body.error().get("message");validate.text(code,INVALID,"error.code");validate.text(message,INVALID,"error.message");require(code.matches("[A-Z_]{1,80}")&&message.length()<=1000,"Invalid public error");

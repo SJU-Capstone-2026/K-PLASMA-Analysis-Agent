@@ -432,7 +432,16 @@ def build_graph(model, backend, settings, checkpointer):
             for k, v in inputs.items()
             if k in ("baseline", "target") and v.get("kind") == "run_id" and v.get("run_version_id")
         ]
-        manifest = backend.context(refs)
+        if kind == "reverse_search":
+            from ..domain.reverse import normalized_reverse_query
+
+            manifest = (
+                backend.context(refs, references_only=True)
+                if inputs.get("context_rules")
+                else backend.context(refs, reverse_query=normalized_reverse_query(inputs))
+            )
+        else:
+            manifest = backend.context(refs)
         context = manifest.get("context", state.get("context", {}))
         source = manifest["runs"]
         provenance = {}
@@ -463,6 +472,9 @@ def build_graph(model, backend, settings, checkpointer):
                     ),
                     "manifest": manifest,
                 }
+            if kind == "reverse_search":
+                manifest = backend.context(refs, reverse_query=normalized_reverse_query(inputs))
+                source = manifest["runs"]
         if kind in ("compare_runs", "explain_change"):
             if any(
                 inputs[key]["kind"].startswith("comparison_") for key in ("baseline", "target")

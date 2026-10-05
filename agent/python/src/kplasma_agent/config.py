@@ -15,7 +15,7 @@ class Settings:
     reasoning_effort: str = "none"
     timeout: float = 30
     poll_seconds: float = 1
-    graph_build_id: str = "v1-2026-10-05.3"
+    graph_build_id: str = "v1-2026-10-05.4"
 
     @classmethod
     def from_env(cls, env_file=None):
@@ -29,7 +29,7 @@ class Settings:
             model=os.getenv("OPENAI_MODEL", "gpt-5.6-luna"),
             reasoning_effort=os.getenv("OPENAI_REASONING_EFFORT", "none"),
             timeout=float(os.getenv("AGENT_MODEL_TIMEOUT_SECONDS", "30")),
-            graph_build_id=os.getenv("AGENT_GRAPH_BUILD_ID", "v1-2026-10-05.3"),
+            graph_build_id=os.getenv("AGENT_GRAPH_BUILD_ID", "v1-2026-10-05.4"),
         )
 
     def versions(self):

@@ -12,6 +12,9 @@ info:
     and objective candidates also include these presentation scores. The frontend
     reuses prototype presentation without re-filtering, reordering or recalculating.
     Older completed snapshots remain immutable; missing saved scores are unavailable.
+    Reverse goals order common matches and no longer generate independent global
+    goal tabs. New reverse snapshots keep goalResults as an empty compatibility
+    array; objectiveResults retain independent condition matches.
     This is an additive schemaVersion 1 field; graphBuildId and promptVersion change.
     All worker endpoints require X-Agent-Token configured by AGENT_WORKER_TOKEN.
     The worker has no database credentials. A synchronous HTTP checkpoint adapter
@@ -132,13 +135,24 @@ paths:
       operationId: pinAgentManifestWithExactVersions
       security: [{ workerToken: [] }]
       description: |
-        requiredRunRefs adds exact historical versions. First call fixes ordered
-        latest scalar summaries and available acceptance refs in one SQL snapshot.
+        requiredRunRefs adds exact historical versions. First successfully committed call fixes ordered
+        latest scalar summaries and available acceptance refs for ordinary lookups.
+        A reverseQuery pins a small catalogRunRefs inventory and applies validated
+        canonical constraints in SQL WHERE and ordered goals in ORDER BY. The scalar
+        pool contains common matches, independent output-condition matches and
+        unavailable records needed for exclusion reasons. Only no-common-match
+        queries load the eligible pool for deterministic near-miss ranking.
+        referencesOnly fixes version inventory and returns exact reference summaries
+        with an empty runs array; it resolves context-derived bounds before reverseQuery.
         Deleted versions mentioned in previous answers are optional interpretation
         context and do not block an unrelated lookup; explicit requiredRunRefs are
         checked. A selected unavailable role must lead to a clarification.
         Later calls can append exact versions to referencedRuns but never refresh
-        runs or replace existing scalar values. explain_concept skips this API.
+        a materialized query or replace existing scalar values. A scoped inventory
+        may be materialized once; replay uses the identical stored query and pool.
+        Changing a materialized reverseQuery returns MANIFEST_QUERY_CONFLICT.
+        Python still verifies numeric predicates and resolves full Decimal/tie order.
+        explain_concept skips this API.
       requestBody: { $ref: '#/components/requestBodies/Mutation' }
       responses:
         '200': { $ref: '#/components/responses/Manifest' }
@@ -250,6 +264,8 @@ components:
               referencedRuns: { type: array, items: { type: object } }
               context: { type: object }
               createdAt: { type: string, format: date-time }
+              catalogRunRefs: { type: array, items: { $ref: '#/components/schemas/RunRef' }, description: Immutable latest-version inventory for scoped reverse queries. }
+              reverseQuery: { $ref: '#/components/schemas/ReverseQuery' }
   schemas:
     RunRef:
       type: object
@@ -264,6 +280,39 @@ components:
         workspaceEpoch: { type: integer }
         conversationEpoch: { type: integer }
         revision: { type: integer }
+    ReverseQuery:
+      type: object
+      additionalProperties: false
+      required: [constraints, goals]
+      description: At least one constraint or goal. Inputs have already been validated and normalized by Python; the backend independently validates its SQL whitelist. No SQL text is accepted.
+      properties:
+        constraints:
+          type: array
+          maxItems: 32
+          items:
+            type: object
+            additionalProperties: false
+            required: [metric, operator, unit]
+            properties:
+              metric: { enum: [pressure, sourcePower, biasPower, meanIonEnergy, ionFlux, iedWidth] }
+              operator: { enum: [eq, lt, lte, gt, gte, between] }
+              unit: { type: string, description: Canonical registry unit for the metric. }
+              value: { type: number }
+              min: { type: number }
+              max: { type: number }
+        goals:
+          type: array
+          maxItems: 32
+          items:
+            type: object
+            additionalProperties: false
+            required: [metric, direction, unit]
+            properties:
+              metric: { enum: [meanIonEnergy, ionFlux, iedWidth] }
+              direction: { enum: [maximize, minimize, target_range] }
+              unit: { type: string, description: Canonical registry unit for the metric. }
+              min: { type: number }
+              max: { type: number }
     Submission:
       type: object
       required: [text, stateToken]
@@ -308,5 +357,7 @@ components:
         partialResult: { type: object }
         usedRunRefs: { type: array, items: { $ref: '#/components/schemas/RunRef' } }
         requiredRunRefs: { type: array, items: { $ref: '#/components/schemas/RunRef' } }
+        referencesOnly: { type: boolean, default: false }
+        reverseQuery: { $ref: '#/components/schemas/ReverseQuery' }
         answer: { type: object, description: Existing AgentResponse with v1 answerSnapshot. }
         limit: { type: integer, minimum: 1, maximum: 4 }

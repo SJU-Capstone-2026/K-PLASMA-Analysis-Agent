@@ -1,5 +1,5 @@
 import type {RunSummary,Snapshot,TurnSnapshot} from 'agent';
-import {goalSortLabel,numberText,searchGroups,searchMetricNames,snapshotResult,type SearchResult} from './agent-contract';
+import {numberText,searchGroups,searchMetricNames,snapshotResult,type SearchResult} from './agent-contract';
 
 const legacyOperators:Record<string,string>={between:'RANGE',gte:'MIN',lte:'MAX',eq:'EQUAL',gt:'>',lt:'<'};
 const finite=(value:unknown):value is number=>typeof value==='number'&&Number.isFinite(value);
@@ -8,7 +8,6 @@ const signed=(value:unknown,digits=2,suffix='')=>finite(value)?`${value<0?'−':
 const legacyRule=(rule:Snapshot)=>({...rule,operator:legacyOperators[String(rule.operator)]??rule.operator});
 function groupNotice(id:string){
  if(id.startsWith('objective-'))return '개별 조건의 후보입니다. 모든 필수 조건을 만족하는 공통 후보와 구분합니다.';
- if(id.startsWith('goal-'))return '개별 목표의 후보입니다. 모든 필수 조건을 만족하는 공통 후보와 구분합니다.';
  if(id==='near')return '필수 조건을 만족하지 못한 참고 후보입니다. 조건 일치 결과에 포함하지 않습니다.';
  return undefined;
 }
@@ -55,18 +54,14 @@ export function v1SearchModel(turn:TurnSnapshot):Record<string,unknown>{
    baselineRows:[],
   };
  }
- const primarySort=(result.goals??[]).map(goalSortLabel).join(' → ')||(result.objectives?.length?'검색값 근접도 높은순':'Run ID순');
- const displayGroups=groups.map(group=>{
-  const goal=group.id.startsWith('goal-')?result.goalResults?.[Number(group.id.slice(5))]?.goal:undefined;
-  return {id:group.id,label:`${group.label} ${group.runs.length}`,sortLabel:goal?goalSortLabel(goal):group.id==='common'?primarySort:'검색값 근접도 높은순',notice:groupNotice(group.id),candidates:group.runs.map(candidate)};
- });
+ const displayGroups=groups.map(group=>({id:group.id,label:`${group.label} ${group.runs.length}`,notice:groupNotice(group.id),candidates:group.runs.map(candidate)}));
  const versions=turn.answerSnapshot.versions as {promptVersion?:string}|undefined;
  const oldRange=versions?.promptVersion==='interpret-1'&&(result.goals??[]).some(goal=>goal.direction==='target_range')&&!/범위\s*(?:밖|외).*(?:허용|포함)|allow.*outside.*range/i.test(turn.question);
  return {intent:'REVERSE_SEARCH',status:result.resultStatus,
   interpretationNote:oldRange?'저장된 답변은 범위를 정렬 목표로 해석한 이전 결과입니다. 수정된 범위 검색은 같은 질문을 다시 보내면 적용됩니다.':undefined,
   constraints:(result.constraints??[]).map(legacyRule),
   goals:(result.goals??[]).map(goal=>({...goal,direction:goal.direction==='minimize'?'MIN':goal.direction==='maximize'?'MAX':'TARGET_RANGE'})),
-  objectives:result.objectives??[],showIndependentGroups:true,
+  objectives:result.objectives??[],showIndependentGroups:true,showCurrentSortNote:false,
   candidateGroups:{groups:displayGroups,activeGroupId:'common',viewportCardCount:6,conflictSummary:'모든 필수 조건을 동시에 만족하는 실제 Run이 없습니다. 조건별 결과를 확인하거나 범위를 조정해 주세요.'},
  };
 }

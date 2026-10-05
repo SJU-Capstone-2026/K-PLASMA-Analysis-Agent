@@ -45,6 +45,14 @@ def _normalized_query(inputs):
     return constraints, goals, defaulted
 
 
+def normalized_reverse_query(inputs):
+    """Validated canonical predicates for the backend's whitelisted SQL builder."""
+    constraints, goals, _ = _normalized_query(inputs)
+    if not constraints and not goals:
+        raise DomainError("MISSING_INPUT", "At least one constraint or goal is required")
+    return {"constraints": constraints, "goals": goals}
+
+
 def check_rule(value, rule):
     if value is None:
         return False
@@ -272,11 +280,6 @@ def search_reverse(inputs, ordered_runs):
         objective_results.append(
             {"objective": objective, "candidates": selected, "allConstraintsGuaranteed": False}
         )
-    goal_results = []
-    for goal in goals:
-        available = [r for r in usable if scalar(r, goal["metric"])[0] is not None]
-        available.sort(key=lambda run: (_goal_key(run, goal), -presentation_score(run), run_id_key(run)))
-        goal_results.append({"goal": goal, "candidates": available, "allConstraintsGuaranteed": False})
     near_matches = []
     if not combined:
         for run in common_eligible:
@@ -295,7 +298,6 @@ def search_reverse(inputs, ordered_runs):
     all_displayed = [
         *representatives,
         *(entry["run"] for group in objective_results for entry in group["candidates"]),
-        *(run for group in goal_results for run in group["candidates"]),
         *(entry["run"] for entry in near_matches),
     ]
     status = "MATCH" if representatives else "NO_MATCH"
@@ -317,9 +319,10 @@ def search_reverse(inputs, ordered_runs):
         "commonRunIds": [r["runId"] for r in representatives],
         "commonRecommendation": representatives[0] if representatives else None,
         "objectiveResults": objective_results,
-        "goalResults": goal_results,
-        # Goal tabs include Runs outside common constraints. Persist their
-        # evaluations too, so the UI never calls the JS fallback to recompute.
+        # Retain the field for compatibility with existing saved answer schemas.
+        # Goals order common matches; they no longer create global candidate tabs.
+        "goalResults": [],
+        # Independent condition tabs need saved evaluations even outside common matches.
         "candidateEvaluations": [
             {
                 **run_ref(entry["run"]),

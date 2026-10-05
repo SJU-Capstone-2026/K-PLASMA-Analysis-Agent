@@ -21,10 +21,16 @@ for(const width of widths)test(`v1 real HTTP answers five operations, clarificat
   const forward=await askComplete(page,`압력 ${a.pressure} mTorr, 소스 ${a.sourcePower} W, 바이어스 ${a.biasPower} W 결과를 보여줘`,'forward_lookup',1);expect(forward.answerSnapshot.result).toMatchObject({resultStatus:'EXACT',selectedRun:{runId:a.runId,runVersionId:a.runVersionId}});
   const energy=a.metrics.meanIonEnergy!;const low=Math.max(0,energy-0.1),high=energy+0.1;
   const reverse=await askComplete(page,`Ion Flux는 높게, Mean Ion Energy는 ${low}–${high} eV에 가깝게 후보를 찾아줘`,'reverse_search',2);
-  const searched=reverse.answerSnapshot.result as unknown as {resultStatus:string;commonCandidates:{run:RunSummary}[]};
+  const searched=reverse.answerSnapshot.result as unknown as {resultStatus:string;commonCandidates:{run:RunSummary}[];goalResults:unknown[]};
   expect(searched.resultStatus).toBe('MATCH');
+  expect(searched.goalResults).toEqual([]);
   expect(searched.commonCandidates.map(candidate=>candidate.run.runId)).toEqual(usable.filter(run=>run.metrics.meanIonEnergy!==null&&run.metrics.meanIonEnergy>=low&&run.metrics.meanIonEnergy<=high).sort((x,y)=>y.metrics.ionFlux!-x.metrics.ionFlux!).map(run=>run.runId));
   await expect(page.locator('[data-turn-id="'+reverse.id+'"] .agent-fit-card').first()).toBeVisible();
+  const reverseView=page.locator(`[data-turn-id="${reverse.id}"]`);
+  await expect(reverseView.getByRole('tab')).toHaveCount(2);
+  await expect(reverseView.getByRole('tab',{name:/Ion Flux/})).toHaveCount(0);
+  await expect(reverseView.locator('.agent-search-summary')).toContainText('Ion Flux 높은순');
+  await expect(reverseView.locator('.agent-search-summary')).not.toContainText('현재 정렬');
   const compare=await askComplete(page,`${a.runId}를 기준으로 ${b.runId}의 평균 이온 에너지와 이온 플럭스를 비교해줘`,'compare_runs',3);expect(compare.answerSnapshot.result).toMatchObject({baseline:{runId:a.runId,runVersionId:a.runVersionId},target:{runId:b.runId,runVersionId:b.runVersionId}});
   const change=await askComplete(page,`${a.runId}를 기준으로 ${b.runId}의 평균 이온 에너지와 이온 플럭스 차이가 나는 이유를 설명해줘`,'explain_change',4);expect(change.answerSnapshot.result).toMatchObject({causality:'NOT_ESTABLISHED'});
   const concept=await askComplete(page,'평균 이온 에너지가 무엇인지 정의를 설명해줘','explain_concept',5);expect(concept.answerRunRefs).toEqual([]);await expect(page.getByText('LLM 일반 지식 기반')).toHaveCount((change.answerSnapshot.result as {knowledgeBasis?:string})?.knowledgeBasis==='OBSERVATIONS_ONLY'?1:2);

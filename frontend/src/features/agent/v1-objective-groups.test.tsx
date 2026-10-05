@@ -20,6 +20,8 @@ const turn:TurnSnapshot={id:'objective-turn',askedAt:'',question:'플럭스 2 �
 
 test('hard-objective-only candidates are displayed and retain exact reference actions',()=>{
  const action=vi.fn();const {rerender}=render(<AnswerView turn={turn} onAction={action}/>);
+ expect(screen.getAllByRole('tab')).toHaveLength(3);
+ expect(screen.getByRole('tab',{name:'조건 미충족 근접 후보 3'})).toBeInTheDocument();
  fireEvent.click(screen.getByRole('tab',{name:'Ion Flux 조건 1'}));
  expect(action.mock.calls[0][0]).toBe('candidate-group');const groupId=action.mock.calls[0][1].dataset.groupId;
  const selected={...turn,ui:{...turn.ui,activeCandidateGroup:groupId}};

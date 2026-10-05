@@ -41,20 +41,24 @@ class SimulatedProcessKill(BaseException):
     pass
 
 
-def test_pending_numeric_writes_reconcile_edges_before_finalization_after_process_loss():
+@pytest.mark.parametrize("kind", ["forward_lookup", "reverse_search"])
+def test_pending_numeric_writes_reconcile_edges_before_finalization_after_process_loss(kind):
+    from fixtures import run
+
     class Backend:
         payload = None
         current_stage = None
         crash = True
         answer = None
         failures = []
+        context_reads = 0
 
         def checkpoint(self):
             return deepcopy(self.payload)
 
         def save(self, payload):
             self.payload = deepcopy(payload)
-            if self.crash and self.current_stage == "forward":
+            if self.crash and self.current_stage == ("forward" if kind == "forward_lookup" else "reverse"):
                 self.crash = False
                 self.killed_payload = deepcopy(payload)
                 raise SimulatedProcessKill()
@@ -65,8 +69,9 @@ def test_pending_numeric_writes_reconcile_edges_before_finalization_after_proces
         def attempt(self, stage):
             pass
 
-        def context(self, refs=None):
-            return {"runs": [], "referencedRuns": [], "context": {}}
+        def context(self, refs=None, **options):
+            self.context_reads += 1
+            return {"runs": [run("A")] if kind == "reverse_search" else [], "referencedRuns": [], "context": {}}
 
         def finalize(self, answer):
             self.answer = answer
@@ -83,21 +88,28 @@ def test_pending_numeric_writes_reconcile_edges_before_finalization_after_proces
                 "status": "resolved",
                 "operations": [
                     {
-                        "kind": "forward_lookup",
+                        "kind": kind,
                         "inputs": {
                             "conditions": {
                                 "pressure": {"value": 10},
                                 "sourcePower": {"value": 300},
                                 "biasPower": {"value": 100},
                             }
-                        },
+                        }
+                        if kind == "forward_lookup"
+                        else {"goals": [{"metric": "ionFlux", "direction": "maximize"}]},
                     }
                 ],
             }, {}
 
     backend, model = Backend(), Model()
     claim = {
-        "request": {"requestId": "numeric-pending-write", "question": "압력10 소스300 바이어스100 조회"},
+        "request": {
+            "requestId": "numeric-pending-write",
+            "question": "압력10 소스300 바이어스100 조회"
+            if kind == "forward_lookup"
+            else "이온 플럭스 높은 순으로 찾아줘",
+        },
         "context": {},
         "inputEvents": [],
     }
@@ -108,5 +120,9 @@ def test_pending_numeric_writes_reconcile_edges_before_finalization_after_proces
     backend.payload = backend.killed_payload
     run_claim(claim, backend, model, Settings())
     assert backend.failures == []
-    assert backend.answer["status"] == "NO_DATA"
+    assert backend.answer["status"] == ("NO_DATA" if kind == "forward_lookup" else "MATCH")
+    assert backend.context_reads == 1
+    if kind == "reverse_search":
+        assert backend.answer["answerSnapshot"]["result"]["commonRunIds"] == ["A"]
+        assert backend.answer["answerSnapshot"]["result"]["goalResults"] == []
     assert model.calls == 1

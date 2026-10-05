@@ -24,7 +24,7 @@ def test_soft_goal_priority_order_and_hard_range():
     ) == list("CAB")
 
 
-def test_range_matches_and_independent_flux_tab_have_separate_counts_and_saved_scores():
+def test_range_matches_are_sorted_by_flux_without_a_global_flux_group():
     runs = [run(f"A-{i}", energy=energy, flux=i + 1) for i, energy in enumerate([151, 153, 155, 157, 159])]
     runs.append(run("OUTSIDE", energy=165, flux=100))
     result = search_reverse(
@@ -36,8 +36,8 @@ def test_range_matches_and_independent_flux_tab_have_separate_counts_and_saved_s
     )
     assert result["totalCount"] == 5
     assert ids(result) == ["A-4", "A-3", "A-2", "A-1", "A-0"]
-    assert len(result["goalResults"][0]["candidates"]) == 6
-    assert result["goalResults"][0]["candidates"][0]["runId"] == "OUTSIDE"
+    assert result["goalResults"] == []
+    assert "OUTSIDE" not in [ref["runId"] for ref in result["usedRunRefs"]]
     assert len(result["objectiveResults"][0]["candidates"]) == 5
     middle = next(e for e in result["candidateEvaluations"] if e["runId"] == "A-2")
     assert middle["evaluations"][0]["matchPercent"] == 100
@@ -65,7 +65,7 @@ def test_no_top_k_and_unrelated_missing_metric_allowed():
     assert len(result["excludedRuns"]) == 20
 
 
-def test_independent_objective_and_goal_groups_do_not_claim_all_constraints():
+def test_independent_objective_group_does_not_claim_all_constraints():
     result = search_reverse(
         {
             "constraints": [
@@ -82,8 +82,8 @@ def test_independent_objective_and_goal_groups_do_not_claim_all_constraints():
     )
     assert ids(result) == ["A"]
     assert [c["run"]["runId"] for c in result["objectiveResults"][0]["candidates"]] == ["A", "B"]
-    assert result["goalResults"][0]["candidates"][0]["runId"] == "B"
-    assert result["goalResults"][0]["allConstraintsGuaranteed"] is False
+    assert result["goalResults"] == []
+    assert result["objectiveResults"][0]["allConstraintsGuaranteed"] is False
 
 
 def test_near_matches_keep_violations_and_limit_three():

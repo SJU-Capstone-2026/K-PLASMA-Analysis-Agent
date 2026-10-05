@@ -1,11 +1,12 @@
 import {fireEvent,render,screen} from '@testing-library/react';
 import {expect,test,vi} from 'vitest';
-import type {TurnSnapshot} from 'agent';
+import {viewModels,type TurnSnapshot} from 'agent';
 import {syntheticRun} from '../../test/runs';
 import {AnswerView} from './AnswerView';
 import {initialTurnUi} from './useConversation';
 import {v1SearchModel} from './v1-search-model';
 import {renderAgentAnswer} from './answer-markup';
+import {candidateRefs,v1CandidateRefs} from './references';
 
 const run=syntheticRun(600,8);
 const turn=(kind:string,result:unknown):TurnSnapshot=>({id:'parity',askedAt:'',question:'검증용 인공 질문',intent:kind==='forward_lookup'?'FORWARD_LOOKUP':'REVERSE_SEARCH',context:null,answerRunRefs:[run],answerSnapshot:JSON.parse(JSON.stringify({implementationId:'v1',schemaVersion:1,kind,result})),ui:structuredClone(initialTurnUi)});
@@ -21,18 +22,36 @@ test('v1 forward uses the prototype verdict, condition strip, metric cards and e
  expect(action.mock.calls[0][0]).toBe('open-run-detail');
  expect(action.mock.calls[0][1].dataset.runVersionId).toBe(run.runVersionId);
 });
-test('v1 reverse defaults to filtered matches and preserves prototype tabs, saved proximity and criteria',()=>{
- const objective={id:'objective-1',metric:'meanIonEnergy',operator:'RANGE',comparisonOperator:'between',min:30,max:40,unit:'eV'};
- const evaluation={objectiveId:objective.id,metric:'meanIonEnergy',operator:'RANGE',actual:38,satisfied:true,targetLabel:'30–40',unit:'eV',rangeStatus:'IN_RANGE',matchPercent:91,referenceValue:35};
- const candidate={run,evaluations:[evaluation],matchPercent:91};
- const t=turn('reverse_search',{kind:'reverse_search',resultStatus:'MATCH',constraints:[{...objective,operator:'between'}],goals:[{metric:'ionFlux',direction:'maximize'}],objectives:[objective],commonCandidates:[candidate],objectiveResults:[{objective,candidates:[candidate],allConstraintsGuaranteed:false}],goalResults:[{goal:{metric:'ionFlux',direction:'maximize'},candidates:[run,syntheticRun(800)],allConstraintsGuaranteed:false}],candidateEvaluations:[{runId:run.runId,runVersionId:run.runVersionId,evaluations:[evaluation],matchPercent:91}]});
- render(<AnswerView turn={t} onAction={()=>{}}/>);
- expect(screen.getByRole('tab',{name:'조건 일치 결과 1'})).toHaveAttribute('aria-selected','true');
- expect(screen.getByRole('tab',{name:'Ion Flux 높은순 2'})).toBeInTheDocument();
- expect(screen.getByRole('tab',{name:'Mean Ion Energy 조건 1'})).toBeInTheDocument();
+test('v1 reverse shows only condition tabs and one sort criterion without rewriting old snapshots',()=>{
+ const objective={id:'objective-1',metric:'meanIonEnergy',operator:'RANGE',comparisonOperator:'between',min:150,max:160,unit:'eV'};
+ const candidates=[200,400,600,800,1000].map((bias,index)=>{
+  const actual=159-index*2;
+  const run={...syntheticRun(bias),metrics:{ionFlux:100-index*10,meanIonEnergy:actual,iedWidth:10}};
+  const evaluation={objectiveId:objective.id,metric:'meanIonEnergy',operator:'RANGE',actual,satisfied:true,targetLabel:'150–160',unit:'eV',rangeStatus:'IN_RANGE',matchPercent:91-index,referenceValue:155};
+  return {run,evaluations:[evaluation],matchPercent:91-index};
+ });
+ const objectiveCandidates=[candidates[2],candidates[1],candidates[3],candidates[0],candidates[4]];
+ const obsoleteGlobal=syntheticRun(1200);
+ const t=turn('reverse_search',{kind:'reverse_search',resultStatus:'MATCH',constraints:[{...objective,operator:'between'}],goals:[{metric:'ionFlux',direction:'maximize'}],objectives:[objective],commonCandidates:candidates,objectiveResults:[{objective,candidates:objectiveCandidates,allConstraintsGuaranteed:false}],goalResults:[{goal:{metric:'ionFlux',direction:'maximize'},candidates:Array.from({length:150},()=>obsoleteGlobal),allConstraintsGuaranteed:false}]});
+ t.ui.activeCandidateGroup='goal-0';
+ const saved=JSON.stringify(t);
+ const {rerender}=render(<AnswerView turn={t} onAction={()=>{}}/>);
+ expect(screen.getByRole('tab',{name:'조건 일치 결과 5'})).toHaveAttribute('aria-selected','true');
+ expect(screen.getAllByRole('tab')).toHaveLength(2);
+ expect(screen.queryByRole('tab',{name:/Ion Flux 높은순/})).not.toBeInTheDocument();
+ expect(screen.getByRole('tab',{name:'Mean Ion Energy 조건 5'})).toBeInTheDocument();
+ expect(document.querySelector('.agent-objectives')).toHaveTextContent('검색 조건Mean Ion Energy 150–160 eV정렬Ion Flux 높은순');
+ expect(screen.queryByText('현재 정렬')).not.toBeInTheDocument();
+ expect(screen.queryByText(/결과를 임의로 3개로 줄이지 않습니다/)).not.toBeInTheDocument();
+ expect([...document.querySelectorAll('.agent-fit-card header > div:first-child strong')].map(node=>node.textContent)).toEqual(candidates.map(candidate=>candidate.run.runId));
  expect(document.querySelector('.agent-fit-card')).toHaveTextContent('검색값 근접도91%');
- expect(document.querySelector('.agent-fit-rows')).toHaveTextContent('38 eV목표 30–40 eV91% 근접범위 안');
+ expect(document.querySelector('.agent-fit-rows')).toHaveTextContent('159 eV목표 150–160 eV91% 근접범위 안');
  expect(document.querySelector('.agent-fit-grid--scroll')).toBeInTheDocument();
+ expect(candidateRefs(t)).toEqual(candidates.map(({run})=>({runId:run.runId,runVersionId:run.runVersionId})));
+ expect(v1CandidateRefs(t)).not.toContainEqual({runId:obsoleteGlobal.runId,runVersionId:obsoleteGlobal.runVersionId});
+ rerender(<AnswerView turn={{...t,ui:{...t.ui,activeCandidateGroup:'objective-0'}}} onAction={()=>{}}/>);
+ expect([...document.querySelectorAll('.agent-fit-card header > div:first-child strong')].map(node=>node.textContent)).toEqual(objectiveCandidates.map(candidate=>candidate.run.runId));
+ expect(JSON.stringify(t)).toBe(saved);
 });
 test('v1 unavailable saved proximity never runs a legacy score calculation',()=>{
  const candidate={run,evaluations:[{metric:'meanIonEnergy',actual:38,satisfied:false,targetLabel:'30–40',unit:'eV'}]};
@@ -42,6 +61,14 @@ test('v1 unavailable saved proximity never runs a legacy score calculation',()=>
  Object.defineProperty(groups.groups[0].candidates[0].objectiveRows[0],'percentDelta',{get(){throw new Error('Cannot recompute a saved v1 score');}});
  expect(()=>renderAgentAnswer(model,t)).not.toThrow();
  expect(renderAgentAnswer(model,t)).toContain('근접도 비가용');
+});
+test('historical fallback retains its ranking group and current-sort notice',()=>{
+ const goal={metric:'ionFlux',direction:'MAX'};
+ const model={intent:'REVERSE_SEARCH',status:'MATCH',goals:[goal],candidateGroups:viewModels.buildReverseGroupsModel({commonCandidates:[run],goals:[goal],goalResults:[{goal,candidates:[run,syntheticRun(800)]}]})};
+ const html=renderAgentAnswer(model,turn('reverse_search',{}));
+ expect(html).toContain('Ion Flux 높은순 2');
+ expect(html).toContain('<strong>현재 정렬</strong>');
+ expect(html).toContain('Ion Flux 높은순 · 결과를 임의로 3개로 줄이지 않습니다.');
 });
 test('historical soft interpretation stays frozen and fresh explicit soft answers have no old-result notice',()=>{
  const t=turn('reverse_search',{kind:'reverse_search',resultStatus:'MATCH',goals:[{metric:'meanIonEnergy',direction:'target_range',min:30,max:40}],commonCandidates:[{run}]});

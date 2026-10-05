@@ -41,18 +41,30 @@ async function compare(page:Page,original:Page,selectors:string[]){
   for(const key of ['x','y','width','height'] as const)expect(Math.abs(actual![key]-expected![key]),`${selector} ${key}`).toBeLessThanOrEqual(1/64);
  }
 }
-for(const width of [390,800,1008,1440])for(const kind of ['forward_lookup','reverse_search'] as const)test(`Python v1 ${kind} matches untouched prototype output at ${width}px`,async({page,context},info)=>{
+for(const width of [390,800,1008,1440])for(const kind of ['forward_lookup','reverse_search'] as const)test(`Python v1 ${kind} matches the approved prototype layout at ${width}px`,async({page,context},info)=>{
  test.skip(!prototype,'Set KPLASMA_PROTOTYPE_URL to the unchanged external v12.3.1 prototype; its real data is replaced by artificial Runs.');
  await page.setViewportSize({width,height:1000});await page.clock.setFixedTime(new Date('2026-10-05T00:00:00Z'));await setup(page,kind);
  const original=await context.newPage();await original.setViewportSize({width,height:1000});await original.clock.setFixedTime(new Date('2026-10-05T00:00:00Z'));
  await original.route('**/assets/analysis-data.js',route=>route.fulfill({contentType:'text/javascript',body:`window.KPlasmaAnalysisData=${JSON.stringify({meta:{actualRunCount:runs.length},runs})};`}));
  await original.goto(prototype!);await original.locator('#agent-query').fill(questions[kind]);await original.locator('#agent-query-form [type="submit"]').click();await expect(original.locator('.agent-compact-answer')).toBeVisible();
+ // The external source stays untouched. Apply only the two user-approved layout
+ // removals to its rendered DOM before measuring the remaining prototype UI.
+ if(kind==='reverse_search'){
+  await expect(original.getByRole('tab',{name:'Ion Flux 높은순 6'})).toBeVisible();
+  await original.evaluate(()=>{
+   for(const tab of document.querySelectorAll('.agent-candidate-tabs button'))if(tab.textContent?.trim()==='Ion Flux 높은순 6')tab.remove();
+   for(const note of document.querySelectorAll('.agent-similarity-note'))if(note.querySelector('strong')?.textContent==='현재 정렬')note.remove();
+  });
+ }
  for(const target of [page,original]){await target.evaluate(()=>document.fonts.ready);expect(await target.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);}
  await compare(page,original,kind==='forward_lookup'?['.agent-response','.agent-forward-conclusion','.agent-condition-summary','.agent-delta-grid','.agent-run-actions']:['.agent-response','.agent-result-intro','.agent-search-summary','.agent-candidate-tabs','.agent-fit-grid','.agent-fit-card','.agent-fit-rows']);
  if(kind==='reverse_search'){
   await expect(page.getByRole('tab',{name:'조건 일치 결과 5'})).toHaveAttribute('aria-selected','true');
-  await expect(page.getByRole('tab',{name:'Ion Flux 높은순 6'})).toBeVisible();
+  await expect(page.getByRole('tab')).toHaveCount(2);
+  await expect(page.getByRole('tab',{name:/Ion Flux 높은순/})).toHaveCount(0);
   await expect(page.getByRole('tab',{name:'Mean Ion Energy 조건 5'})).toBeVisible();
+  await expect(page.locator('.agent-search-summary')).toContainText('정렬Ion Flux 높은순');
+  await expect(page.getByText('현재 정렬',{exact:true})).toHaveCount(0);
  }
  for(const [name,target] of [['v1',page],['prototype',original]] as const)await target.locator('.agent-response').screenshot({path:info.outputPath(`${name}-${kind}-${width}.png`),animations:'disabled'});
  await page.getByRole('button',{name:kind==='forward_lookup'?'상세 데이터':'실험 자세히 보기'}).first().click();await expect(page.getByRole('dialog')).toBeVisible();expect(await page.getByRole('dialog').evaluate(node=>node.scrollWidth<=node.clientWidth+1)).toBe(true);

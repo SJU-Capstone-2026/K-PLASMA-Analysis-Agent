@@ -56,8 +56,13 @@ class RequestBackend:
     def attempt(self, stage):
         return self.post("attempt", stage=stage, limit=4)
 
-    def context(self, refs=None):
-        return self.post("context", requiredRunRefs=refs or [])
+    def context(self, refs=None, *, reverse_query=None, references_only=False):
+        fields = {"requiredRunRefs": refs or []}
+        if reverse_query is not None:
+            fields["reverseQuery"] = reverse_query
+        if references_only:
+            fields["referencesOnly"] = True
+        return self.post("context", **fields)
 
     def checkpoint(self):
         return self.client.call("GET", self.prefix + "checkpoint", params=self.fence)["payload"]
