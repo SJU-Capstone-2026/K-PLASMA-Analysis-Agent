@@ -1,6 +1,6 @@
 # Synthetic live interpretation evaluation
 
-The 140 cases cover 100 forward lookup/reverse search/Run comparison requests and
+The 141 cases cover 101 forward lookup/reverse search/Run comparison requests and
 40 change/concept explanation requests. They include exact numbers and units,
 strict bounds, explicit hard versus soft ranges, goal priority, missing inputs,
 context continuation, Korean/English names, spelling variants, and unsupported
@@ -15,7 +15,7 @@ PYTHONPATH=src:. .venv/bin/python -m evals.run_interpretation --repeat 3 --concu
 ```
 
 The live command uses `OPENAI_API_KEY` from the local environment or repository
-`.env`, `gpt-5.6-luna`, and reasoning effort `none`. It performs 420 independent
+`.env`, `gpt-5.6-luna`, and reasoning effort `none`. It performs 423 independent
 interpretation requests. Use `--case forward-01`, `--category reverse`, or
 `--limit 5 --repeat 1` for a smaller explicit run. Concurrency cannot exceed four.
 The evaluation harness does not silently retry errors; each API failure remains

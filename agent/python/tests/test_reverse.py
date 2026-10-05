@@ -24,6 +24,27 @@ def test_soft_goal_priority_order_and_hard_range():
     ) == list("CAB")
 
 
+def test_range_matches_and_independent_flux_tab_have_separate_counts_and_saved_scores():
+    runs = [run(f"A-{i}", energy=energy, flux=i + 1) for i, energy in enumerate([151, 153, 155, 157, 159])]
+    runs.append(run("OUTSIDE", energy=165, flux=100))
+    result = search_reverse(
+        {
+            "constraints": [{"metric": "meanIonEnergy", "operator": "between", "min": 150, "max": 160}],
+            "goals": [{"metric": "ionFlux", "direction": "maximize"}],
+        },
+        runs,
+    )
+    assert result["totalCount"] == 5
+    assert ids(result) == ["A-4", "A-3", "A-2", "A-1", "A-0"]
+    assert len(result["goalResults"][0]["candidates"]) == 6
+    assert result["goalResults"][0]["candidates"][0]["runId"] == "OUTSIDE"
+    assert len(result["objectiveResults"][0]["candidates"]) == 5
+    middle = next(e for e in result["candidateEvaluations"] if e["runId"] == "A-2")
+    assert middle["evaluations"][0]["matchPercent"] == 100
+    assert middle["evaluations"][0]["referenceValue"] == 155
+    assert middle["matchPercent"] == 100
+
+
 @pytest.mark.parametrize(
     "operator,expected",
     [("lt", ["A"]), ("lte", ["A", "B"]), ("gt", ["C"]), ("gte", ["B", "C"]), ("eq", ["B"])],

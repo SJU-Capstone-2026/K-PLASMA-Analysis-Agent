@@ -20,12 +20,12 @@ const turn:TurnSnapshot={id:'objective-turn',askedAt:'',question:'플럭스 2 �
 
 test('hard-objective-only candidates are displayed and retain exact reference actions',()=>{
  const action=vi.fn();const {rerender}=render(<AnswerView turn={turn} onAction={action}/>);
- fireEvent.click(screen.getByRole('button',{name:'이온 플럭스 개별 조건 후보 (1)'}));
+ fireEvent.click(screen.getByRole('tab',{name:'Ion Flux 조건 1'}));
  expect(action.mock.calls[0][0]).toBe('candidate-group');const groupId=action.mock.calls[0][1].dataset.groupId;
  const selected={...turn,ui:{...turn.ui,activeCandidateGroup:groupId}};
  rerender(<AnswerView turn={selected} onAction={action}/>);
  expect(screen.getByText(candidate.runId)).toBeInTheDocument();expect(screen.getByText(/개별 조건의 후보입니다/)).toBeInTheDocument();
- fireEvent.click(screen.getByRole('button',{name:'실험 상세'}));
+ fireEvent.click(screen.getByRole('button',{name:'실험 자세히 보기'}));
  expect(action.mock.calls[1][1].dataset.runVersionId).toBe(candidate.runVersionId);
  expect(candidateRefs(selected)).toEqual([ref(candidate)]);
  expect(resolveCandidateRef(selected,candidate.runId)).toEqual(ref(candidate));

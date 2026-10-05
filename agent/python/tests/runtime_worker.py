@@ -102,6 +102,24 @@ class RuntimeTestModel:
         elif "정의" in question or "무엇" in question or "뭐야" in question:
             topic = "ionFlux" if "플럭스" in question else "meanIonEnergy"
             operation = {"kind": "explain_concept", "inputs": {"topics": [topic], "aspect": "definition"}}
+        elif "Ion Flux는 높게, Mean Ion Energy는" in question:
+            bounds = re.search(r"([\d.]+)–([\d.]+) eV", question)
+            assert bounds is not None
+            operation = {
+                "kind": "reverse_search",
+                "inputs": {
+                    "constraints": [
+                        {
+                            "metric": "meanIonEnergy",
+                            "operator": "between",
+                            "min": float(bounds[1]),
+                            "max": float(bounds[2]),
+                            "unit": "eV",
+                        }
+                    ],
+                    "goals": [{"metric": "ionFlux", "direction": "maximize"}],
+                },
+            }
         elif "최대화" in question and "플럭스" in question:
             operation = {
                 "kind": "reverse_search",

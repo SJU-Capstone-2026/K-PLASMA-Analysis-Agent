@@ -76,6 +76,25 @@ def _operator(segment):
     return "eq"
 
 
+def _allows_outside_range(segment):
+    permissions = list(
+        re.finditer(
+            r"범위\s*(?:밖|외)(?:도|를|을)?\s*(?:허용|포함)"
+            r"|\ballow\b.{0,30}\boutside\b.{0,20}\brange\b",
+            segment,
+            re.IGNORECASE,
+        )
+    )
+    for permission in permissions:
+        before = segment[: permission.start()]
+        after = segment[permission.end() :]
+        if re.search(r"(?:\bnot|\bnever|\bno|\bdon['’]t|\bcannot|\bcan't)\s*$", before, re.IGNORECASE):
+            return False
+        if re.match(r"\s*(?:안|못|하지|하지\s*마|하지\s*않)", after):
+            return False
+    return bool(permissions)
+
+
 def _evidence(segment, *, allow_prefix=False):
     correction = re.search(r"말고|아니(?:고|라)|대신|\binstead\b|\brather\b", segment, re.IGNORECASE)
     if correction and _NUMBER_RE.search(segment[correction.end() :]):
@@ -88,7 +107,9 @@ def _evidence(segment, *, allow_prefix=False):
     if not found:
         return None
     values = [_decimal(match.group()) for match in found]
-    soft = bool(re.search(r"가깝|근접|\bnear\b|\baround\b|approximately", segment, re.IGNORECASE))
+    # The prototype's bounded search filters first, even for '가깝게'. Only
+    # explicit permission to include out-of-range values makes this a soft goal.
+    soft = _allows_outside_range(segment)
     interval = len(values) == 2 and bool(
         re.search(
             r"[~〜∼–—]|(?<=\d)\s*-\s*-?\d|\bbetween\b|\bto\b|부터|에서|범위|range", segment, re.IGNORECASE
@@ -280,10 +301,14 @@ def _reference_grounding(operation, question, input_history, prior):
 
 def _goal_grounding(operation, question, history):
     directions = {}
+    priority = None
     for text in [question, *(item.get("text", "") for item in history)]:
         if not isinstance(text, str):
             continue
         anchors = _anchors(text)
+        if re.search(r"최우선|우선하고|우선하되|동률|\bfirst\b.{0,80}\bthen\b", text, re.IGNORECASE):
+            # Validate explicit sequential priority; never reorder model output.
+            priority = list(dict.fromkeys(metric for _, _, metric in anchors))
         for index, (_, end, metric) in enumerate(anchors):
             segment = text[end : anchors[index + 1][0] if index + 1 < len(anchors) else len(text)]
             low = bool(
@@ -298,6 +323,11 @@ def _goal_grounding(operation, question, history):
         expected = directions.get(goal["metric"])
         if expected and goal["direction"] in ("minimize", "maximize") and goal["direction"] != expected:
             raise DomainError("UNGROUNDED_GOAL", goal["metric"])
+    goals = [goal["metric"] for goal in operation.get("inputs", {}).get("goals", [])]
+    if priority and len(set(goals)) > 1:
+        expected = [metric for metric in priority if metric in goals]
+        if len(expected) == len(goals) and expected != goals:
+            raise DomainError("UNGROUNDED_GOAL_PRIORITY", "explicit priority differs from goal order")
 
 
 def _comparison_intent_grounding(operation, question, history, prior):

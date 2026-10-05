@@ -4,11 +4,11 @@ from .cases import CASES
 from .judge import judge
 
 
-def test_suite_has_140_distinct_synthetic_questions_and_required_balance():
-    assert len(CASES) == len({case.question for case in CASES}) == 140
+def test_suite_has_141_distinct_synthetic_questions_and_required_balance():
+    assert len(CASES) == len({case.question for case in CASES}) == 141
     assert dict(Counter(case.category for case in CASES)) == {
         "forward": 30,
-        "reverse": 45,
+        "reverse": 46,
         "compare": 25,
         "change": 20,
         "concept": 20,

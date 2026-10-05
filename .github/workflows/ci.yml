@@ -35,6 +35,7 @@ jobs:
       - run: npm run build
       - run: backend/gradlew -p backend test --console=plain
       - run: npm exec --workspace frontend -- playwright install --with-deps chromium
+      - run: npm exec --workspace frontend -- playwright test --config src/features/agent/agent-v1.playwright.config.ts --grep 'v1 five cards'
       - run: npm run test:e2e
       - run: npm run test:agent:restart
       # Deliberately no upload-artifact step. External sources, traces, payloads and screenshots stay local.

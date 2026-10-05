@@ -1,6 +1,6 @@
 """Reviewed synthetic questions and required slots, not physical observations.
 
-140 distinct questions: 100 retrieval/comparison and 40 explanation routing.
+141 distinct questions: 101 retrieval/comparison and 40 explanation routing.
 These cases assess interpretation, grounding and clarification. They do not
 certify the physical correctness of model-generated scientific explanations.
 """
@@ -244,17 +244,17 @@ def build_cases():
             [goal("meanIonEnergy", "minimize"), goal("ionFlux", "maximize")],
         ),
         (
-            "압력 15 mTorr 이하에서 에너지 30~40 eV에 가깝게 찾아줘.",
+            "압력 15 mTorr 이하에서 에너지 30~40 eV에 가깝게, 범위 밖도 허용해서 찾아줘.",
             [constraint("pressure", "lte", 15, unit="mTorr")],
             [goal("meanIonEnergy", "target_range", 30, 40, "eV")],
         ),
         (
-            "에너지 30~40 eV에 근접하는 것을 우선하고 다음으로 플럭스를 최대화해.",
+            "에너지 30~40 eV에 근접하는 것을 우선하되 범위 밖도 허용하고 다음으로 플럭스를 최대화해.",
             [],
             [goal("meanIonEnergy", "target_range", 30, 40, "eV"), goal("ionFlux", "maximize")],
         ),
         (
-            "플럭스 최대화가 최우선이고 다음으로 에너지 30~40 eV에 가깝게",
+            "플럭스 최대화가 최우선이고 다음으로 에너지 30~40 eV에 가깝게, 범위 밖도 허용해",
             [],
             [goal("ionFlux", "maximize"), goal("meanIonEnergy", "target_range", 30, 40, "eV")],
         ),
@@ -600,8 +600,17 @@ def build_cases():
         "concept", "그 개념 설명해줘. 어떤 개념인지는 아직 말 안 했어.", "explain_concept", clarification=True
     )
     add("concept", "전자기학 수식을 유도하고 구체적인 숫자 예제로 계산해줘.", None, unsupported=True)
-    assert len(cases) == 140, len(cases)
-    assert len({case.question for case in cases}) == 140
+    add(
+        "reverse",
+        "Ion Flux는 높게, Mean Ion Energy는 150–160 eV에 가깝게 후보를 찾아줘",
+        "reverse_search",
+        {
+            "constraints": [constraint("meanIonEnergy", "between", low=150, high=160, unit="eV")],
+            "goals": [goal("ionFlux", "maximize")],
+        },
+    )
+    assert len(cases) == 141, len(cases)
+    assert len({case.question for case in cases}) == 141
     return cases
 
 

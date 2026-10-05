@@ -118,6 +118,7 @@ def evaluate_objective(run, objective):
             raw_delta = boundary - actual if op in ("lt", "lte") else actual - boundary
             boundary_delta = _stable_delta(raw_delta)
             percent = _percent(boundary_delta, boundary)
+    reference = _midpoint(objective["min"], objective["max"]) if op == "between" else objective["value"]
     return {
         "objectiveId": objective["id"],
         "metric": objective["metric"],
@@ -133,6 +134,8 @@ def evaluate_objective(run, objective):
         "baselineDelta": None,
         "baselinePercentDelta": None,
         "unavailableReason": error,
+        "referenceValue": reference,
+        "matchPercent": math.floor(_closeness(actual, objective) + 0.5),
     }
 
 
@@ -236,6 +239,9 @@ def search_reverse(inputs, ordered_runs):
         {"run": run, "evaluations": [evaluate_objective(run, objective) for objective in objectives]}
         for run in usable
     ]
+    for entry in entries:
+        scores = [evaluation["matchPercent"] for evaluation in entry["evaluations"]]
+        entry["matchPercent"] = math.floor(sum(scores) / len(scores) + 0.5) if scores else 0
     entries_by_ref = {(entry["run"]["runId"], entry["run"]["runVersionId"]): entry for entry in entries}
     combined = []
     for run in common_eligible:
@@ -293,6 +299,8 @@ def search_reverse(inputs, ordered_runs):
         *(entry["run"] for entry in near_matches),
     ]
     status = "MATCH" if representatives else "NO_MATCH"
+    displayed_refs = used_refs(all_displayed)
+    displayed_keys = {(ref["runId"], ref["runVersionId"]) for ref in displayed_refs}
     return {
         "kind": "reverse_search",
         "resultStatus": status,
@@ -310,9 +318,20 @@ def search_reverse(inputs, ordered_runs):
         "commonRecommendation": representatives[0] if representatives else None,
         "objectiveResults": objective_results,
         "goalResults": goal_results,
+        # Goal tabs include Runs outside common constraints. Persist their
+        # evaluations too, so the UI never calls the JS fallback to recompute.
+        "candidateEvaluations": [
+            {
+                **run_ref(entry["run"]),
+                "evaluations": entry["evaluations"],
+                "matchPercent": entry["matchPercent"],
+            }
+            for entry in entries
+            if (entry["run"]["runId"], entry["run"]["runVersionId"]) in displayed_keys
+        ],
         "nearMatches": near_matches,
         "nearMisses": near_matches,
-        "usedRunRefs": used_refs(all_displayed),
+        "usedRunRefs": displayed_refs,
         "excludedRuns": excluded,
         "defaultedUnits": defaulted_units,
         "numericPolicyVersion": NUMERIC_POLICY_VERSION,

@@ -5,6 +5,14 @@ info:
   description: |
     Python LangGraph worker; Spring owns durable request acceptance and final turns.
     Existing fallback is preserved as source but is not invoked by v1.
+    Bounded reverse queries filter first, including wording such as near/가깝게.
+    A soft target_range requires explicit permission to include outside-range Runs.
+    Reverse snapshots add candidateEvaluations keyed by exact runId/runVersionId,
+    with saved evaluations, referenceValue and integer matchPercent. Existing common
+    and objective candidates also include these presentation scores. The frontend
+    reuses prototype presentation without re-filtering, reordering or recalculating.
+    Older completed snapshots remain immutable; missing saved scores are unavailable.
+    This is an additive schemaVersion 1 field; graphBuildId and promptVersion change.
     All worker endpoints require X-Agent-Token configured by AGENT_WORKER_TOKEN.
     The worker has no database credentials. A synchronous HTTP checkpoint adapter
     stores typed serializer bytes as JSON/base64 in PostgreSQL under the same

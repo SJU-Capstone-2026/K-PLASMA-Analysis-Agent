@@ -2,6 +2,8 @@
 
 작성일: 2026-10-05. 구현 브랜치: `feat/agent-graph-v1`.
 
+**후속 회귀 수정:** 아래 완료 검증·평가는 최초 구현 기록이다. 사용자가 보고한 기본 범위 검색과 원본 UI 차이는 이 검증에서 놓쳤다. 현재 `interpret-2` / `v1-2026-10-05.3`의 규칙과 최신 결과는 [순·역방향 패리티 수정 기록](agent-v1-search-parity.md)을 따른다. 최초 140개 질문 평가 점수를 수정된 프롬프트의 점수로 취급하지 않는다.
+
 ## 실행 범위
 
 신규 질문은 Python LangGraph v1으로만 실행한다. 등록된 operation은 `forward_lookup`, `reverse_search`, `compare_runs`, `explain_change`, `explain_concept`다. 기존 JavaScript fallback 소스·테스트와 과거 스냅샷 렌더러는 유지하지만 자동 대체 실행은 없다. 모델 설정은 사용자 지정 `gpt-5.6-luna`, `reasoning.effort=none`이다. API 키는 서버의 로컬 환경에서만 읽는다.

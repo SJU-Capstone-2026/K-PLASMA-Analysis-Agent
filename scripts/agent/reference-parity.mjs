@@ -11,7 +11,7 @@ const source=process.env.KPLASMA_PROTOTYPE_ROOT;
 if(!source)throw new Error('Set KPLASMA_PROTOTYPE_ROOT to the external v12.3.1 prototype directory.');
 const sandbox=vm.createContext({});
 const hashes={};
-for(const name of ['mock-data','analysis-data','engine']){
+for(const name of ['mock-data','analysis-data','engine','analysis-engine','agent-engine','view-models']){
  const bytes=await readFile(join(source,'assets',`${name}.js`));
  hashes[name]=createHash('sha256').update(bytes).digest('hex');
  vm.runInContext(bytes.toString('utf8'),sandbox,{timeout:10000});
@@ -32,16 +32,25 @@ for(const metric of [...conditions,...output]){
  reverse.push({constraints:[{metric,operator:'RANGE',min:values[Math.floor(values.length/4)],max:values[Math.floor(values.length*3/4)],unit:units[metric]}],goals:[]});
 }
 reverse.push({constraints:[{metric:'ionFlux',operator:'MIN',value:Number.MAX_SAFE_INTEGER,unit:units.ionFlux}],goals:[]});
+const example=sandbox.KPlasmaAgent.classifyRequest('Ion Flux는 높게, Mean Ion Energy는 150–160 eV에 가깝게 후보를 찾아줘');
+if(example.intent!=='REVERSE_SEARCH')throw new Error('External prototype did not classify its reverse example.');
+const pickRule=rule=>Object.fromEntries(['metric','operator','direction','value','min','max','unit'].filter(key=>rule[key]!==undefined).map(key=>[key,rule[key]]));
+reverse.push({constraints:example.query.constraints.map(pickRule),goals:example.query.goals.map(pickRule)});
+let examplePresentation;
 const expectedForward=forward.map(c=>{const r=engine.searchForward(c,runs);return {status:r.status,runId:r.run?.runId??null,deltas:r.deltas,metrics:r.run?.metrics??null};});
 const expectedReverse=reverse.map(query=>{
  const objectives=query.constraints.filter(c=>output.includes(c.metric)).map((c,i)=>({...c,id:`objective-${i+1}`}));
  const r=engine.searchReverse({...query,objectives,analysisType:'REVERSE',confirmed:true},runs);
  if(r.status==='INVALID')throw new Error('Reference query schema invalid.');
+ if(query===reverse.at(-1))examplePresentation=r.commonCandidates.map(entry=>{
+  const model=sandbox.KPlasmaViewModels.buildCandidateFitModel(entry.run,objectives);
+  return {runId:model.runId,matchPercent:model.matchPercent,evaluations:model.objectiveRows.map(row=>({matchPercent:row.matchPercent,actual:row.actual,satisfied:row.satisfied,targetLabel:row.targetLabel,rangeStatus:row.rangeStatus}))};
+ });
  return {status:r.status,common:r.commonRunIds,goals:r.goalResults.map(g=>g.candidates.map(r=>r.runId)),near:r.nearMatches.map(e=>e.run.runId)};
 });
 const child=spawnSync(process.env.KPLASMA_PYTHON??join(repository,'agent/python/.venv/bin/python'),[join(repository,'scripts/agent/reference-parity.py')],{
  cwd:repository,env:{...process.env,PYTHONPATH:join(repository,'agent/python/src')},
- input:JSON.stringify({runs,forward,reverse,expectedForward,expectedReverse,hashes}),encoding:'utf8',maxBuffer:16*1024*1024,
+ input:JSON.stringify({runs,forward,reverse,expectedForward,expectedReverse,hashes,examplePresentation}),encoding:'utf8',maxBuffer:16*1024*1024,
 });
 if(child.status!==0){console.error('External scalar comparison failed; no private payload emitted.');process.exitCode=1;}
 if(child.stdout)console.log(child.stdout.trim());

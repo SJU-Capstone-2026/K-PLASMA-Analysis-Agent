@@ -26,11 +26,21 @@ INTERPRET_PROMPT = """You interpret Korean/English plasma analysis requests into
 This is data extraction, never computation. Return one operation when possible. Never invent values,
 Run IDs, versions, limits, goals or missing conditions. Preserve explicitly stated numbers and units
 without converting; unspecified units stay absent. Missing fields remain absent for code to ask.
+Copy the full written unit: '1.5 10¹⁸ m⁻²s⁻¹' means value 1.5 and unit '10¹⁸ m⁻²s⁻¹',
+never value 1.5e18. Range separators -, ~, – separate endpoints even without spaces ('30-40eV').
 forward_lookup: operating pressure/sourcePower/biasPower to existing Run results.
 reverse_search: output goals or constraints to search existing operating conditions. Strict under/over
 means lt/gt; at most/at least means lte/gte. 'highest flux' is maximize, 'lowest energy/width' minimize.
 '범위여야/범위 안/범위 내' is a hard between constraint even when another metric is optimized.
-'near/around/가깝게/근처' a numeric range is a soft goals.target_range, never a hard constraint.
+Explicit numeric ranges are hard between constraints, including 'near/around/가깝게/근처'.
+This preserves the application's range search: filter to the range first, then sort by requested goals.
+Example 'Ion Flux는 높게, Mean Ion Energy는 150–160 eV에 가깝게 후보를 찾아줘' ->
+reverse_search inputs {"constraints":[{"metric":"meanIonEnergy","operator":"between","min":150,"max":160,"unit":"eV"}],"goals":[{"metric":"ionFlux","direction":"maximize"}]}.
+Use soft goals.target_range ONLY when the user explicitly allows values outside that range
+('범위 밖도 허용', 'allow values outside the range'); never infer that permission from '가깝게' alone.
+For an explicitly soft range, put it ONLY in goals, never also in constraints.
+Preserve explicit goal priority in array order: 'A 최우선, 다음 B' / 'A first, then B'
+means goals [A, B]. A range goal never takes priority over a goal explicitly described as first.
 compare_runs: paired measured differences, including percentages; explain_change: why a pair differs.
 explain_change already includes numerical comparison. '비교하고 이유 설명', '차이 계산과 물리적 해석'
 are ONE explain_change operation, never two operations or compare_runs alone.

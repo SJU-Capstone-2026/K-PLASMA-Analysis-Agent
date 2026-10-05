@@ -48,11 +48,13 @@ function renderClaim(claim) {
     return `<div class="agent-claim agent-claim--${claim.kind.toLowerCase()}"><span>${claimLabel(claim.kind)}</span><p>${escapeHtml(claim.text)}</p></div>`;
   }
 
-function renderRunActions(turn, runId, variant = 'candidate') {
+function renderRunActions(turn, runId, variant = 'candidate', runVersionId = null) {
+    const versionAttribute = runVersionId ? ` data-run-version-id="${escapeHtml(runVersionId)}"` : '';
+    runId = escapeHtml(runId);
     if (variant === 'forward') {
-      return `<div class="agent-run-actions agent-run-actions--forward"><div><strong>이 결과에서 더 확인할까요?</strong><span>이 Run을 기준으로 목표 탐색이나 원인 질문을 이어갈 수 있습니다.</span></div><button type="button" data-action="continue-with-run" data-turn-id="${turn.id}" data-run-id="${runId}">이 Run을 기준으로 질문</button><button type="button" data-action="open-run-detail" data-turn-id="${turn.id}" data-run-id="${runId}">상세 데이터</button></div>`;
+      return `<div class="agent-run-actions agent-run-actions--forward"><div><strong>이 결과에서 더 확인할까요?</strong><span>이 Run을 기준으로 목표 탐색이나 원인 질문을 이어갈 수 있습니다.</span></div><button type="button" data-action="continue-with-run" data-turn-id="${turn.id}" data-run-id="${runId}"${versionAttribute}>이 Run을 기준으로 질문</button><button type="button" data-action="open-run-detail" data-turn-id="${turn.id}" data-run-id="${runId}"${versionAttribute}>상세 데이터</button></div>`;
     }
-    return `<div class="agent-run-actions"><button type="button" data-action="continue-with-run" data-turn-id="${turn.id}" data-run-id="${runId}">이 Run으로 이어서 질문</button><button type="button" data-action="open-run-detail" data-turn-id="${turn.id}" data-run-id="${runId}">실험 자세히 보기</button></div>`;
+    return `<div class="agent-run-actions"><button type="button" data-action="continue-with-run" data-turn-id="${turn.id}" data-run-id="${runId}"${versionAttribute}>이 Run으로 이어서 질문</button><button type="button" data-action="open-run-detail" data-turn-id="${turn.id}" data-run-id="${runId}"${versionAttribute}>실험 자세히 보기</button></div>`;
   }
 
 function renderExplanationAnswer(answer) {
@@ -103,38 +105,38 @@ function renderForwardAgentAnswer(answer, turn) {
     const normalizationNotice = pressureWasNormalized
       ? `<div class="agent-normalization-note"><strong>단위 변환 확인</strong><span>요청 압력 ${compactNumber(originalPressure.value)} Torr를 ${Number(originalPressure.normalizedValue).toLocaleString('ko-KR')} mTorr로 변환해 조회했습니다. 8 mTorr로 해석하지 않았습니다.</span></div>`
       : '';
-    return `<div class="agent-compact-answer"><div class="agent-forward-conclusion ${match.isExact ? '' : 'is-reference'}"><div><span>${match.isExact ? '조회 결과' : '정확 일치 없음'}</span><h3>${run.runId}</h3><p>${escapeHtml(match.summary || '')}</p></div><div class="agent-condition-verdict"><strong>${escapeHtml(match.label || '')}</strong><small>${match.isExact ? '예측이 아닌 저장된 실제 결과' : '결과가 아닌 참고 후보'}</small></div></div>
+    return `<div class="agent-compact-answer"><div class="agent-forward-conclusion ${match.isExact ? '' : 'is-reference'}"><div><span>${match.isExact ? '조회 결과' : '정확 일치 없음'}</span><h3>${escapeHtml(run.runId)}</h3><p>${escapeHtml(match.summary || '')}</p></div><div class="agent-condition-verdict"><strong>${escapeHtml(match.label || '')}</strong><small>${match.isExact ? '예측이 아닌 저장된 실제 결과' : '결과가 아닌 참고 후보'}</small></div></div>
       ${normalizationNotice}
       <div class="agent-condition-summary"><div><span>Pressure</span><strong>${run.pressure}</strong><small>mTorr</small></div><div><span>Source Power</span><strong>${run.sourcePower}</strong><small>W</small></div><div><span>Bias Power</span><strong>${run.biasPower}</strong><small>W</small></div></div>
-      <div class="agent-delta-grid agent-delta-grid--three"><article><div><span>Ion Flux</span><em class="evidence-kind evidence-kind--observed">관찰됨</em></div><strong>${compactNumber(run.metrics.ionFlux)}</strong><small>10¹⁸ m⁻²s⁻¹</small></article><article><div><span>Mean Ion Energy</span><em class="evidence-kind evidence-kind--observed">관찰됨</em></div><strong>${compactNumber(run.metrics.meanIonEnergy)}</strong><small>eV</small></article><article><div><span>IED Width</span><em class="evidence-kind evidence-kind--observed">관찰됨</em></div><strong>${compactNumber(run.metrics.iedWidth)}</strong><small>eV</small></article></div>${renderRunActions(turn, run.runId, 'forward')}</div>`;
+      <div class="agent-delta-grid agent-delta-grid--three"><article><div><span>Ion Flux</span><em class="evidence-kind evidence-kind--observed">관찰됨</em></div><strong>${compactNumber(run.metrics.ionFlux)}</strong><small>10¹⁸ m⁻²s⁻¹</small></article><article><div><span>Mean Ion Energy</span><em class="evidence-kind evidence-kind--observed">관찰됨</em></div><strong>${compactNumber(run.metrics.meanIonEnergy)}</strong><small>eV</small></article><article><div><span>IED Width</span><em class="evidence-kind evidence-kind--observed">관찰됨</em></div><strong>${compactNumber(run.metrics.iedWidth)}</strong><small>eV</small></article></div>${renderRunActions(turn, run.runId, 'forward', run.runVersionId)}</div>`;
   }
 
 function renderCandidateCard(candidate, turn) {
     const conditions = Object.fromEntries(candidate.conditions.map((item) => [item.metric, item]));
     const metrics = Object.fromEntries(candidate.metrics.map((item) => [item.metric, item]));
     const rows = candidate.objectiveRows || [];
-    const fallbackScores = rows.map((row) => Number.isFinite(row.matchPercent)
+    const scores = rows.map((row) => Number.isFinite(row.matchPercent)
       ? row.matchPercent
-      : row.satisfied ? 100 : Math.round(Math.max(0, 100 - Math.abs(Number(row.percentDelta) || 100))));
+      : candidate.savedEvaluationsOnly ? null : row.satisfied ? 100 : Math.round(Math.max(0, 100 - Math.abs(Number(row.percentDelta) || 100))));
     const matchPercent = Number.isFinite(candidate.matchPercent)
       ? candidate.matchPercent
-      : fallbackScores.length ? Math.round(fallbackScores.reduce((sum, value) => sum + value, 0) / fallbackScores.length) : 0;
+      : candidate.savedEvaluationsOnly ? null : scores.length ? Math.round(scores.reduce((sum, value) => sum + value, 0) / scores.length) : 0;
     const matchSummary = candidate.matchSummary || `${candidate.satisfiedCount || 0}개 목표 충족 · 저장된 이전 대화`;
     const scoreSummary = rows.length
-      ? `<div class="agent-fit-score"><span>검색값 근접도</span><strong>${matchPercent}%</strong><small>${escapeHtml(matchSummary)}</small></div>`
+      ? `<div class="agent-fit-score"><span>검색값 근접도</span><strong>${candidate.proximityUnavailable ? '비가용' : `${matchPercent}%`}</strong><small>${escapeHtml(matchSummary)}</small></div>`
       : '<div class="agent-fit-score agent-fit-score--direction"><span>정렬 기준</span><strong>목표 방향</strong><small>실제 측정값 순서</small></div>';
-    const scoreMeter = rows.length
+    const scoreMeter = rows.length && !candidate.proximityUnavailable
       ? `<div class="agent-match-meter" aria-label="검색값 근접도 ${matchPercent}%"><i style="width:${matchPercent}%"></i></div>`
       : '';
-    return `<article class="agent-fit-card ${turn.ui.selectedCandidateRunId === candidate.runId ? 'is-selected' : ''}"><div class="agent-fit-card-selectable" data-action="select-candidate-card" data-turn-id="${turn.id}" data-run-id="${candidate.runId}" role="button" tabindex="0" aria-pressed="${turn.ui.selectedCandidateRunId === candidate.runId}"><header><div><span>검증된 실제 Run</span><strong>${candidate.runId}</strong></div>${scoreSummary}</header>${scoreMeter}<p class="agent-card-conditions">${conditions.pressure.value} mTorr · Source ${conditions.sourcePower.value} W · Bias ${conditions.biasPower.value} W</p>
+    return `<article class="agent-fit-card ${turn.ui.selectedCandidateRunId === candidate.runId ? 'is-selected' : ''}"><div class="agent-fit-card-selectable" data-action="select-candidate-card" data-turn-id="${turn.id}" data-run-id="${escapeHtml(candidate.runId)}"${candidate.runVersionId ? ` data-run-version-id="${escapeHtml(candidate.runVersionId)}"` : ''} role="button" tabindex="0" aria-pressed="${turn.ui.selectedCandidateRunId === candidate.runId}"><header><div><span>검증된 실제 Run</span><strong>${escapeHtml(candidate.runId)}</strong></div>${scoreSummary}</header>${scoreMeter}<p class="agent-card-conditions">${conditions.pressure.value} mTorr · Source ${conditions.sourcePower.value} W · Bias ${conditions.biasPower.value} W</p>
       <div class="agent-card-metrics"><span><small>Ion Flux</small><strong>${metrics.ionFlux.value}</strong></span><span><small>Mean Energy</small><strong>${metrics.meanIonEnergy.value} eV</strong></span><span><small>IED Width</small><strong>${metrics.iedWidth.value} eV</strong></span></div>
-      <div class="agent-fit-rows">${rows.map((row, index) => `<div class="${row.satisfied ? 'is-satisfied' : 'is-missed'}"><span>${row.label}</span><strong>${row.actualLabel} ${row.unit}</strong><small>목표 ${escapeHtml(row.targetLabel)}</small><b><span title="${escapeHtml(row.referenceLabel || '검색 기준 대비')}">${fallbackScores[index]}% 근접</span><span>${escapeHtml(row.differenceLabel)}</span></b></div>`).join('')}</div>
+      <div class="agent-fit-rows">${rows.map((row, index) => `<div class="${row.satisfied ? 'is-satisfied' : 'is-missed'}"><span>${row.label}</span><strong>${row.actualLabel} ${row.unit}</strong><small>목표 ${escapeHtml(row.targetLabel)}</small><b><span title="${escapeHtml(row.referenceLabel || '검색 기준 대비')}">${candidate.proximityUnavailable || scores[index] === null ? '근접도 비가용' : `${scores[index]}% 근접`}</span><span>${escapeHtml(row.differenceLabel)}</span></b></div>`).join('')}</div>
       ${candidate.baselineRows.length ? `<div class="agent-baseline-delta">${renderRunChip(candidate.baselineRunId || turn.contextRunId || 'Run')}${candidate.baselineRows.map((row) => `<small>${row.label} <b>${escapeHtml(row.deltaLabel)}${row.percentLabel ? ` (${escapeHtml(row.percentLabel)})` : ''}</b></small>`).join('')}</div>` : ''}</div>
-      ${renderRunActions(turn, candidate.runId)}</article>`;
+      ${renderRunActions(turn, candidate.runId, 'candidate', candidate.runVersionId)}</article>`;
   }
 
 function renderReverseAgentAnswer(answer, turn) {
-    if (answer.status !== 'MATCH') {
+    if (answer.status !== 'MATCH' && !(answer.showIndependentGroups && answer.candidateGroups?.groups.some(group => group.candidates.length))) {
       return `<div class="agent-compact-answer"><div class="agent-result-intro"><div><span>검색 결과</span><h3>필수 조건을 만족하는 실제 Run이 없습니다</h3><p>필수 조건은 후보 순위보다 먼저 적용됩니다.</p></div><div class="agent-result-flags"><span>0개 일치</span><span>조건 우회 없음</span></div></div>
         <div class="agent-search-summary agent-search-summary--constraints"><div class="agent-objectives">${(answer.constraints || []).map((constraint, index) => {
           const metricLabel = viewModels.METRIC_META && viewModels.METRIC_META[constraint.metric]
@@ -154,10 +156,10 @@ function renderReverseAgentAnswer(answer, turn) {
     return `<div class="agent-compact-answer">${answer.interpretationNote ? `<div class="agent-interpretation-note"><strong>조건 해석</strong><p>${escapeHtml(answer.interpretationNote)}</p></div>` : ''}<div class="agent-result-intro"><div><span>실제 Run 탐색</span><h3>${model.groups[0].candidates.length ? `조건 일치 결과 ${model.groups[0].candidates.length}개` : '조건 일치 결과 없음'}</h3><p>수치 조건으로 조회한 뒤 요청한 방향으로 정렬했습니다.</p></div><div class="agent-result-flags"><span>실제 데이터</span><span>전체 결과</span></div></div>
       <div class="agent-search-summary"><div class="agent-objectives">${[
         ...(answer.constraints || []).map((constraint) => ({ kind: '검색 조건', label: `${viewModels.METRIC_META[constraint.metric] ? viewModels.METRIC_META[constraint.metric].label : constraint.metric} ${viewModels.constraintTargetLabel(constraint)}` })),
-        ...(answer.goals || []).map((goal) => ({ kind: '정렬', label: `${viewModels.METRIC_META[goal.metric] ? viewModels.METRIC_META[goal.metric].label : goal.metric} ${goal.direction === 'MIN' ? '낮은순' : '높은순'}` })),
+        ...(answer.goals || []).map((goal) => ({ kind: '정렬', label: `${viewModels.METRIC_META[goal.metric] ? viewModels.METRIC_META[goal.metric].label : goal.metric} ${goal.direction === 'MIN' ? '낮은순' : goal.direction === 'TARGET_RANGE' ? '범위 근접순' : '높은순'}` })),
         ...visibleObjectives.map((objective) => ({ kind: '검색 조건', label: objective.label })),
       ].map((item) => `<span><b>${item.kind}</b>${escapeHtml(item.label)}</span>`).join('')}</div><p class="agent-similarity-note"><strong>현재 정렬</strong><span>${escapeHtml(sortLabel)} · 결과를 임의로 3개로 줄이지 않습니다.</span></p></div>
-      <div class="agent-candidate-tabs" role="tablist" aria-label="목표별 실제 후보">${model.groups.map((group) => `<button type="button" role="tab" aria-selected="${group.id === active.id}" aria-controls="candidate-panel-${turn.id}" class="${group.id === active.id ? 'is-active' : ''}" data-action="candidate-group" data-turn-id="${turn.id}" data-group-id="${group.id}">${escapeHtml(group.label)}</button>`).join('')}</div>
+      <div class="agent-candidate-tabs" role="tablist" aria-label="목표별 실제 후보">${model.groups.map((group) => `<button type="button" role="tab" aria-selected="${group.id === active.id}" aria-controls="candidate-panel-${turn.id}" class="${group.id === active.id ? 'is-active' : ''}" data-action="candidate-group" data-turn-id="${turn.id}" data-group-id="${group.id}">${escapeHtml(group.label)}</button>`).join('')}</div>${active.notice ? `<p class="agent-interpretation-note">${escapeHtml(active.notice)}</p>` : ''}
       <div id="candidate-panel-${turn.id}" class="agent-fit-grid agent-fit-grid--scroll" role="tabpanel" tabindex="0" aria-label="${escapeHtml(active.label)}. 한 화면에 최대 ${model.viewportCardCount || 6}개 카드 표시">${active.candidates.length ? active.candidates.map((candidate) => renderCandidateCard(candidate, turn)).join('') : `<div class="agent-conflict"><strong>조건 일치 결과가 없습니다</strong><p>${escapeHtml(model.conflictSummary || '조건별 결과를 확인하거나 검색 범위를 조정해 주세요.')}</p></div>`}</div>
       <div class="agent-result-footer"><p>${active.candidates.length}개 결과 전체 · 한 화면 최대 ${model.viewportCardCount || 6}개 · 내부 스크롤</p><div class="agent-result-footer-actions">${active.candidates.length > 1 ? `<button class="button button--secondary button--small" type="button" data-action="reference-candidate-group" data-turn-id="${turn.id}">전체 후보 기준 질문</button>` : ''}${model.groups[0].candidates.length ? `<button class="button button--primary button--small" type="button" data-action="open-experiment-record" data-turn-id="${turn.id}">실험 기록하기</button>` : ''}</div></div></div>`;
   }

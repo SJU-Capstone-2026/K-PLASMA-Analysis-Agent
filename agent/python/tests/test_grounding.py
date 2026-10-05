@@ -69,9 +69,13 @@ def test_range_endpoints_are_grounded_together(question):
 
 
 def test_hard_soft_and_strict_bounds_cannot_be_silently_changed():
-    assert validate_grounding(reverse(soft=True), "에너지30~40eV에 가깝게 찾아줘", [])
+    assert validate_grounding(reverse(), "에너지30~40eV에 가깝게 찾아줘", [])
     with pytest.raises(DomainError, match="UNGROUNDED_NUMBER"):
-        validate_grounding(reverse(), "에너지30~40eV에 가깝게 찾아줘", [])
+        validate_grounding(reverse(soft=True), "에너지30~40eV에 가깝게 찾아줘", [])
+    explicit_soft = "에너지30~40eV에 가깝게, 범위 밖도 허용해서 정렬해줘"
+    assert validate_grounding(reverse(soft=True), explicit_soft, [])
+    with pytest.raises(DomainError, match="UNGROUNDED_NUMBER"):
+        validate_grounding(reverse(), explicit_soft, [])
     with pytest.raises(DomainError, match="UNGROUNDED_NUMBER"):
         validate_grounding(reverse(soft=True), "에너지30~40eV 범위 안에서", [])
     op = {
@@ -81,6 +85,58 @@ def test_hard_soft_and_strict_bounds_cannot_be_silently_changed():
     assert validate_grounding(op, "압력10미만", [])
     with pytest.raises(DomainError, match="UNGROUNDED_NUMBER"):
         validate_grounding(op, "압력10이하", [])
+
+
+@pytest.mark.parametrize(
+    "question",
+    [
+        "Ion Flux는 높게, Mean Ion Energy는 150–160 eV에 가깝게 후보를 찾아줘",
+        "highest ion flux, mean ion energy near 150–160 eV",
+    ],
+)
+def test_prototype_range_example_filters_before_flux_ordering(question):
+    operation = {
+        "kind": "reverse_search",
+        "inputs": {
+            "constraints": [
+                {"metric": "meanIonEnergy", "operator": "between", "min": 150, "max": 160, "unit": "eV"}
+            ],
+            "goals": [{"metric": "ionFlux", "direction": "maximize"}],
+        },
+    }
+    assert validate_grounding(operation, question, [])
+    operation["inputs"]["constraints"] = []
+    operation["inputs"]["goals"].append(
+        {"metric": "meanIonEnergy", "direction": "target_range", "min": 150, "max": 160, "unit": "eV"}
+    )
+    with pytest.raises(DomainError, match="UNGROUNDED_NUMBER"):
+        validate_grounding(operation, question, [])
+
+
+def test_soft_range_cannot_override_explicit_flux_priority():
+    operation = reverse(soft=True)
+    operation["inputs"]["goals"].insert(0, {"metric": "ionFlux", "direction": "maximize"})
+    question = "플럭스 최대화가 최우선이고 다음으로 에너지 30~40 eV에 가깝게, 범위 밖도 허용해"
+    assert validate_grounding(operation, question, [])
+    operation["inputs"]["goals"].reverse()
+    with pytest.raises(DomainError, match="UNGROUNDED_GOAL_PRIORITY"):
+        validate_grounding(operation, question, [])
+
+
+@pytest.mark.parametrize(
+    "question",
+    [
+        "mean ion energy near 30–40 eV; do not allow values outside the range",
+        "mean ion energy near 30–40 eV; don't allow outside the range",
+        "에너지30~40eV 범위 밖도 허용 안 해",
+        "에너지30~40eV 범위 밖도 포함하지 마",
+        "에너지30~40eV 범위 밖도 허용하지 않아",
+    ],
+)
+def test_negated_outside_permission_keeps_range_required(question):
+    assert validate_grounding(reverse(), question, [])
+    with pytest.raises(DomainError, match="UNGROUNDED_NUMBER"):
+        validate_grounding(reverse(soft=True), question, [])
 
 
 def test_run_id_numbers_never_ground_scalar_claim():

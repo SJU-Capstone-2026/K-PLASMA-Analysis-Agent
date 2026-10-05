@@ -62,6 +62,16 @@ for index, query in enumerate(packet["reverse"]):
         "near": [e["run"]["runId"] for e in result["nearMatches"]],
     }
     expected = packet["expectedReverse"][index]
+    if index == len(packet["reverse"]) - 1:
+        presentation = [{
+            "runId": entry["run"]["runId"], "matchPercent": entry["matchPercent"],
+            "evaluations": [{
+                "matchPercent": e["matchPercent"], "actual": e["actual"], "satisfied": e["satisfied"],
+                "targetLabel": f"{e['targetLabel']} {e['unit']}", "rangeStatus": e["rangeStatus"],
+            } for e in entry["evaluations"]],
+        } for entry in result["commonCandidates"]]
+        if presentation != packet["examplePresentation"]:
+            failures.append("reverse-prototype-example-presentation")
     if actual != expected:
         # Plan X5 explicitly rejects legacy JS null-to-zero coercion. Removing
         # those IDs must leave exactly the original ordering and other fields.
@@ -88,6 +98,7 @@ print(
             "runCount": len(packet["runs"]),
             "forwardCases": len(packet["forward"]),
             "reverseCases": len(packet["reverse"]),
+            "prototypeExampleMatchCount": len(packet["examplePresentation"]),
             "failedCaseIds": failures,
             "intentionalDifferences": intentional_differences,
             "sourceHashes": packet["hashes"],
