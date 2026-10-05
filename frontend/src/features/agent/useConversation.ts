@@ -16,11 +16,23 @@ export function useConversation(){
  const [activeRequest,setActiveRequest]=useState<AgentRequestView|null>(null);const active=useRef<AgentRequestView|null>(null);const [sending,setSending]=useState(false);const busy=useRef(false);
  const initialization=useRef<Promise<void>>(Promise.resolve());const generation=useRef(0);const controllers=useRef(new Set<AbortController>());const queue=useRef<Promise<unknown>>(Promise.resolve());const mounted=useRef(true);
  const workspaceNeedsSync=useRef(false);const [subscriptionRevision,setSubscriptionRevision]=useState(0);
+ const pendingTabs=useRef(new Map<string,{group:string;token:StateToken}>());const tabGeneration=useRef(0);
  const submission=useRef<{key:string;body:AgentSubmission}|null>(null);const resumption=useRef<{key:string;requestId:string;body:{expectedRequestRevision:number;pendingInputId:string;input:Snapshot}}|null>(null);
  function showRequest(next:AgentRequestView|null){if(JSON.stringify(active.current)===JSON.stringify(next))return;active.current=next;if(mounted.current)setActiveRequest(next);}
- function apply(next:WorkspaceView){if(sameEpoch(next.stateToken,current.current.stateToken)&&next.stateToken.revision<current.current.stateToken.revision)return;current.current=next;if(mounted.current)setState(next);showRequest(next.activeAgentRequest??next.failedAgentRequest??null);}
+ // Only the displayed tab is optimistic; current keeps the server's snapshots and revision.
+ function showWorkspace(){
+  if(!mounted.current)return;const next=current.current;
+  setState(pendingTabs.current.size?{...next,conversation:{...next.conversation,turns:next.conversation.turns.map(turn=>{
+   const pending=pendingTabs.current.get(turn.id);
+   return pending&&sameEpoch(pending.token,next.stateToken)?{...turn,ui:{...turn.ui,activeCandidateGroup:pending.group}}:turn;
+  })}}:next);
+ }
+ function apply(next:WorkspaceView){if(sameEpoch(next.stateToken,current.current.stateToken)&&next.stateToken.revision<current.current.stateToken.revision){showWorkspace();return;}current.current=next;
+  for(const [id,pending] of pendingTabs.current)if(!sameEpoch(pending.token,next.stateToken)||!next.conversation.turns.some(turn=>turn.id===id))pendingTabs.current.delete(id);
+  showWorkspace();showRequest(next.activeAgentRequest??next.failedAgentRequest??null);
+ }
  function controller(){const next=new AbortController();controllers.current.add(next);return next;}
- function invalidate(preserveRequest=false){generation.current++;setSubscriptionRevision(value=>value+1);controllers.current.forEach(c=>c.abort());controllers.current.clear();if(!preserveRequest){showRequest(null);submission.current=null;resumption.current=null;}workspaceNeedsSync.current=false;busy.current=false;setSending(false);}
+ function invalidate(preserveRequest=false){generation.current++;setSubscriptionRevision(value=>value+1);controllers.current.forEach(c=>c.abort());controllers.current.clear();if(!preserveRequest){tabGeneration.current++;pendingTabs.current.clear();showWorkspace();showRequest(null);submission.current=null;resumption.current=null;}workspaceNeedsSync.current=false;busy.current=false;setSending(false);}
  async function reconcile(c:AbortController,epoch:number){const loaded=await fetchWorkspace(c.signal);if(c.signal.aborted||epoch!==generation.current)return false;workspaceNeedsSync.current=false;apply(loaded);if(loaded.activeAgentRequest)submission.current=null;return true;}
  useEffect(()=>{mounted.current=true;const c=controller();initialization.current=fetchWorkspace(c.signal).then(next=>{if(!c.signal.aborted){apply(next);setReady(true);}}).catch(e=>{if(!c.signal.aborted)setError(e.message);throw e;}).finally(()=>controllers.current.delete(c));void initialization.current.catch(()=>{});return()=>{mounted.current=false;generation.current++;controllers.current.forEach(c=>c.abort());controllers.current.clear();};},[]);
  function serialize(operation:()=>Promise<void>):Promise<void>{const next=queue.current.then(async()=>{await initialization.current;await operation();});queue.current=next.catch(()=>{});return next;}
@@ -48,10 +60,32 @@ export function useConversation(){
   try{const body={expectedRequestRevision:req.requestRevision,pendingInputId:req.pendingInput.id,input};if(!resumption.current||JSON.stringify(resumption.current.body)!==JSON.stringify(body))resumption.current={key:crypto.randomUUID(),requestId:req.requestId,body};const next=await resumeAgentRequest(req.requestId,resumption.current.body,resumption.current.key,c.signal);if(c.signal.aborted||epoch!==generation.current)return;resumption.current=null;await accept(next,c,epoch);}catch(e){if(!c.signal.aborted&&epoch===generation.current){setError(e instanceof Error?e.message:String(e));throw e;}}finally{controllers.current.delete(c);if(epoch===generation.current){busy.current=false;setSending(false);}}
  }
  async function cancel(){const req=active.current;if(!req)return;const c=controller();const epoch=generation.current;try{await accept(await cancelAgentRequest(req.requestId,c.signal),c,epoch);setError('');}finally{controllers.current.delete(c);}}
- const updateTurnUi=(id:string,patch:Partial<TurnUiSnapshot>)=>serialize(async()=>{const next=await patchTurnUi(current.current.stateToken,id,patch);apply(next);});
+ const updateTurnUi=(id:string,patch:Partial<TurnUiSnapshot>)=>{
+  const tabEpoch=tabGeneration.current;
+  const pending=patch.activeCandidateGroup!==undefined&&current.current.conversation.turns.some(turn=>turn.id===id)?{group:patch.activeCandidateGroup,token:{...current.current.stateToken}}:null;
+  if(pending){pendingTabs.current.set(id,pending);showWorkspace();}
+  const clear=()=>{if(pending&&pendingTabs.current.get(id)===pending)pendingTabs.current.delete(id);};
+  return serialize(async()=>{
+   if(pending&&(tabEpoch!==tabGeneration.current||!sameEpoch(pending.token,current.current.stateToken))){clear();showWorkspace();return;}
+   try{const next=await patchTurnUi(current.current.stateToken,id,patch);clear();apply(next);}
+   catch(e){
+    clear();
+    if(pending&&mounted.current){const c=controller();try{if(!await reconcile(c,generation.current))showWorkspace();}catch{showWorkspace();/* Restore the last confirmed state if the server is unreachable. */}finally{controllers.current.delete(c);}}else showWorkspace();
+    throw e;
+   }
+  });
+ };
  const setReference=(reference:ReferenceState,activeRun?:RunRef|null)=>serialize(async()=>{invalidate(true);const c=controller();const epoch=generation.current;try{if(!await reconcile(c,epoch))return;const target=activeRun===undefined?(reference?.runs.length===1?reference.runs[0]:null):activeRun;const next=await writeReference(current.current.stateToken,reference?{kind:reference.kind,runs:reference.runs.map(asRef)}:null,target?asRef(target):null,c.signal);if(!c.signal.aborted&&epoch===generation.current)apply(next);}catch(e){if(!c.signal.aborted&&epoch===generation.current){try{await reconcile(c,epoch);}catch{/* The last restored request stays visible while offline. */}throw e;}}finally{controllers.current.delete(c);}});
  async function refresh(){invalidate();await serialize(async()=>{const c=controller();try{const next=await fetchWorkspace(c.signal);if(!c.signal.aborted){apply(next);setError('');}}finally{controllers.current.delete(c);}});}
- async function replace(reset:boolean){if(ready)invalidate();await serialize(async()=>{if(!ready)invalidate();const next=await replaceConversation(current.current.stateToken,reset);apply(next);setError('');});}
+ async function replace(reset:boolean){if(ready)invalidate();await serialize(async()=>{
+  if(!ready)invalidate();const c=controller();const epoch=generation.current;
+  try{
+   // A tab write may have committed even if its response or recovery read was interrupted.
+   if(!await reconcile(c,epoch))return;
+   const next=await replaceConversation(current.current.stateToken,reset);
+   if(!c.signal.aborted&&epoch===generation.current){apply(next);setError('');}
+  }finally{controllers.current.delete(c);}
+ });}
  return {state,ready,error,pending:sending||polling(activeRequest)||activeRequest?.status==='NEEDS_INPUT',activeRequest,sending,submit,resume,cancel,updateTurnUi,setReference,refresh,newConversation:()=>replace(false),reset:()=>replace(true)};
 }
 export type ConversationController=ReturnType<typeof useConversation>;
