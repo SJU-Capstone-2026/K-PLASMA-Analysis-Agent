@@ -16,6 +16,9 @@ class Settings:
     timeout: float = 30
     poll_seconds: float = 1
     graph_build_id: str = "v1-2026-10-05.4"
+    phoenix_endpoint: str = ""
+    phoenix_api_key: str = field(default="", repr=False)
+    phoenix_project_name: str = "K-PLASMA"
 
     @classmethod
     def from_env(cls, env_file=None):
@@ -30,6 +33,9 @@ class Settings:
             reasoning_effort=os.getenv("OPENAI_REASONING_EFFORT", "none"),
             timeout=float(os.getenv("AGENT_MODEL_TIMEOUT_SECONDS", "30")),
             graph_build_id=os.getenv("AGENT_GRAPH_BUILD_ID", "v1-2026-10-05.4"),
+            phoenix_endpoint=os.getenv("PHOENIX_COLLECTOR_ENDPOINT", ""),
+            phoenix_api_key=os.getenv("PHOENIX_API_KEY", ""),
+            phoenix_project_name=os.getenv("PHOENIX_PROJECT_NAME", "K-PLASMA"),
         )
 
     def versions(self):

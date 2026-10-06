@@ -350,7 +350,6 @@ dependencies = [
 [package.optional-dependencies]
 tracing = [
     { name = "arize-phoenix-otel" },
-    { name = "openinference-instrumentation-openai" },
 ]
 
 [package.dev-dependencies]
@@ -362,11 +361,10 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "arize-phoenix-otel", marker = "extra == 'tracing'", specifier = ">=0.13" },
+    { name = "arize-phoenix-otel", marker = "extra == 'tracing'", specifier = ">=0.17,<1" },
     { name = "httpx", specifier = ">=0.28,<1" },
     { name = "langgraph", specifier = ">=1.0,<2" },
     { name = "openai", specifier = ">=2,<3" },
-    { name = "openinference-instrumentation-openai", marker = "extra == 'tracing'", specifier = ">=0.1" },
     { name = "pydantic", specifier = ">=2.10,<3" },
     { name = "python-dotenv", specifier = ">=1,<2" },
 ]
@@ -608,25 +606,6 @@ wheels = [
 ]
 
 [[package]]
-name = "openinference-instrumentation-openai"
-version = "0.1.63"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "anyio" },
-    { name = "openinference-instrumentation" },
-    { name = "openinference-semantic-conventions" },
-    { name = "opentelemetry-api" },
-    { name = "opentelemetry-instrumentation" },
-    { name = "opentelemetry-semantic-conventions" },
-    { name = "typing-extensions" },
-    { name = "wrapt" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/ee/45/262427ba598ef3c8be9f0517fd75503331e0237aa4b45096bf0bf4629fb3/openinference_instrumentation_openai-0.1.63.tar.gz", hash = "sha256:86ff59eb945efdb7dfe093cb5590f0047737585f304f26ace132a4359a83baa7", size = 27830, upload-time = "2026-10-01T22:23:52.345Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/d3/12/1a2bae35a8abfc3c2530ab7f061d5eff161e5af8c34f0e798422837a0837/openinference_instrumentation_openai-0.1.63-py3-none-any.whl", hash = "sha256:f9cb999c16054951e54f472edd6b7a8ceb256ab438959f9cde0b4b1f1145d3bc", size = 35726, upload-time = "2026-10-01T22:23:50.81Z" },
-]
-
-[[package]]
 name = "openinference-semantic-conventions"
 version = "0.1.41"
 source = { registry = "https://pypi.org/simple" }
@@ -737,21 +716,6 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/94/78/a503801c1c8f80b1d8aad0e14106a7c57f39344001652a78a683f9a9089e/opentelemetry_exporter_otlp_proto_http-1.45.0.tar.gz", hash = "sha256:2f35496d96809f946f41b8805e6b93aec6c9b71b5fd759b75b6af4c084d992ae", size = 28818, upload-time = "2026-09-25T12:32:35.335Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/e7/18/875e0ee47e035f324e42eda9aab47d58381a4412181dca251d3504e24680/opentelemetry_exporter_otlp_proto_http-1.45.0-py3-none-any.whl", hash = "sha256:74385f99266dafdefff41f3da4b76f6dba79d237a9d4487e6ff1ee653c74a0a3", size = 22260, upload-time = "2026-09-25T12:32:14.658Z" },
-]
-
-[[package]]
-name = "opentelemetry-instrumentation"
-version = "0.66b0"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "opentelemetry-api" },
-    { name = "opentelemetry-semantic-conventions" },
-    { name = "packaging" },
-    { name = "wrapt" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/d1/97/e6959310cff3dbbce24ca0a60e5e12f773320d17480c779b038b55defd35/opentelemetry_instrumentation-0.66b0.tar.gz", hash = "sha256:316715ed7b33a12530c0ae3e8d4cdf26d70e1aad358d7ba256e5dea2d4ceed71", size = 43308, upload-time = "2026-09-25T12:35:46.504Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/4b/08/bf39ca469f178963715ff6fd7012eec0b438f472703b11a64a40cbb14f6f/opentelemetry_instrumentation-0.66b0-py3-none-any.whl", hash = "sha256:0b32e2fcfec1e4bd48511a3b77ce32bfb1c16dcd5479396b21f9086a4b06c0c9", size = 36900, upload-time = "2026-09-25T12:34:50.029Z" },
 ]
 
 [[package]]

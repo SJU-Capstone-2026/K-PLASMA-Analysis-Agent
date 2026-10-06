@@ -1,6 +1,7 @@
 """Authenticated, fenced worker transport. No provider/database credentials cross this boundary."""
 
 import httpx
+from . import tracing
 
 
 class BackendError(RuntimeError):
@@ -48,7 +49,15 @@ class RequestBackend:
         self.fence = {k: claim[k] for k in ("claimGeneration", "requestRevision")}
 
     def post(self, path, **fields):
-        return self.client.call("POST", self.prefix + path, json={**self.fence, **fields})
+        body = {**self.fence, **fields}
+        if path == "heartbeat":
+            return self.client.call("POST", self.prefix + path, json=body)
+        # The opaque saver is already represented by readable node state spans.
+        inputs = body if path != "checkpoint" else {"versions": fields.get("payload", {}).get("versions")}
+        with tracing.span(f"backend.{path}", inputs=inputs) as observation:
+            result = self.client.call("POST", self.prefix + path, json=body)
+            observation.output(result)
+            return result
 
     def stage(self, stage=None, **fields):
         return self.post("heartbeat", stage=stage, leaseSeconds=60, **fields)
@@ -65,7 +74,10 @@ class RequestBackend:
         return self.post("context", **fields)
 
     def checkpoint(self):
-        return self.client.call("GET", self.prefix + "checkpoint", params=self.fence)["payload"]
+        with tracing.span("backend.checkpoint.load", inputs=self.fence) as observation:
+            result = self.client.call("GET", self.prefix + "checkpoint", params=self.fence)["payload"]
+            observation.output({"present": result is not None, "versions": (result or {}).get("versions")})
+            return result
 
     def save(self, payload):
         return self.post("checkpoint", payload=payload)

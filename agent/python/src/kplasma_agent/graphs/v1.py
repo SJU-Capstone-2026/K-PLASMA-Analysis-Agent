@@ -21,6 +21,7 @@ from ..explanations.engine import (
 )
 from ..metric_registry import CONDITION_KEYS, LABELS, NumericError, normalize_value
 from ..model_client import ModelError
+from .. import tracing
 
 INTERPRET_PROMPT = """You interpret Korean/English plasma analysis requests into the supplied JSON schema.
 This is data extraction, never computation. Return one operation when possible. Never invent values,
@@ -695,7 +696,7 @@ def build_graph(model, backend, settings, checkpointer):
         ("validate_explanation", validate_text),
         ("present", present),
     ]:
-        builder.add_node(name, fn)
+        builder.add_node(name, tracing.node(name, fn))
     builder.add_edge(START, "interpret")
     builder.add_edge("interpret", "decide")
     builder.add_conditional_edges(

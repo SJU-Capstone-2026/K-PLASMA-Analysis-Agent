@@ -3,6 +3,7 @@
 import copy
 import json
 from openai import OpenAI, APIError, APIConnectionError, APITimeoutError, RateLimitError
+from . import tracing
 
 
 class ModelError(RuntimeError):
@@ -63,22 +64,36 @@ class ModelClient:
         )
 
     def generate(self, instructions, payload, output_model):
+        with tracing.span("llm.responses", kind="LLM", inputs={
+            "instructions": instructions, "payload": payload,
+        }, attributes={"llm.model_name": self.settings.model}) as observation:
+            observation.attribute("llm.input_messages.0.message.role", "system")
+            observation.attribute("llm.input_messages.0.message.content", instructions)
+            observation.attribute("llm.input_messages.1.message.role", "user")
+            observation.json_attribute("llm.input_messages.1.message.content", payload)
+            return self._generate(instructions, payload, output_model, observation)
+
+    def _generate(self, instructions, payload, output_model, observation):
         if self.client is None:
             raise ModelError("MODEL_NOT_CONFIGURED")
+        schema = strict_schema(output_model)
+        observation.json_attribute("llm.output_schema", schema)
+        invocation_parameters = {
+            "model": self.settings.model, "reasoning": {"effort": self.settings.reasoning_effort},
+            "store": False, "max_output_tokens": 3000,
+        }
+        observation.json_attribute("llm.invocation_parameters", invocation_parameters)
         try:
             response = self.client.responses.create(
-                model=self.settings.model,
-                reasoning={"effort": self.settings.reasoning_effort},
-                store=False,
+                **invocation_parameters,
                 instructions=instructions,
                 input=json.dumps(payload, ensure_ascii=False),
-                max_output_tokens=3000,
                 text={
                     "format": {
                         "type": "json_schema",
                         "name": output_model.__name__,
                         "strict": True,
-                        "schema": strict_schema(output_model),
+                        "schema": schema,
                     }
                 },
             )
@@ -88,6 +103,16 @@ class ModelClient:
             raise ModelError(
                 "MODEL_UNAVAILABLE", retryable=(getattr(error, "status_code", 0) or 0) >= 500
             ) from None
+        observation.output(lambda: {
+            "status": response.status, "output_text": response.output_text,
+            "response": response.model_dump(mode="json"),
+        })
+        observation.attribute("llm.output_messages.0.message.role", "assistant")
+        observation.attribute("llm.output_messages.0.message.content", response.output_text)
+        if response.usage:
+            observation.attribute("llm.token_count.prompt", response.usage.input_tokens)
+            observation.attribute("llm.token_count.completion", response.usage.output_tokens)
+            observation.attribute("llm.token_count.total", response.usage.total_tokens)
         if response.status != "completed":
             raise ModelError("MODEL_OUTPUT_TRUNCATED")
         if any(
@@ -109,4 +134,5 @@ class ModelClient:
             "inputTokens": usage.input_tokens if usage else 0,
             "outputTokens": usage.output_tokens if usage else 0,
         }
+        observation.json_attribute("kplasma.validated_output", validated)
         return validated, metadata

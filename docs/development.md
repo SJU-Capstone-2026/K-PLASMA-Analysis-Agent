@@ -42,6 +42,29 @@ npm run dev:agent
 
 frontend 기본 주소는 [http://localhost:5173](http://localhost:5173)다. `VITE_API_TARGET`의 `/api` 프록시로 backend에 연결한다. health 응답은 DB·저장소 모두 준비되면 `UP`이며 실패하면 HTTP 503을 반환한다. PostgreSQL volume, backend 원본 보관소, frontend 정적 파일은 서로 다른 역할이다. `bootRun` 기본 `./storage`는 `backend/storage/`에 해당한다. JAR를 다른 작업 폴더에서 실행할 때는 `KPLASMA_STORAGE_ROOT`를 원하는 절대 경로로 설정한다. 보관소와 DB를 같이 보존해야 불변 Run 버전과 원본 계보를 추적할 수 있다.
 
+## Phoenix Cloud 추적
+
+Phoenix Settings의 collector endpoint와 API key를 기존 `.env`에 추가한다. Space URL은 프로젝트 화면 주소의 `/s/<space>`까지만 사용한다. 프로젝트 이름은 Phoenix에 만든 이름과 같아야 한다.
+
+```dotenv
+PHOENIX_COLLECTOR_ENDPOINT=https://app.phoenix.arize.com/s/your-space
+PHOENIX_PROJECT_NAME=K-PLASMA
+PHOENIX_API_KEY=your-private-key
+```
+
+```sh
+uv sync --project agent/python --frozen --extra tracing
+npm run dev:agent
+```
+
+기존 worker는 종료하고 다시 실행한다. 시작 로그의 `Phoenix tracing ready: project=K-PLASMA`를 확인한 뒤 새 질문을 보낸다. Phoenix 프로젝트의 Traces/Spans에서 `agent.request`를 열면 그래프 노드, LLM 호출, backend context·checkpoint·최종 저장의 시간과 결과를 확인할 수 있다. `llm.responses`에는 프롬프트·입력 JSON·원문 응답·검증 결과·모델·추론 설정·토큰 수가 들어간다. 질문·문맥·Run 수치를 포함한 전체 노드 상태와 최종 답변을 설정한 클라우드로 전송한다. API 키와 내부 인증 토큰은 제외하며 opaque checkpoint 직렬화와 heartbeat polling은 수집하지 않는다.
+
+`session.id`는 Agent 요청 ID다. 추가 입력이나 재시작은 같은 session에 새 실행 trace를 만들며, generation/revision·`kplasma.resumed`와 그래프·프롬프트 버전으로 당시 실행을 구분한다. `NEEDS_INPUT`은 정상 대기이며 오류로 표시하지 않는다. 수치 검증이나 모델 오류는 안전한 `error.code`로 표시한다. 관찰 코드는 상태·수치·최종 저장·복구 버전을 바꾸지 않는다.
+
+HTTP/protobuf batch 전송이므로 매 노드가 Cloud 응답을 기다리지 않는다. 전송 장애가 분석 실패로 바뀌지는 않지만 추적 자체는 유실될 수 있다. 정상 종료에서는 대기 중인 추적을 flush하고, SIGKILL에서 trace 보존을 보장하지 않는다. 분석 복구는 기존 PostgreSQL 체크포인트가 담당한다. 잘못된 설정·의존성 누락은 `PHOENIX_CONFIG_INVALID` / `PHOENIX_SETUP_FAILED` 시작 로그로 확인한다. 추적을 끄려면 endpoint와 key를 둘 다 비우고 worker를 재시작한다. Phoenix 설정 변경은 기존 미완료 작업의 복구 fingerprint를 변경하지 않는다.
+
+SDK/API 기준: [Phoenix OTEL 설정](https://arize.com/docs/phoenix/tracing/how-to-tracing/setup-tracing/setup-using-phoenix-otel), [수동 추적과 OpenInference](https://arize.com/docs/phoenix/tracing/how-to-tracing/setup-tracing/instrument).
+
 ## 실제 150 Run 초기 적재와 재처리
 
 실제 결과는 GitHub 밖에서 별도로 제공받는다. clone만으로 실험 데이터가 생기지 않으며 제품은 데이터를 자동 생성하지 않는다. 원본 `PRS_*/Source_*/Bias_*` 폴더 구조를 보존한다. 브라우저의 **도구 및 도움말 → Run 관리**에서 **폴더 선택**으로 원본 상위 폴더를 선택하거나 **ZIP 선택**으로 그 폴더를 담은 ZIP을 선택한다. 각 Run의 `0d_setting.ini`와 `0d_result/` 파일을 함께 유지한다. 압축해도 상대 계보는 유지되며 임의의 외부 래퍼 폴더는 표시용 파일 경로에 영향을 주지 않는다.

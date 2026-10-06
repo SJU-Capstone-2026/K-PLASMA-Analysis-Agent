@@ -12,7 +12,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-tracing = ["arize-phoenix-otel>=0.13", "openinference-instrumentation-openai>=0.1"]
+tracing = ["arize-phoenix-otel>=0.17,<1"]
 
 [dependency-groups]
 dev = ["pytest>=8,<10", "ruff>=0.12,<1", "mypy>=1.15,<2"]

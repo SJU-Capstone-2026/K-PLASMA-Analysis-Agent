@@ -13,15 +13,31 @@ from .config import Settings
 from .graphs.v1 import build_graph
 from .model_client import ModelClient
 from .persistence.checkpointer import DurableSaver
+from . import tracing
 
 LOG = logging.getLogger("kplasma.worker")
 
 
 def run_claim(claim, backend, model, settings):
+    request = claim.get("request") or {}
+    with tracing.span(
+        "agent.request", kind="AGENT", session_id=request.get("requestId"),
+        inputs={"request": request, "context": claim.get("context"), "inputEvents": claim.get("inputEvents", [])},
+        attributes={"kplasma.request_id": request.get("requestId", ""),
+                    "kplasma.claim_generation": claim.get("claimGeneration", 0),
+                    "kplasma.request_revision": claim.get("requestRevision", 0)},
+    ) as observation:
+        observation.json_attribute("metadata", settings.versions())
+        _run_claim(claim, backend, model, settings, observation)
+
+
+def _run_claim(claim, backend, model, settings, observation):
     versions = settings.versions()
     payload = backend.checkpoint()
+    observation.attribute("kplasma.resumed", bool(payload))
     if payload and payload.get("versions") != versions:
         backend.fail("RECOVERY_VERSION_MISMATCH")
+        observation.error(BackendError("RECOVERY_VERSION_MISMATCH"))
         return
     request = claim["request"]
     config = {"configurable": {"thread_id": request["requestId"]}, "recursion_limit": 80}
@@ -33,6 +49,7 @@ def run_claim(claim, backend, model, settings):
         saved = graph.get_state(config)
     except Exception:
         backend.fail("RECOVERY_STATE_INVALID")
+        observation.error(BackendError("RECOVERY_STATE_INVALID"))
         return
     if saved.values:
         pending = any(task.interrupts for task in saved.tasks)
@@ -41,6 +58,8 @@ def run_claim(claim, backend, model, settings):
             events = claim.get("inputEvents", [])
             if len(events) <= history_size:
                 backend.needs_input(saved.values["pending"])
+                observation.attribute("kplasma.outcome", "NEEDS_INPUT")
+                observation.output(saved.values["pending"])
                 return
             graph_input = Command(resume=events[history_size]["input"])
         else:
@@ -61,17 +80,25 @@ def run_claim(claim, backend, model, settings):
             if saved.next or "answer" not in saved.values
             else saved.values
         )
+        observation.attribute("kplasma.operation", result.get("operation", {}).get("kind", ""))
         if result.get("__interrupt__"):
             backend.needs_input(result["pending"])
+            observation.attribute("kplasma.outcome", "NEEDS_INPUT")
+            observation.output(result["pending"])
         else:
             backend.stage("commit")
             backend.finalize(result["answer"])
+            observation.attribute("kplasma.outcome", "COMPLETED")
+            observation.attribute("kplasma.result_status", result["answer"].get("status", ""))
+            observation.output(result["answer"])
     except BackendError as error:
         # A lost write/lease must never turn into a fabricated success or an unfenced failure.
         if error.retryable or error.code in ("STALE_CLAIM", "STALE_CONTEXT", "REQUEST_NOT_FOUND"):
             raise
+        observation.error(error)
         _fail_graph(backend, graph, config, error)
     except Exception as error:
+        observation.error(error)
         _fail_graph(backend, graph, config, error)
 
 
@@ -97,6 +124,7 @@ def _fail_graph(backend, graph, config, error):
 def serve(settings, once=False):
     if not settings.worker_token:
         raise SystemExit("AGENT_WORKER_TOKEN must be configured in the backend and worker.")
+    tracing.initialize(settings)
     client = BackendClient(settings)
     model = ModelClient(settings)
     stopping = Event()
@@ -152,7 +180,10 @@ def main():
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
     # httpx/openai request logging can include remote URLs; keep routine logs minimal.
     logging.getLogger("httpx").setLevel(logging.WARNING)
-    serve(Settings.from_env(args.env_file), args.once)
+    try:
+        serve(Settings.from_env(args.env_file), args.once)
+    finally:
+        tracing.shutdown()
 
 
 if __name__ == "__main__":
