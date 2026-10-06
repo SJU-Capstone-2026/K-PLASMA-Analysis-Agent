@@ -38,6 +38,29 @@ def test_common_korean_and_english_numbers_bind_to_their_metric(question):
 
 
 @pytest.mark.parametrize(
+    "question",
+    [
+        "압력 8mTorr, 소스 300와트, 바이어스 600와트 조회해줘",
+        "압력 8 mTorr, 소스 300 와트, 바이어스 600 와트 결과를 보여줘",
+        "8mTorr 압력, 300와트 소스, 600와트 바이어스 결과",
+        "pressure 8 mTorr source 300 watts bias 600 watt results",
+    ],
+)
+@pytest.mark.parametrize("proposed_unit", ["와트", "W"])
+def test_watt_names_ground_original_and_equivalent_power_units(question, proposed_unit):
+    proposed = forward(pressure=8, bias=600)
+    for metric in ("sourcePower", "biasPower"):
+        proposed["inputs"]["conditions"][metric]["unit"] = proposed_unit
+    assert validate_grounding(proposed, question, [])
+
+
+@pytest.mark.parametrize("unit", ["킬로와트", "밀리와트", "메가와트", "kW"])
+def test_scaled_watt_names_cannot_ground_a_watt_proposal(unit):
+    with pytest.raises(DomainError, match="UNGROUNDED_NUMBER"):
+        validate_grounding(forward(pressure=8, bias=600), f"압력8mTorr 소스300{unit} 바이어스600W", [])
+
+
+@pytest.mark.parametrize(
     "proposed", [forward(pressure=100, bias=10), forward(pressure=11), forward(source=100, bias=300)]
 )
 def test_numbers_present_elsewhere_do_not_ground_a_swapped_metric(proposed):

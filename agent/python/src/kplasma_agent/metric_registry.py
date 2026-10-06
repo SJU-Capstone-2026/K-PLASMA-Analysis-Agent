@@ -47,6 +47,10 @@ def normalize_value(metric: str, value, unit: str | None = None) -> float:
     if not is_finite(value):
         raise NumericError("INVALID_VALUE", metric)
     unit = UNITS[metric] if unit is None else unit
+    if metric in ("sourcePower", "biasPower") and isinstance(unit, str) and unit.casefold() in (
+        "w", "와트", "watt", "watts",
+    ):
+        unit = "W"
     converted = float(value)
     if unit == UNITS[metric]:
         pass

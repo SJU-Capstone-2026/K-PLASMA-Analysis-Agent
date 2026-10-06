@@ -14,7 +14,7 @@ from .common import DomainError, inputs_dict
 
 _NUMBER = r"[-+]?(?:\d+(?:,\d{3})*(?:\.\d+)?|\.\d+)(?:[eE][-+]?\d+)?"
 _NUMBER_RE = re.compile(r"(?<![A-Za-z0-9_.])" + _NUMBER)
-_UNIT = r"(?:10¹⁸\s*m⁻²\s*s⁻¹|10\^18\s*m\^-2\s*s\^-1|m⁻²\s*s⁻¹|m\^-2\s*s\^-1|m-2s-1|mTorr|Torr|kPa|Pa|keV|eV|kW|W)"
+_UNIT = r"(?:10¹⁸\s*m⁻²\s*s⁻¹|10\^18\s*m\^-2\s*s\^-1|m⁻²\s*s⁻¹|m\^-2\s*s\^-1|m-2s-1|mTorr|Torr|kPa|Pa|keV|eV|kW|W|watts?|[가-힣]*와트)"
 _UNIT_RE = re.compile(r"(?<![A-Za-z])" + _UNIT + r"(?![A-Za-z])", re.IGNORECASE)
 _ALIASES = {
     "pressure": r"pressure|압력",

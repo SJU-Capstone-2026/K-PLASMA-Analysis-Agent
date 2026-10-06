@@ -1,5 +1,6 @@
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.types import Command
+import pytest
 from kplasma_agent.graphs.v1 import build_graph
 from kplasma_agent.config import Settings
 
@@ -28,6 +29,40 @@ class Model:
     def generate(self, instructions, payload, cls):
         self.calls.append(cls.__name__)
         return next(self.responses), {"model": "test"}
+
+
+@pytest.mark.parametrize("unit", ["와트", "W"])
+def test_forward_lookup_with_watt_names_matches_the_same_saved_run(unit):
+    from fixtures import run
+
+    saved_run = run("SYNTHETIC-WATT", pressure=8, source=300, bias=600)
+
+    class SavedBackend(Backend):
+        def context(self, refs=None):
+            self.context_reads += 1
+            return {"runs": [saved_run], "referencedRuns": [], "context": {}}
+
+    conditions = {
+        "pressure": {"value": 8, "unit": "mTorr"},
+        "sourcePower": {"value": 300, "unit": unit},
+        "biasPower": {"value": 600, "unit": unit},
+    }
+    model = Model([{"status": "resolved", "operations": [
+        {"kind": "forward_lookup", "inputs": {"conditions": conditions}},
+    ]}])
+    backend = SavedBackend()
+    graph = build_graph(model, backend, Settings(), InMemorySaver())
+    result = graph.invoke(
+        {"question": "압력8mTorr 소스300와트 바이어스600와트 조회해줘", "request_id": "watts",
+         "context": {}, "input_history": []},
+        {"configurable": {"thread_id": "watts"}},
+    )
+    assert "__interrupt__" not in result
+    assert result["verified"] and result["result"]["resultStatus"] == "EXACT"
+    assert result["result"]["requestedConditions"] == {"pressure": 8, "sourcePower": 300, "biasPower": 600}
+    assert result["result"]["usedRunRefs"] == [{"runId": "SYNTHETIC-WATT", "runVersionId": "synthetic-SYNTHETIC-WATT-v1"}]
+    assert result["result"]["defaultedUnits"] == []
+    assert backend.context_reads == 1 and model.calls == ["Interpretation"]
 
 
 def test_concept_graph_answers_without_reading_any_run():
