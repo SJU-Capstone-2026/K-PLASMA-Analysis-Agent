@@ -11,12 +11,12 @@ def test_unit_conversion_once_and_default_units():
 
 
 @pytest.mark.parametrize("metric", ["sourcePower", "biasPower"])
-@pytest.mark.parametrize("unit", ["와트", "watt", "Watts", "w"])
+@pytest.mark.parametrize("unit", ["와트", "watt", "Watts", "w", "왓트", "왛트", "오ㅏ트"])
 def test_written_watt_names_preserve_power_values(metric, unit):
     assert normalize_value(metric, 300, unit) == normalize_value(metric, 300, "W")
 
 
-@pytest.mark.parametrize("unit", ["킬로와트", "밀리와트", "kW"])
+@pytest.mark.parametrize("unit", ["킬로와트", "밀리와트", "kW", "mW", "MW", "볼트", "킬로왓트", "k왓트"])
 def test_scaled_watt_units_are_not_treated_as_watts(unit):
     with pytest.raises(NumericError, match="UNIT_NOT_COMPARABLE"):
         normalize_value("sourcePower", 300, unit)

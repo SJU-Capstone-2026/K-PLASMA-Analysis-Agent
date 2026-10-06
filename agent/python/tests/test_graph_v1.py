@@ -32,7 +32,8 @@ class Model:
 
 
 @pytest.mark.parametrize("unit", ["와트", "W"])
-def test_forward_lookup_with_watt_names_matches_the_same_saved_run(unit):
+@pytest.mark.parametrize("written_unit", ["와트", "왓트", "왛트", "오ㅏ트"])
+def test_forward_lookup_with_watt_names_matches_the_same_saved_run(unit, written_unit):
     from fixtures import run
 
     saved_run = run("SYNTHETIC-WATT", pressure=8, source=300, bias=600)
@@ -53,7 +54,7 @@ def test_forward_lookup_with_watt_names_matches_the_same_saved_run(unit):
     backend = SavedBackend()
     graph = build_graph(model, backend, Settings(), InMemorySaver())
     result = graph.invoke(
-        {"question": "압력8mTorr 소스300와트 바이어스600와트 조회해줘", "request_id": "watts",
+        {"question": f"압력8mTorr 소스300{written_unit} 바이어스600{written_unit} 조회해줘", "request_id": "watts",
          "context": {}, "input_history": []},
         {"configurable": {"thread_id": "watts"}},
     )

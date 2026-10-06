@@ -25,8 +25,14 @@ from .. import tracing
 
 INTERPRET_PROMPT = """You interpret Korean/English plasma analysis requests into the supplied JSON schema.
 This is data extraction, never computation. Return one operation when possible. Never invent values,
-Run IDs, versions, limits, goals or missing conditions. Preserve explicitly stated numbers and units
-without converting; unspecified units stay absent. Missing fields remain absent for code to ask.
+Run IDs, versions, limits, goals or missing conditions. Preserve explicitly stated numbers exactly:
+never convert their magnitude. Normalize equivalent unit words and clear spelling/keyboard mistakes
+to standard symbols while preserving the unit scale. In power conditions, 와트/watt/watts and clear
+typos such as 왓트, 왛트, 오ㅏ트 mean W: '소스 300 오ㅏ트' -> sourcePower {"value":300,"unit":"W"}.
+Never change kW to W or Torr to mTorr, even by changing the number; code owns conversions.
+If a typo could mean different units/scales, ask for clarification rather than guess.
+Unsupported explicit units stay explicit. Unspecified units stay absent.
+Missing fields remain absent for code to ask.
 Copy the full written unit: '1.5 10¹⁸ m⁻²s⁻¹' means value 1.5 and unit '10¹⁸ m⁻²s⁻¹',
 never value 1.5e18. Range separators -, ~, – separate endpoints even without spaces ('30-40eV').
 forward_lookup: operating pressure/sourcePower/biasPower to existing Run results.

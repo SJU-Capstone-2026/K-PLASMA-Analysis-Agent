@@ -1,6 +1,8 @@
 """Canonical numerical units and display precision; no physical predictions."""
 
 import math
+import re
+import unicodedata
 from decimal import Decimal, ROUND_HALF_UP
 
 CONDITION_KEYS = ("pressure", "sourcePower", "biasPower")
@@ -41,15 +43,36 @@ def is_finite(value) -> bool:
         return False
 
 
+def is_watt_spelling(unit) -> bool:
+    """Accept a clear spelling of watt, never a scaled or different unit."""
+    if not isinstance(unit, str):
+        return False
+    if unit.casefold() in ("w", "와트", "watt", "watts"):
+        return True
+    if not re.fullmatch(r"[가-힣ㄱ-ㅣᄀ-ᇿ]+", unit):
+        return False
+    # Compare keyboard letters so 왓트/왛트 are one extra consonant and
+    # 오ㅏ트 is the same letters as 와트. Prefixes remain part of the token.
+    written = unicodedata.normalize("NFKD", unit).replace("ᅪ", "ᅩᅡ")
+    expected = "오ᅡ트"
+    if abs(len(written) - len(expected)) > 1:
+        return False
+    if len(written) == len(expected):
+        return sum(a != b for a, b in zip(written, expected)) <= 1
+    shorter, longer = sorted((written, expected), key=len)
+    for index, character in enumerate(shorter):
+        if character != longer[index]:
+            return shorter[index:] == longer[index + 1:]
+    return True
+
+
 def normalize_value(metric: str, value, unit: str | None = None) -> float:
     if metric not in UNITS:
         raise NumericError("UNSUPPORTED_METRIC", metric)
     if not is_finite(value):
         raise NumericError("INVALID_VALUE", metric)
     unit = UNITS[metric] if unit is None else unit
-    if metric in ("sourcePower", "biasPower") and isinstance(unit, str) and unit.casefold() in (
-        "w", "와트", "watt", "watts",
-    ):
+    if metric in ("sourcePower", "biasPower") and is_watt_spelling(unit):
         unit = "W"
     converted = float(value)
     if unit == UNITS[metric]:

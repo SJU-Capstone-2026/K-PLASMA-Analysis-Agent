@@ -44,6 +44,10 @@ def test_common_korean_and_english_numbers_bind_to_their_metric(question):
         "압력 8 mTorr, 소스 300 와트, 바이어스 600 와트 결과를 보여줘",
         "8mTorr 압력, 300와트 소스, 600와트 바이어스 결과",
         "pressure 8 mTorr source 300 watts bias 600 watt results",
+        "압력8mTorr 소스300왓트 바이어스600왓트 조회해줘",
+        "압력8mTorr 소스300왛트 바이어스600왛트 조회해줘",
+        "압력8mTorr 소스300 오ㅏ트 바이어스600 오ㅏ트 조회해줘",
+        "8mTorr 압력, 300왓트 소스, 600왓트 바이어스 결과",
     ],
 )
 @pytest.mark.parametrize("proposed_unit", ["와트", "W"])
@@ -54,10 +58,20 @@ def test_watt_names_ground_original_and_equivalent_power_units(question, propose
     assert validate_grounding(proposed, question, [])
 
 
-@pytest.mark.parametrize("unit", ["킬로와트", "밀리와트", "메가와트", "kW"])
+@pytest.mark.parametrize("unit", ["킬로와트", "밀리와트", "메가와트", "kW", "mW", "MW", "볼트", "킬로왓트", "k왓트"])
 def test_scaled_watt_names_cannot_ground_a_watt_proposal(unit):
     with pytest.raises(DomainError, match="UNGROUNDED_NUMBER"):
         validate_grounding(forward(pressure=8, bias=600), f"압력8mTorr 소스300{unit} 바이어스600W", [])
+
+
+def test_normalized_typo_cannot_change_numbers_or_scale():
+    question = "압력8mTorr 소스300왓트 바이어스600왓트 조회"
+    with pytest.raises(DomainError, match="UNGROUNDED_NUMBER"):
+        validate_grounding(forward(pressure=8, source=3000, bias=600), question, [])
+    proposed = forward(pressure=8, bias=600)
+    proposed["inputs"]["conditions"]["sourcePower"]["unit"] = "kW"
+    with pytest.raises(DomainError, match="UNGROUNDED_NUMBER"):
+        validate_grounding(proposed, question, [])
 
 
 @pytest.mark.parametrize(
