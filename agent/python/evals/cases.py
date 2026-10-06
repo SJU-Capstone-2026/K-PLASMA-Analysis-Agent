@@ -111,7 +111,8 @@ def build_cases():
         ("압력 25 mTorr에 소스 650 W, 바이어스 350 W로 실행해 둔 결과 보여줘.", conditions(25, 650, 350)),
         ("압력 7.25 mTorr, 소스 333 W, 바이어스 77 W 조건 결과를 확인해줘.", conditions(7.25, 333, 77)),
     ]:
-        add("forward", question, "forward_lookup", {"conditions": values})
+        add("forward", question, "forward_lookup", {"conditions": values},
+            clarification=any(not scalar.get("unit") for scalar in values.values()))
     for question, supplied, missing in [
         ("압력 10 mTorr와 소스 300 W의 결과를 보여줘.", conditions(10, 300), "biasPower"),
         ("바이어스 100 W, 압력 8 mTorr로 조회해줘.", conditions(8, None, 100), "sourcePower"),

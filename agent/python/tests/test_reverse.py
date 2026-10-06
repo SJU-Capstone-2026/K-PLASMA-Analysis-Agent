@@ -9,14 +9,14 @@ def ids(result):
 
 def test_soft_goal_priority_order_and_hard_range():
     runs = [run(i, energy=e, flux=f) for i, e, f in zip("ABCDE", [31, 35, 39, 29, 41], [9, 1, 10, 100, 200])]
-    range_goal = {"metric": "meanIonEnergy", "direction": "target_range", "min": 30, "max": 40}
+    range_goal = {"metric": "meanIonEnergy", "direction": "target_range", "min": 30, "max": 40, "unit": "eV"}
     flux_goal = {"metric": "ionFlux", "direction": "maximize"}
     assert ids(search_reverse({"goals": [range_goal, flux_goal]}, runs)) == list("BCAED")
     assert ids(search_reverse({"goals": [flux_goal, range_goal]}, runs)) == list("EDCAB")
     assert ids(
         search_reverse(
             {
-                "constraints": [{"metric": "meanIonEnergy", "operator": "between", "min": 30, "max": 40}],
+                "constraints": [{"metric": "meanIonEnergy", "operator": "between", "min": 30, "max": 40, "unit": "eV"}],
                 "goals": [flux_goal],
             },
             runs,
@@ -29,7 +29,7 @@ def test_range_matches_are_sorted_by_flux_without_a_global_flux_group():
     runs.append(run("OUTSIDE", energy=165, flux=100))
     result = search_reverse(
         {
-            "constraints": [{"metric": "meanIonEnergy", "operator": "between", "min": 150, "max": 160}],
+            "constraints": [{"metric": "meanIonEnergy", "operator": "between", "min": 150, "max": 160, "unit": "eV"}],
             "goals": [{"metric": "ionFlux", "direction": "maximize"}],
         },
         runs,
@@ -52,7 +52,7 @@ def test_range_matches_are_sorted_by_flux_without_a_global_flux_group():
 def test_strict_boundary(operator, expected):
     runs = [run("A", pressure=9), run("B", pressure=10), run("C", pressure=11)]
     result = search_reverse(
-        {"constraints": [{"metric": "pressure", "operator": operator, "value": 10}]}, runs
+        {"constraints": [{"metric": "pressure", "operator": operator, "value": 10, "unit": "mTorr"}]}, runs
     )
     assert ids(result) == expected
 
@@ -69,8 +69,8 @@ def test_independent_objective_group_does_not_claim_all_constraints():
     result = search_reverse(
         {
             "constraints": [
-                {"metric": "pressure", "operator": "lt", "value": 10},
-                {"metric": "meanIonEnergy", "operator": "between", "min": 30, "max": 40},
+                {"metric": "pressure", "operator": "lt", "value": 10, "unit": "mTorr"},
+                {"metric": "meanIonEnergy", "operator": "between", "min": 30, "max": 40, "unit": "eV"},
             ],
             "goals": [{"metric": "ionFlux", "direction": "maximize"}],
         },
@@ -88,7 +88,7 @@ def test_independent_objective_group_does_not_claim_all_constraints():
 
 def test_near_matches_keep_violations_and_limit_three():
     result = search_reverse(
-        {"constraints": [{"metric": "pressure", "operator": "lt", "value": 1}]},
+        {"constraints": [{"metric": "pressure", "operator": "lt", "value": 1, "unit": "mTorr"}]},
         [run(i, pressure=p) for i, p in zip("ABCD", [5, 2, 1, 3])],
     )
     assert result["resultStatus"] == "NO_MATCH"

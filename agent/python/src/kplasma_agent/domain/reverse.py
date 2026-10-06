@@ -24,19 +24,14 @@ def _normalized_query(inputs):
         raise DomainError("UNRESOLVED_CONTEXT", "Apply context rules before domain execution")
     constraints, goals, defaulted = [], [], []
     for collection, output in ((query.constraints, constraints), (query.goals, goals)):
-        for index, model in enumerate(collection):
+        for model in collection:
             item = model.model_dump(exclude_none=True)
             metric, unit = model.metric, model.unit
-            # Even a maximize/minimize goal without bounds must have known units.
+            numeric = any(key in item for key in ("value", "min", "max"))
+            if numeric and not unit:
+                raise DomainError("MISSING_UNIT", metric)
+            # A pure high/low ranking uses the registry unit internally.
             normalize_value(metric, 0, unit)
-            if unit is None:
-                defaulted.append(
-                    {
-                        "field": ("constraints" if output is constraints else "goals"),
-                        "index": index,
-                        "metric": metric,
-                    }
-                )
             for key in ("value", "min", "max"):
                 if key in item:
                     item[key] = normalize_value(metric, item[key], unit)

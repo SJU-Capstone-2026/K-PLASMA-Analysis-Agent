@@ -46,7 +46,8 @@ class Model:
             "operations": [
                 {
                     "kind": "forward_lookup",
-                    "inputs": {"conditions": {"pressure": {"value": 10}, "sourcePower": {"value": 300}}},
+                    "inputs": {"conditions": {"pressure": {"value": 10, "unit": "mTorr"},
+                                              "sourcePower": {"value": 300, "unit": "W"}}},
                 }
             ],
         }, {}
@@ -56,7 +57,7 @@ def test_worker_reconstructs_interrupted_graph_and_finalizes_once_after_resume()
     backend = Backend()
     model = Model()
     claim = {
-        "request": {"requestId": "test", "question": "압력 10 소스 300 조건 조회"},
+        "request": {"requestId": "test", "question": "압력 10 mTorr 소스 300 W 조건 조회"},
         "context": {},
         "inputEvents": [],
     }
@@ -87,7 +88,7 @@ def test_trace_groups_resume_and_expected_input_wait_without_error(trace_capture
 
     backend = Backend()
     model = Model()
-    claim = {"request": {"requestId": "synthetic-trace", "question": "압력 10 소스 300 조건 조회"},
+    claim = {"request": {"requestId": "synthetic-trace", "question": "압력 10 mTorr 소스 300 W 조건 조회"},
              "context": {}, "inputEvents": [], "claimGeneration": 1, "requestRevision": 0}
     run_claim(claim, backend, model, Settings())
     claim["inputEvents"] = [{"input": {"conditions": {"biasPower": {"value": 100, "unit": "W"}}}}]
@@ -128,7 +129,7 @@ def test_blocked_failed_cloud_export_cannot_block_graph_or_repeat_model(monkeypa
     ))
     monkeypatch.setattr(tracing, "_tracer", provider.get_tracer("synthetic-export"))
     backend, model = Backend(), Model()
-    claim = {"request": {"requestId": "synthetic-export", "question": "압력 10 소스 300 조건 조회"},
+    claim = {"request": {"requestId": "synthetic-export", "question": "압력 10 mTorr 소스 300 W 조건 조회"},
              "context": {}, "inputEvents": []}
 
     def execute_claim():

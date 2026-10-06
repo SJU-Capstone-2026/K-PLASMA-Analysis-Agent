@@ -91,9 +91,9 @@ def test_pending_numeric_writes_reconcile_edges_before_finalization_after_proces
                         "kind": kind,
                         "inputs": {
                             "conditions": {
-                                "pressure": {"value": 10},
-                                "sourcePower": {"value": 300},
-                                "biasPower": {"value": 100},
+                                "pressure": {"value": 10, "unit": "mTorr"},
+                                "sourcePower": {"value": 300, "unit": "W"},
+                                "biasPower": {"value": 100, "unit": "W"},
                             }
                         }
                         if kind == "forward_lookup"
@@ -106,7 +106,7 @@ def test_pending_numeric_writes_reconcile_edges_before_finalization_after_proces
     claim = {
         "request": {
             "requestId": "numeric-pending-write",
-            "question": "압력10 소스300 바이어스100 조회"
+            "question": "압력10mTorr 소스300W 바이어스100W 조회"
             if kind == "forward_lookup"
             else "이온 플럭스 높은 순으로 찾아줘",
         },

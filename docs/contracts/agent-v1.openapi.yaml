@@ -332,7 +332,7 @@ components:
         stage: { type: string }
         graphVersion: { const: v1 }
         question: { type: [string, 'null'] }
-        pendingInput: { type: [object, 'null'], description: At least id and message; optional slots/options. }
+        pendingInput: { type: [object, 'null'], description: 'At least id and message; optional fields/options. MISSING_UNIT asks for the numeric metric unit before querying; unitMetric identifies the slot for a unit-only reply. Pure high/low sorting needs no unit.' }
         error: { type: [object, 'null'] }
         partialResult: { type: [object, 'null'] }
         turnId: { type: [string, 'null'] }

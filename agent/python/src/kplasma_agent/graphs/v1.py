@@ -19,7 +19,7 @@ from ..explanations.engine import (
     build_change_evidence,
     validate_explanation,
 )
-from ..metric_registry import CONDITION_KEYS, LABELS, NumericError, normalize_value
+from ..metric_registry import CONDITION_KEYS, LABELS, UNITS, NumericError, normalize_value
 from ..model_client import ModelError
 from .. import tracing
 
@@ -32,8 +32,18 @@ typos such as 왓트, 왛트, 오ㅏ트 mean W: '소스 300 오ㅏ트' -> source
 Never change kW to W or Torr to mTorr, even by changing the number; code owns conversions.
 If a typo could mean different units/scales, ask for clarification rather than guess.
 Unsupported explicit units stay explicit. Unspecified units stay absent.
+Apply unit normalization to BOTH forward_lookup and reverse_search, including every numeric constraint
+and target_range goal. Energy e볼트/전자볼트/electron volt(s) means eV; pressure 밀리토르 means mTorr
+and 토르 means Torr. Normalize spelling only; never rescale numeric values yourself.
+For BOTH search tools every explicit number or numeric range MUST have an explicit user-provided unit.
+Never assume eV for energy/width, W for power, mTorr for pressure, or the registry scale for flux.
+If a numeric unit is missing, return needs_input with reason MISSING_UNIT and ask which unit it uses;
+retain the operation, original numbers, constraints and sorting goals, leaving that unit absent.
+Pure maximize/minimize requests ('높게', '낮게') need no numeric unit; do not ask a unit for sorting.
+When the pending reason is MISSING_UNIT, a unit-only reply fills that metric's unit without changing
+its previous value/range, operator, other conditions or goal order. Ambiguous units need clarification.
 Missing fields remain absent for code to ask.
-Copy the full written unit: '1.5 10¹⁸ m⁻²s⁻¹' means value 1.5 and unit '10¹⁸ m⁻²s⁻¹',
+Preserve the full unit scale: '1.5 10¹⁸ m⁻²s⁻¹' means value 1.5 and unit '10¹⁸ m⁻²s⁻¹',
 never value 1.5e18. Range separators -, ~, – separate endpoints even without spaces ('30-40eV').
 forward_lookup: operating pressure/sourcePower/biasPower to existing Run results.
 reverse_search: output goals or constraints to search existing operating conditions. Strict under/over
@@ -122,6 +132,7 @@ class GraphState(TypedDict, total=False):
     model_metadata: dict
     context_provenance: dict
     answer: dict
+    unit_issue: str | None
 
 
 def _request_input(state, message, reason, fields=None, options=None):
@@ -267,20 +278,27 @@ def build_graph(model, backend, settings, checkpointer):
         }
         raw, metadata = call_model("interpret", INTERPRET_PROMPT, payload, Interpretation)
         value = normalize_interpretation(raw).model_dump(exclude_none=True)
+        unit_issue = None
         try:
             for op in value["operations"]:
                 validate_grounding(
                     op, state["question"], state.get("input_history", []), state.get("interpretation")
                 )
         except DomainError as error:
+            if error.code == "MISSING_UNIT":
+                unit_issue = error.detail
             value["status"] = "needs_input"
             value["unresolved"] = [
                 {
                     "reason": error.code,
-                    "description": "요청 조건을 확실히 연결하지 못했습니다. 지표별 수치·단위 또는 Run ID를 다시 알려 주세요.",
+                    "description": (
+                        f"{LABELS[unit_issue]} 수치의 단위를 알려 주세요. 예: {UNITS[unit_issue]}"
+                        if unit_issue else
+                        "요청 조건을 확실히 연결하지 못했습니다. 지표별 수치·단위 또는 Run ID를 다시 알려 주세요."
+                    ),
                 }
             ]
-        return {"interpretation": value, "model_metadata": metadata, "reply": {}}
+        return {"interpretation": value, "model_metadata": metadata, "reply": {}, "unit_issue": unit_issue}
 
     def decide(state):
         backend.stage("decide")
@@ -298,6 +316,15 @@ def build_graph(model, backend, settings, checkpointer):
                 "OPERATION_SELECTION",
                 options=options,
             )
+        if state.get("unit_issue"):
+            metric = state["unit_issue"]
+            kind = operations[0]["kind"]
+            fields = [metric] if kind == "forward_lookup" else ["constraints", "goals"]
+            request = _request_input(
+                state, f"{LABELS[metric]} 수치의 단위를 알려 주세요. 예: {UNITS[metric]}", "MISSING_UNIT", fields,
+            )
+            request["pending"]["unitMetric"] = metric
+            return request
         if value.get("unresolved"):
             return _request_input(
                 state,
@@ -316,12 +343,14 @@ def build_graph(model, backend, settings, checkpointer):
                 normalize_value(metric, 0, scalar.get("unit"))
             except NumericError:
                 fields = [metric] if kind == "forward_lookup" else ["constraints", "goals"]
-                return _request_input(
+                request = _request_input(
                     state,
                     f"{LABELS.get(metric, metric)} 단위를 확인해 주세요. 지원 단위로 다시 입력해 주세요.",
                     "UNSUPPORTED_UNIT",
                     fields,
                 )
+                request["pending"]["unitMetric"] = metric
+                return request
         backend.stage(
             "decide",
             operationKind=kind,
@@ -391,7 +420,10 @@ def build_graph(model, backend, settings, checkpointer):
         reply = interrupt(state["pending"])
         if not isinstance(reply, dict):
             reply = {}
-        history = [*state.get("input_history", []), reply]
+        entry = deepcopy(reply)
+        if state["pending"].get("unitMetric"):
+            entry["unit_metric"] = state["pending"]["unitMetric"]
+        history = [*state.get("input_history", []), entry]
         if isinstance(reply.get("text"), str) and reply["text"].strip():
             return {"input_history": history, "reply": reply, "route": "interpret"}
         value = deepcopy(state["interpretation"])
@@ -417,18 +449,22 @@ def build_graph(model, backend, settings, checkpointer):
             value = normalize_interpretation(value).model_dump(exclude_none=True)
             for operation in value["operations"]:
                 validate_grounding(operation, state["question"], history, state.get("interpretation"))
-        except (DomainError, ValidationError):
-            return {
-                **_request_input(
-                    {**state, "input_history": history},
-                    "입력 형식을 확인해 다시 알려 주세요. " + state["pending"]["message"],
-                    "INVALID_RESUME_INPUT",
-                    state["pending"].get("fields"),
-                    state["pending"].get("options"),
-                ),
-                "input_history": history,
-            }
-        return {"input_history": history, "interpretation": value, "reply": reply, "route": "decide"}
+        except (DomainError, ValidationError) as error:
+            if isinstance(error, DomainError) and error.code == "MISSING_UNIT":
+                return {"input_history": history, "interpretation": value, "reply": reply,
+                        "unit_issue": error.detail, "route": "decide"}
+            request = _request_input(
+                {**state, "input_history": history},
+                "입력 형식을 확인해 다시 알려 주세요. " + state["pending"]["message"],
+                "INVALID_RESUME_INPUT",
+                state["pending"].get("fields"),
+                state["pending"].get("options"),
+            )
+            if state["pending"].get("unitMetric"):
+                request["pending"]["unitMetric"] = state["pending"]["unitMetric"]
+            return {**request, "input_history": history}
+        return {"input_history": history, "interpretation": value, "reply": reply,
+                "unit_issue": None, "route": "decide"}
 
     def gather(state):
         backend.stage("gather")

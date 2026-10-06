@@ -117,11 +117,11 @@ def test_hard_soft_and_strict_bounds_cannot_be_silently_changed():
         validate_grounding(reverse(soft=True), "에너지30~40eV 범위 안에서", [])
     op = {
         "kind": "reverse_search",
-        "inputs": {"constraints": [{"metric": "pressure", "operator": "lt", "value": 10}]},
+        "inputs": {"constraints": [{"metric": "pressure", "operator": "lt", "value": 10, "unit": "mTorr"}]},
     }
-    assert validate_grounding(op, "압력10미만", [])
+    assert validate_grounding(op, "압력10mTorr미만", [])
     with pytest.raises(DomainError, match="UNGROUNDED_NUMBER"):
-        validate_grounding(op, "압력10이하", [])
+        validate_grounding(op, "압력10mTorr이하", [])
 
 
 @pytest.mark.parametrize(
@@ -189,7 +189,7 @@ def test_prior_exact_fields_and_single_missing_slot_reply_are_grounded():
     del prior["inputs"]["conditions"]["biasPower"]
     assert validate_grounding(
         forward(),
-        "압력10 소스300 조회",
+        "압력10mTorr 소스300W 조회",
         [{"text": "100 W"}],
         {"status": "needs_input", "operations": [prior]},
     )
@@ -197,7 +197,7 @@ def test_prior_exact_fields_and_single_missing_slot_reply_are_grounded():
 
 
 def test_structured_reply_is_bound_to_its_field_and_not_reused_for_another():
-    question = "압력10 소스300 조회"
+    question = "압력10mTorr 소스300W 조회"
     history = [{"conditions": {"biasPower": {"value": 100, "unit": "W"}}}]
     assert validate_grounding(forward(), question, history)
     with pytest.raises(DomainError, match="UNGROUNDED_NUMBER"):
@@ -205,17 +205,17 @@ def test_structured_reply_is_bound_to_its_field_and_not_reused_for_another():
 
 
 def test_latest_explicit_correction_does_not_allow_old_values():
-    history = [{"text": "압력은20으로 바꿔"}]
+    history = [{"text": "압력은20mTorr으로 바꿔"}]
     assert validate_grounding(
         forward(pressure=20),
-        "압력10 소스300 바이어스100",
+        "압력10mTorr 소스300W 바이어스100W",
         history,
         {"status": "resolved", "operations": [forward()]},
     )
     with pytest.raises(DomainError, match="UNGROUNDED_NUMBER"):
         validate_grounding(
             forward(),
-            "압력10 소스300 바이어스100",
+            "압력10mTorr 소스300W 바이어스100W",
             history,
             {"status": "resolved", "operations": [forward()]},
         )
@@ -341,9 +341,9 @@ def test_omitted_explicit_pressure_constraint_cannot_execute_unbounded_search():
         "inputs": {"constraints": [], "goals": [{"metric": "ionFlux", "direction": "maximize"}]},
     }
     with pytest.raises(DomainError, match="UNGROUNDED_OMISSION"):
-        validate_grounding(operation, "압력 10 이하에서 플럭스가 가장 높은 후보 찾아줘", [])
-    operation["inputs"]["constraints"] = [{"metric": "pressure", "operator": "lte", "value": 10}]
-    assert validate_grounding(operation, "압력 10 이하에서 플럭스가 가장 높은 후보 찾아줘", [])
+        validate_grounding(operation, "압력 10 mTorr 이하에서 플럭스가 가장 높은 후보 찾아줘", [])
+    operation["inputs"]["constraints"] = [{"metric": "pressure", "operator": "lte", "value": 10, "unit": "mTorr"}]
+    assert validate_grounding(operation, "압력 10 mTorr 이하에서 플럭스가 가장 높은 후보 찾아줘", [])
 
 
 def test_omitted_explicit_forward_field_and_soft_goal_are_rejected():
@@ -363,14 +363,14 @@ def test_omitted_explicit_forward_field_and_soft_goal_are_rejected():
 def test_completeness_respects_latest_correction_and_accepted_prior():
     prior = {
         "kind": "reverse_search",
-        "inputs": {"constraints": [{"metric": "pressure", "operator": "lte", "value": 10}]},
+        "inputs": {"constraints": [{"metric": "pressure", "operator": "lte", "value": 10, "unit": "mTorr"}]},
     }
     updated = {
         "kind": "reverse_search",
-        "inputs": {"constraints": [{"metric": "pressure", "operator": "lte", "value": 20}]},
+        "inputs": {"constraints": [{"metric": "pressure", "operator": "lte", "value": 20, "unit": "mTorr"}]},
     }
     assert validate_grounding(
-        updated, "압력10이하", [{"text": "압력20이하로 수정"}], {"status": "resolved", "operations": [prior]}
+        updated, "압력10mTorr이하", [{"text": "압력20mTorr이하로 수정"}], {"status": "resolved", "operations": [prior]}
     )
     with pytest.raises(DomainError, match="UNGROUNDED_OMISSION"):
         validate_grounding(
@@ -387,12 +387,12 @@ def test_invalid_structured_history_is_not_numeric_evidence(bad):
         {"conditions": {"biasPower": {"value": bad}}},
         {"conditions": {"biasPower": {"value": 100, "unit": "W"}}},
     ]
-    assert validate_grounding(forward(), "압력10 소스300 조회", history)
+    assert validate_grounding(forward(), "압력10mTorr 소스300W 조회", history)
     with pytest.raises(DomainError, match="UNGROUNDED_NUMBER"):
-        validate_grounding(forward(), "압력10 소스300 조회", history[:1])
+        validate_grounding(forward(), "압력10mTorr 소스300W 조회", history[:1])
 
 
 @pytest.mark.parametrize("bad", ["invalid", [10], True])
 def test_malformed_structured_history_container_does_not_block_later_correction(bad):
-    history = [{"conditions": bad}, {"conditions": {"biasPower": {"value": 100}}}]
-    assert validate_grounding(forward(), "압력10 소스300 조회", history)
+    history = [{"conditions": bad}, {"conditions": {"biasPower": {"value": 100, "unit": "W"}}}]
+    assert validate_grounding(forward(), "압력10mTorr 소스300W 조회", history)

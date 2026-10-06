@@ -372,7 +372,9 @@ Spring은 업무 데이터와 최종 저장의 권위자다. Python은 검색·�
 
 ### KTD2. Interpretation and Decision
 
-Pydantic 모델에서 unknown fields, 잘못된 종류·enum·값 형식을 거부한다. 원문 숫자와 단위를 보존하고 정규화는 코드가 수행한다. 임의 URL·SQL·Python 코드·함수 이름·Run payload를 LLM 실행 지시로 받지 않는다.
+Pydantic 모델에서 unknown fields, 잘못된 종류·enum·값 형식을 거부한다. 원문 숫자와 단위 크기를 보존한다. LLM은 명확한 단위 표기·오타를 표준 기호로 정리하고, 코드가 같은 단위인지 재검증하며 수치 환산을 수행한다. 임의 URL·SQL·Python 코드·함수 이름·Run payload를 LLM 실행 지시로 받지 않는다.
+
+2026-10-06 사용자 요청으로 v1의 순·역방향 수치 입력에는 명시한 단위를 필수로 한다. 평균 이온 에너지·IED 폭의 범위에도 eV를 자동으로 붙이지 않으며, 수치 단위가 없으면 `MISSING_UNIT`으로 해당 물리량의 단위를 재질문한다. LLM이 임의 단위를 반환해도 원문·추가 입력에 단위가 없으면 조회하지 않는다. 단위만 답하면 기존 값·범위·연산자·정렬을 유지해 이어간다. 숫자 없는 높게·낮게 정렬과 저장된 Run에서 유도하는 기존 문맥 규칙은 이 재질문 대상이 아니다. 이 정책은 v1에만 적용하며 보존한 JS fallback은 변경하지 않는다.
 
 LLM envelope는 `status: resolved | needs_input | unsupported`, `operations: Operation[]`다. `Operation.kind`는 `forward_lookup | reverse_search | compare_runs | explain_change | explain_concept`다. 혼합/미지원 절은 선택적 `unresolved` 목록의 `reason`과 짧은 설명으로 표현하고 supported operation만 몰래 실행하지 않는다. `source_phrases`·chain-of-thought는 저장 계약에서 제외한다.
 

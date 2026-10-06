@@ -3,7 +3,8 @@ from fixtures import run
 
 
 QUERY = {
-    "conditions": {"pressure": {"value": 10}, "sourcePower": {"value": 300}, "biasPower": {"value": 100}}
+    "conditions": {"pressure": {"value": 10, "unit": "mTorr"},
+                   "sourcePower": {"value": 300, "unit": "W"}, "biasPower": {"value": 100, "unit": "W"}}
 }
 
 

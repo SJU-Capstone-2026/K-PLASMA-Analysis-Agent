@@ -14,9 +14,9 @@ def lookup_forward(inputs, ordered_runs):
         item = getattr(query.conditions, metric)
         if item is None:
             raise DomainError("MISSING_INPUT", f"conditions.{metric}")
+        if not item.unit:
+            raise DomainError("MISSING_UNIT", metric)
         requested[metric] = normalize_value(metric, item.value, item.unit)
-        if item.unit is None:
-            defaulted_units.append(metric)
     if query.context_rules:
         raise DomainError("UNRESOLVED_CONTEXT", "Apply context rules before domain execution")
     eligible, excluded = [], []

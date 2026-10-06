@@ -66,14 +66,32 @@ def is_watt_spelling(unit) -> bool:
     return True
 
 
+def normalize_unit(metric: str, unit: str) -> str:
+    """Normalize names, never prefixes or physical magnitudes."""
+    unit = unit.strip()
+    if metric in ("sourcePower", "biasPower") and is_watt_spelling(unit):
+        return "W"
+    name = re.sub(r"\s+", "", unit).casefold()
+    if metric in ("meanIonEnergy", "iedWidth") and name in (
+        "ev", "e볼트", "이볼트", "전자볼트", "일렉트론볼트", "electronvolt", "electronvolts",
+    ):
+        return "eV"
+    if metric == "pressure":
+        if name in ("mtorr", "밀리토르", "밀리토어", "millitorr"):
+            return "mTorr"
+        if name in ("torr", "토르", "토어"):
+            return "Torr"
+    return unit
+
+
 def normalize_value(metric: str, value, unit: str | None = None) -> float:
     if metric not in UNITS:
         raise NumericError("UNSUPPORTED_METRIC", metric)
     if not is_finite(value):
         raise NumericError("INVALID_VALUE", metric)
-    unit = UNITS[metric] if unit is None else unit
-    if metric in ("sourcePower", "biasPower") and is_watt_spelling(unit):
-        unit = "W"
+    # Defaults are for stored scalar data and unitless ranking goals only.
+    # Numeric query inputs require explicit units at the graph/tool boundary.
+    unit = UNITS[metric] if unit is None else normalize_unit(metric, unit)
     converted = float(value)
     if unit == UNITS[metric]:
         pass

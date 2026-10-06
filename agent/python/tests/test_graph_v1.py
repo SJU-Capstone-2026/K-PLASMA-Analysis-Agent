@@ -243,9 +243,9 @@ def test_excluded_runs_are_evidence_inventory_but_never_candidate_choices():
                         "kind": "forward_lookup",
                         "inputs": {
                             "conditions": {
-                                "pressure": {"value": 10},
-                                "sourcePower": {"value": 300},
-                                "biasPower": {"value": 100},
+                                "pressure": {"value": 10, "unit": "mTorr"},
+                                "sourcePower": {"value": 300, "unit": "W"},
+                                "biasPower": {"value": 100, "unit": "W"},
                             }
                         },
                     }
@@ -256,7 +256,7 @@ def test_excluded_runs_are_evidence_inventory_but_never_candidate_choices():
     graph = build_graph(model, Catalog(), Settings(), InMemorySaver())
     result = graph.invoke(
         {
-            "question": "압력10 소스300 바이어스100 결과",
+            "question": "압력10mTorr 소스300W 바이어스100W 결과",
             "request_id": "exclusions",
             "context": {},
             "input_history": [],
@@ -385,7 +385,8 @@ def test_invalid_structured_reply_preserves_pending_and_allows_correction():
                 "operations": [
                     {
                         "kind": "forward_lookup",
-                        "inputs": {"conditions": {"pressure": {"value": 10}, "sourcePower": {"value": 300}}},
+                        "inputs": {"conditions": {"pressure": {"value": 10, "unit": "mTorr"},
+                                                  "sourcePower": {"value": 300, "unit": "W"}}},
                     }
                 ],
             }
@@ -394,7 +395,7 @@ def test_invalid_structured_reply_preserves_pending_and_allows_correction():
     graph = build_graph(model, Backend(), Settings(), InMemorySaver())
     config = {"configurable": {"thread_id": "bad-reply"}}
     result = graph.invoke(
-        {"request_id": "bad-reply", "question": "압력10 소스300 결과", "context": {}, "input_history": []},
+        {"request_id": "bad-reply", "question": "압력10mTorr 소스300W 결과", "context": {}, "input_history": []},
         config,
     )
     previous_id = result["pending"]["id"]
@@ -402,7 +403,7 @@ def test_invalid_structured_reply_preserves_pending_and_allows_correction():
     assert result["pending"]["id"] != previous_id
     assert result["pending"]["fields"] == ["biasPower"]
     assert len(result["input_history"]) == 1
-    result = graph.invoke(Command(resume={"conditions": {"biasPower": {"value": 0}}}), config)
+    result = graph.invoke(Command(resume={"conditions": {"biasPower": {"value": 0, "unit": "W"}}}), config)
     assert result["answer"]["status"] == "NO_DATA"
     assert model.calls == ["Interpretation"]
 

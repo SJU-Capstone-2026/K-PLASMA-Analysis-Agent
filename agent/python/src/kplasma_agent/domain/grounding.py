@@ -14,7 +14,13 @@ from .common import DomainError, inputs_dict
 
 _NUMBER = r"[-+]?(?:\d+(?:,\d{3})*(?:\.\d+)?|\.\d+)(?:[eE][-+]?\d+)?"
 _NUMBER_RE = re.compile(r"(?<![A-Za-z0-9_.])" + _NUMBER)
-_UNIT = r"(?:10¹⁸\s*m⁻²\s*s⁻¹|10\^18\s*m\^-2\s*s\^-1|m⁻²\s*s⁻¹|m\^-2\s*s\^-1|m-2s-1|mTorr|Torr|kPa|Pa|keV|eV|watts?|(?:da|[yzafpnumkMGTPEZYµμ])?W(?:h)?|[A-Za-zµμ]*[가-힣ㄱ-ㅣᄀ-ᇿ]*트)"
+_UNIT = (
+    r"(?:10¹⁸\s*m⁻²\s*s⁻¹|10\^18\s*m\^-2\s*s\^-1|m⁻²\s*s⁻¹|m\^-2\s*s\^-1|m-2s-1"
+    r"|(?:킬로|메가|밀리)\s*(?:전자\s*볼트|[e이]\s*볼트|와트|토[르어])"
+    r"|millitorr|mTorr|Torr|밀리\s*토[르어]|토[르어]|kPa|Pa|keV|eV"
+    r"|electron\s*volts?|전자\s*볼트|일렉트론\s*볼트|[e이]\s*볼트"
+    r"|watts?|(?:da|[yzafpnumkMGTPEZYµμ])?W(?:h)?|[A-Za-zµμ]*[가-힣ㄱ-ㅣᄀ-ᇿ]*트)"
+)
 _UNIT_RE = re.compile(r"(?<![A-Za-z])" + _UNIT + r"(?![A-Za-z])", re.IGNORECASE)
 _ALIASES = {
     "pressure": r"pressure|압력",
@@ -234,8 +240,11 @@ def _same(claim, evidence, *, ignore_operator=False):
         return False
     return (
         claim["numbers"] == evidence["numbers"]
-        and _unit_signature(claim["metric"], claim["unit"])
-        == _unit_signature(claim["metric"], evidence["unit"])
+        and (
+            not claim["unit"] or not evidence["unit"]
+            or _unit_signature(claim["metric"], claim["unit"])
+            == _unit_signature(claim["metric"], evidence["unit"])
+        )
         and (
             ignore_operator
             or (claim["operator"] == evidence["operator"] and claim["soft"] == evidence["soft"])
@@ -392,6 +401,13 @@ def validate_grounding(operation, question, input_history, prior_interpretation=
     for entry in history:
         if isinstance(entry.get("text"), str):
             evidence.update(_text_evidence(entry["text"]))
+            # The graph tags an answer to its own missing-unit question. It
+            # binds a unit-only reply to that slot, without inventing a number.
+            metric = entry.get("unit_metric")
+            mentioned = {key for _, _, key in _anchors(entry["text"])}
+            unit = _unit_text(entry["text"])
+            if isinstance(metric, str) and metric in evidence and unit and (not mentioned or mentioned == {metric}):
+                evidence[metric] = {**evidence[metric], "unit": unit}
         # Structured values are explicit user input at the corresponding field.
         for claim in _claims({"inputs": entry}, ignore_invalid=True):
             evidence[claim["metric"]] = claim
@@ -406,17 +422,26 @@ def validate_grounding(operation, question, input_history, prior_interpretation=
         latest = history[-1].get("text", "")
         if isinstance(latest, str) and not _anchors(latest):
             anonymous = _evidence(_without_ids(latest))
+    missing_units = []
     for claim in claims:
         observed = evidence.get(claim["metric"])
         if observed is not None:
             if _same(claim, observed):
+                if not claim["unit"] or not observed.get("unit"):
+                    missing_units.append(claim["metric"])
                 continue
             raise DomainError("UNGROUNDED_NUMBER", ".".join(claim["key"]))
         if any(old["key"] == claim["key"] and _same(claim, old) for old in prior_claims):
+            if not claim["unit"]:
+                missing_units.append(claim["metric"])
             continue
         if anonymous is not None and claim is new_claims[0] and _same(claim, anonymous):
+            if not claim["unit"] or not anonymous.get("unit"):
+                missing_units.append(claim["metric"])
             continue
         raise DomainError("UNGROUNDED_NUMBER", ".".join(claim["key"]))
+    if missing_units:
+        raise DomainError("MISSING_UNIT", missing_units[0])
     return True
 
 
