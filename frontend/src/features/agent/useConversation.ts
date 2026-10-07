@@ -11,28 +11,38 @@ const asRef=(r:RunRef):RunRef=>({runId:r.runId,runVersionId:r.runVersionId});
 const running=(r:AgentRequestView|null)=>r?.status==='QUEUED'||r?.status==='RUNNING';
 const polling=(r:AgentRequestView|null)=>running(r)||r?.status==='COMPLETED';
 const inProgress=(r:AgentRequestView|null)=>polling(r)||r?.status==='NEEDS_INPUT';
+type DisplayPatch=Partial<Pick<TurnUiSnapshot,'activeCandidateGroup'|'selectedCandidateRunId'|'runDetailTabs'>>;
+type PendingTurnUi={patch:DisplayPatch;token:StateToken};
+function selectedCandidate(workspace:WorkspaceView):RunRef|undefined{
+ const selected=[...workspace.conversation.turns].reverse().flatMap(turn=>{
+  const id=turn.ui.selectedCandidateRunId;if(!id)return [];
+  return isV1AnswerSnapshot(turn.answerSnapshot)?resolveCandidateRef(turn,id)??[]:turn.answerRunRefs.filter(ref=>ref.runId===id);
+ })[0];
+ return selected?asRef(selected):undefined;
+}
 export function useConversation(){
  const [state,setState]=useState(emptyWorkspace);const current=useRef(state);const [ready,setReady]=useState(false);const [error,setError]=useState('');
  const [activeRequest,setActiveRequest]=useState<AgentRequestView|null>(null);const active=useRef<AgentRequestView|null>(null);const [sending,setSending]=useState(false);const busy=useRef(false);
  const initialization=useRef<Promise<void>>(Promise.resolve());const generation=useRef(0);const controllers=useRef(new Set<AbortController>());const queue=useRef<Promise<unknown>>(Promise.resolve());const mounted=useRef(true);
  const workspaceNeedsSync=useRef(false);const [subscriptionRevision,setSubscriptionRevision]=useState(0);
- const pendingTabs=useRef(new Map<string,{group:string;token:StateToken}>());const tabGeneration=useRef(0);
+ const pendingUi=useRef(new Map<string,PendingTurnUi[]>());const uiGeneration=useRef(0);
  const submission=useRef<{key:string;body:AgentSubmission}|null>(null);const resumption=useRef<{key:string;requestId:string;body:{expectedRequestRevision:number;pendingInputId:string;input:Snapshot}}|null>(null);
  function showRequest(next:AgentRequestView|null){if(JSON.stringify(active.current)===JSON.stringify(next))return;active.current=next;if(mounted.current)setActiveRequest(next);}
- // Only the displayed tab is optimistic; current keeps the server's snapshots and revision.
- function showWorkspace(){
-  if(!mounted.current)return;const next=current.current;
-  setState(pendingTabs.current.size?{...next,conversation:{...next.conversation,turns:next.conversation.turns.map(turn=>{
-   const pending=pendingTabs.current.get(turn.id);
-   return pending&&sameEpoch(pending.token,next.stateToken)?{...turn,ui:{...turn.ui,activeCandidateGroup:pending.group}}:turn;
-  })}}:next);
+ // Overlay display choices only; current keeps the server's snapshots and revision.
+ function displayedWorkspace():WorkspaceView{
+  const next=current.current;
+  return pendingUi.current.size?{...next,conversation:{...next.conversation,turns:next.conversation.turns.map(turn=>{
+   const pending=pendingUi.current.get(turn.id)?.filter(item=>sameEpoch(item.token,next.stateToken));
+   return pending?.length?{...turn,ui:pending.reduce((ui,item)=>({...ui,...item.patch,runDetailTabs:{...ui.runDetailTabs,...item.patch.runDetailTabs}}),turn.ui)}:turn;
+  })}}:next;
  }
+ function showWorkspace(){if(mounted.current)setState(displayedWorkspace());}
  function apply(next:WorkspaceView){if(sameEpoch(next.stateToken,current.current.stateToken)&&next.stateToken.revision<current.current.stateToken.revision){showWorkspace();return;}current.current=next;
-  for(const [id,pending] of pendingTabs.current)if(!sameEpoch(pending.token,next.stateToken)||!next.conversation.turns.some(turn=>turn.id===id))pendingTabs.current.delete(id);
+  for(const [id,pending] of pendingUi.current){const valid=pending.filter(item=>sameEpoch(item.token,next.stateToken));if(!valid.length||!next.conversation.turns.some(turn=>turn.id===id))pendingUi.current.delete(id);else pendingUi.current.set(id,valid);}
   showWorkspace();showRequest(next.activeAgentRequest??next.failedAgentRequest??null);
  }
  function controller(){const next=new AbortController();controllers.current.add(next);return next;}
- function invalidate(preserveRequest=false){generation.current++;setSubscriptionRevision(value=>value+1);controllers.current.forEach(c=>c.abort());controllers.current.clear();if(!preserveRequest){tabGeneration.current++;pendingTabs.current.clear();showWorkspace();showRequest(null);submission.current=null;resumption.current=null;}workspaceNeedsSync.current=false;busy.current=false;setSending(false);}
+ function invalidate(preserveRequest=false){generation.current++;setSubscriptionRevision(value=>value+1);controllers.current.forEach(c=>c.abort());controllers.current.clear();if(!preserveRequest){uiGeneration.current++;pendingUi.current.clear();showWorkspace();showRequest(null);submission.current=null;resumption.current=null;}workspaceNeedsSync.current=false;busy.current=false;setSending(false);}
  async function reconcile(c:AbortController,epoch:number){const loaded=await fetchWorkspace(c.signal);if(c.signal.aborted||epoch!==generation.current)return false;workspaceNeedsSync.current=false;apply(loaded);if(loaded.activeAgentRequest)submission.current=null;return true;}
  useEffect(()=>{mounted.current=true;const c=controller();initialization.current=fetchWorkspace(c.signal).then(next=>{if(!c.signal.aborted){apply(next);setReady(true);}}).catch(e=>{if(!c.signal.aborted)setError(e.message);throw e;}).finally(()=>controllers.current.delete(c));void initialization.current.catch(()=>{});return()=>{mounted.current=false;generation.current++;controllers.current.forEach(c=>c.abort());controllers.current.clear();};},[]);
  function serialize(operation:()=>Promise<void>):Promise<void>{const next=queue.current.then(async()=>{await initialization.current;await operation();});queue.current=next.catch(()=>{});return next;}
@@ -44,14 +54,12 @@ export function useConversation(){
  },[activeRequest?.requestId,activeRequest?.status,subscriptionRevision]);
  async function submit(text:string,_clarification?:Snapshot,requestContext?:{candidateReference:ReferenceState;activeRun:RunRef|null}):Promise<void>{
   if(!text.trim()||!ready)return;if(busy.current||inProgress(active.current))throw new Error('진행 중인 요청을 완료하거나 취소해 주세요.');
-  busy.current=true;setSending(true);setError('');const c=controller();const epoch=generation.current;const token={...current.current.stateToken};
+  busy.current=true;setSending(true);setError('');const c=controller();const epoch=generation.current;const token={...current.current.stateToken};const intendedSelection=selectedCandidate(displayedWorkspace());
   try{await queue.current;await initialization.current;if(c.signal.aborted||epoch!==generation.current||!sameEpoch(token,current.current.stateToken))return;
    const recoveringDifferentText=!!submission.current&&submission.current.body.text!==text;
    if(submission.current){if(!await reconcile(c,epoch))return;if(inProgress(active.current))throw new Error('진행 중인 요청을 복원했습니다. 완료하거나 취소한 뒤 새 질문을 입력해 주세요.');}
-   const selected=[...current.current.conversation.turns].reverse().flatMap(turn=>{
-    const id=turn.ui.selectedCandidateRunId;if(!id)return [];
-    return isV1AnswerSnapshot(turn.answerSnapshot)?resolveCandidateRef(turn,id)??[]:turn.answerRunRefs.filter(ref=>ref.runId===id);
-   })[0];
+   const selected=selectedCandidate(current.current);
+   if(JSON.stringify(selected??null)!==JSON.stringify(intendedSelection??null))throw new Error('선택 상태를 확정하지 못했습니다. 선택을 확인한 뒤 질문을 다시 보내 주세요.');
    if(!submission.current){const explicit=explicitReferences(current.current,requestContext);submission.current={key:crypto.randomUUID(),body:{text,stateToken:current.current.stateToken,attachedRunRefs:explicit.refs,referenceOrigins:explicit.origins,...(selected?{selectedRunRef:asRef(selected)}:{}),...(requestContext?.activeRun?{baseline:asRef(requestContext.activeRun)}:{}),...(requestContext?.candidateReference?{candidateReferences:requestContext.candidateReference.runs.map(asRef)}:{})}};}
    const next=await submitAgentRequest(submission.current.body,submission.current.key,c.signal);if(c.signal.aborted||epoch!==generation.current)return;submission.current=null;workspaceNeedsSync.current=true;await accept(next,c,epoch);if(recoveringDifferentText)throw new Error('이전 요청의 처리 상태를 복원했습니다. 새 질문은 다시 입력해 주세요.');
   }catch(e){if(!c.signal.aborted&&epoch===generation.current){if(e instanceof ApiClientError&&e.status<500)submission.current=null;try{await reconcile(c,epoch);}catch{/* Keep the original key when acceptance is still unknown. */}if(!c.signal.aborted&&epoch===generation.current){setError(e instanceof Error?e.message:String(e));throw e;}}}finally{controllers.current.delete(c);if(epoch===generation.current){busy.current=false;setSending(false);}}
@@ -61,12 +69,13 @@ export function useConversation(){
  }
  async function cancel(){const req=active.current;if(!req)return;const c=controller();const epoch=generation.current;try{await accept(await cancelAgentRequest(req.requestId,c.signal),c,epoch);setError('');}finally{controllers.current.delete(c);}}
  const updateTurnUi=(id:string,patch:Partial<TurnUiSnapshot>)=>{
-  const tabEpoch=tabGeneration.current;
-  const pending=patch.activeCandidateGroup!==undefined&&current.current.conversation.turns.some(turn=>turn.id===id)?{group:patch.activeCandidateGroup,token:{...current.current.stateToken}}:null;
-  if(pending){pendingTabs.current.set(id,pending);showWorkspace();}
-  const clear=()=>{if(pending&&pendingTabs.current.get(id)===pending)pendingTabs.current.delete(id);};
+  const uiEpoch=uiGeneration.current;
+  const displayPatch:DisplayPatch={...(patch.activeCandidateGroup!==undefined?{activeCandidateGroup:patch.activeCandidateGroup}:{}),...(patch.selectedCandidateRunId!==undefined?{selectedCandidateRunId:patch.selectedCandidateRunId}:{}),...(patch.runDetailTabs!==undefined?{runDetailTabs:{...patch.runDetailTabs}}:{})};
+  const pending=Object.keys(displayPatch).length&&current.current.conversation.turns.some(turn=>turn.id===id)?{patch:displayPatch,token:{...current.current.stateToken}}:null;
+  if(pending){pendingUi.current.set(id,[...(pendingUi.current.get(id)??[]),pending]);showWorkspace();}
+  const clear=()=>{if(!pending)return;const remaining=pendingUi.current.get(id)?.filter(item=>item!==pending);if(remaining?.length)pendingUi.current.set(id,remaining);else pendingUi.current.delete(id);};
   return serialize(async()=>{
-   if(pending&&(tabEpoch!==tabGeneration.current||!sameEpoch(pending.token,current.current.stateToken))){clear();showWorkspace();return;}
+   if(pending&&(uiEpoch!==uiGeneration.current||!sameEpoch(pending.token,current.current.stateToken)||!current.current.conversation.turns.some(turn=>turn.id===id))){clear();showWorkspace();return;}
    try{const next=await patchTurnUi(current.current.stateToken,id,patch);clear();apply(next);}
    catch(e){
     clear();
@@ -80,7 +89,7 @@ export function useConversation(){
  async function replace(reset:boolean){if(ready)invalidate();await serialize(async()=>{
   if(!ready)invalidate();const c=controller();const epoch=generation.current;
   try{
-   // A tab write may have committed even if its response or recovery read was interrupted.
+   // A UI write may have committed even if its response or recovery read was interrupted.
    if(!await reconcile(c,epoch))return;
    const next=await replaceConversation(current.current.stateToken,reset);
    if(!c.signal.aborted&&epoch===generation.current){apply(next);setError('');}
