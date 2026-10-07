@@ -11,7 +11,12 @@ failures = []
 intentional_differences = []
 for index, conditions in enumerate(packet["forward"]):
     result = lookup_forward(
-        {"conditions": {key: {"value": value} for key, value in conditions.items()}},
+        {
+            "conditions": {
+                key: {"value": value, "unit": "mTorr" if key == "pressure" else "W"}
+                for key, value in conditions.items()
+            }
+        },
         packet["runs"],
     )
     selected = result["run"]
@@ -62,14 +67,26 @@ for index, query in enumerate(packet["reverse"]):
         "near": [e["run"]["runId"] for e in result["nearMatches"]],
     }
     expected = packet["expectedReverse"][index]
+    # The approved filter-first UI no longer creates global ranking-only tabs.
+    expected = {**expected, "goals": []}
     if index == len(packet["reverse"]) - 1:
-        presentation = [{
-            "runId": entry["run"]["runId"], "matchPercent": entry["matchPercent"],
-            "evaluations": [{
-                "matchPercent": e["matchPercent"], "actual": e["actual"], "satisfied": e["satisfied"],
-                "targetLabel": f"{e['targetLabel']} {e['unit']}", "rangeStatus": e["rangeStatus"],
-            } for e in entry["evaluations"]],
-        } for entry in result["commonCandidates"]]
+        presentation = [
+            {
+                "runId": entry["run"]["runId"],
+                "matchPercent": entry["matchPercent"],
+                "evaluations": [
+                    {
+                        "matchPercent": e["matchPercent"],
+                        "actual": e["actual"],
+                        "satisfied": e["satisfied"],
+                        "targetLabel": f"{e['targetLabel']} {e['unit']}",
+                        "rangeStatus": e["rangeStatus"],
+                    }
+                    for e in entry["evaluations"]
+                ],
+            }
+            for entry in result["commonCandidates"]
+        ]
         if presentation != packet["examplePresentation"]:
             failures.append("reverse-prototype-example-presentation")
     if actual != expected:
@@ -79,10 +96,7 @@ for index, query in enumerate(packet["reverse"]):
         expected = {
             **expected,
             "common": [key for key in expected["common"] if available(key, required)],
-            "goals": [
-                [key for key in ids if available(key, [goal["metric"]])]
-                for goal, ids in zip(query["goals"], expected["goals"], strict=True)
-            ],
+            "goals": [],
             "near": [key for key in expected["near"] if available(key, required)],
         }
         if actual == expected:

@@ -21,11 +21,19 @@ LOG = logging.getLogger("kplasma.worker")
 def run_claim(claim, backend, model, settings):
     request = claim.get("request") or {}
     with tracing.span(
-        "agent.request", kind="AGENT", session_id=request.get("requestId"),
-        inputs={"request": request, "context": claim.get("context"), "inputEvents": claim.get("inputEvents", [])},
-        attributes={"kplasma.request_id": request.get("requestId", ""),
-                    "kplasma.claim_generation": claim.get("claimGeneration", 0),
-                    "kplasma.request_revision": claim.get("requestRevision", 0)},
+        "agent.request",
+        kind="AGENT",
+        session_id=request.get("requestId"),
+        inputs={
+            "request": request,
+            "context": claim.get("context"),
+            "inputEvents": claim.get("inputEvents", []),
+        },
+        attributes={
+            "kplasma.request_id": request.get("requestId", ""),
+            "kplasma.claim_generation": claim.get("claimGeneration", 0),
+            "kplasma.request_revision": claim.get("requestRevision", 0),
+        },
     ) as observation:
         observation.json_attribute("metadata", settings.versions())
         _run_claim(claim, backend, model, settings, observation)
@@ -51,6 +59,7 @@ def _run_claim(claim, backend, model, settings, observation):
         backend.fail("RECOVERY_STATE_INVALID")
         observation.error(BackendError("RECOVERY_STATE_INVALID"))
         return
+    graph_input: Command | dict | None
     if saved.values:
         pending = any(task.interrupts for task in saved.tasks)
         if pending:
@@ -115,8 +124,10 @@ def _fail_graph(backend, graph, config, error):
     except Exception:
         state = {}
     partial = None
-    if state.get("verified") and state.get("operation", {}).get("kind") == "explain_change":
+    if state.get("verified") and state.get("operation", {}).get("kind") in ("explain_change", "compare_runs"):
         partial = {**state["result"], "explanationComplete": False}
+        if state["operation"]["kind"] == "compare_runs":
+            partial["schemaVersion"] = 2
     backend.fail(code, partial)
     LOG.warning("request failed: %s", code)
 

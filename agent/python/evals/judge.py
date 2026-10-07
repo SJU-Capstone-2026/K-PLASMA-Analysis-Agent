@@ -2,7 +2,7 @@
 
 from dataclasses import asdict
 
-from kplasma_agent.contracts import normalize_interpretation
+from kplasma_agent.tools import TOOL_MODELS
 from kplasma_agent.domain import DomainError, validate_grounding
 from kplasma_agent.metric_registry import CONDITION_KEYS, NumericError, normalize_value
 
@@ -80,47 +80,22 @@ def _clarification_needed(value, context, case=None):
         return any(not inputs.get("conditions", {}).get(key) for key in CONDITION_KEYS)
     if kind == "reverse_search":
         return not (inputs.get("constraints") or inputs.get("goals"))
-    if kind in ("compare_runs", "explain_change"):
-        for role in ("baseline", "target"):
-            selector = inputs.get(role)
-            if not selector:
-                return True
-            selector_kind = selector["kind"]
-            if selector_kind in ("reference_run", "selected_run") and not context.get(selector_kind):
-                return True
-            if selector_kind.startswith("comparison_") and not context.get("comparison_pair"):
-                return True
-        if case is not None:
-            from kplasma_agent.graphs.v1 import _baseline_is_explicit
-
-            role_context = {}
-            if context.get("reference_run"):
-                role_context["activeRun"] = {
-                    "runId": "synthetic-reference",
-                    "runVersionId": "synthetic-reference-version",
-                }
-            if context.get("comparison_pair"):
-                role_context["comparisonContext"] = {"turnId": "synthetic-comparison"}
-            if not _baseline_is_explicit(
-                {"question": case.question, "input_history": case.input_history, "context": role_context},
-                inputs,
-            ):
-                return True
-        return inputs["baseline"] == inputs["target"]
-    topics = inputs.get("topics", [])
-    aspect = inputs.get("aspect") or ("definition" if len(topics) == 1 else None)
-    return (
-        len(topics) != (1 if aspect == "definition" else 2)
-        or len(set(topics)) != len(topics)
-        or aspect is None
-    )
+    if kind == "compare_runs":
+        refs = case.references if case is not None else []
+        requested = inputs.get("ref_keys")
+        return len([r for r in refs if requested is None or r["key"] in requested]) < 2
+    return False
 
 
 def judge(case, raw):
     checks = []
     try:
-        value = normalize_interpretation(raw).model_dump(exclude_none=True)
-    except (ValueError, TypeError):
+        name = raw["name"]
+        inputs = TOOL_MODELS[name].model_validate(raw["arguments"]).model_dump(exclude_none=True)
+        if not raw.get("call_id"):
+            raise ValueError("Missing call id")
+        value = {"status": "resolved", "operations": [{"kind": name, "inputs": inputs}]}
+    except (ValueError, TypeError, KeyError):
         return {
             "passed": False,
             "criticalWrongDispatch": False,
@@ -131,12 +106,16 @@ def judge(case, raw):
         }
     grounding_error = None
     for operation in value["operations"]:
+        if operation["kind"] not in ("forward_lookup", "reverse_search"):
+            continue
         try:
             validate_grounding(operation, case.question, case.input_history, case.prior_interpretation)
         except DomainError as error:
             grounding_error = error.code
             break
-    needs_clarification = _clarification_needed(value, case.context_available, case)
+    needs_clarification = (
+        _clarification_needed(value, case.context_available, case) or grounding_error is not None
+    )
     if case.unsupported:
         checks.append(("unsupported", value["status"] == "unsupported"))
     else:
@@ -188,6 +167,7 @@ def case_payload(case):
                 "message": ", ".join(missing) + " 조건을 알려 주세요.",
             }
     return {
+        "explicitReferences": {"entries": case.references, "baselineKey": None},
         "question": case.question,
         "input_history": case.input_history,
         "prior_interpretation": case.prior_interpretation,

@@ -12,27 +12,15 @@ import threading
 import time
 
 from kplasma_agent.config import Settings
-from kplasma_agent.explanations.engine import (
-    ChangeDraft,
-    ConceptDraft,
-    ExplanationError,
-    validate_explanation,
-)
-from kplasma_agent.graphs.v1 import EXPLAIN_PROMPT
+from kplasma_agent.answer_contracts import ComparisonAnswerDraft
+from kplasma_agent.explanations.answers import COMPARISON_PROMPT, validate_answer
+from kplasma_agent.tools import GENERAL_PROMPT
+from kplasma_agent.domain.common import DomainError
 from kplasma_agent.model_client import ModelClient, ModelError
 
 from .explanation_cases import EXPLANATION_CASES
 
 _LOCAL = threading.local()
-
-
-def _limited_draft():
-    return {
-        "status": "insufficient_knowledge",
-        "interpretations": [],
-        "limitations": ["비교 가능한 측정 지표가 없거나 관찰된 변화가 없어 변화 원인을 해석하지 않습니다."],
-        "suggested_checks": [],
-    }
 
 
 def _attempt(case, repeat, settings):
@@ -42,7 +30,6 @@ def _attempt(case, repeat, settings):
         "kind": case.kind,
         "repeat": repeat,
         "syntheticCase": asdict(case),
-        "bypassedGeneration": case.bypass_generation,
         "attempts": [],
         "passed": False,
         "answered": False,
@@ -53,38 +40,35 @@ def _attempt(case, repeat, settings):
         "outputTokens": 0,
     }
     try:
-        if case.bypass_generation:
-            result = validate_explanation(case.kind, _limited_draft(), case.evidence)
-            record.update(passed=True, limited=True, response=result)
-        else:
-            if not hasattr(_LOCAL, "model"):
-                _LOCAL.model = ModelClient(settings)
-            repair_error = None
-            for attempt in range(2):
-                record["apiCalls"] += 1
-                response, metadata = _LOCAL.model.generate(
-                    EXPLAIN_PROMPT,
-                    {"evidence": case.evidence, "repair_error": repair_error},
-                    ChangeDraft if case.kind == "explain_change" else ConceptDraft,
+        if not hasattr(_LOCAL, "model"):
+            _LOCAL.model = ModelClient(settings)
+        repair_error = None
+        for attempt in range(2):
+            record["apiCalls"] += 1
+            payload = {
+                "originalQuestion": case.question,
+                "evidence": case.evidence,
+                "repair_error": repair_error,
+            }
+            if case.kind == "generate_answer":
+                response, meta = _LOCAL.model.answer(GENERAL_PROMPT, payload)
+            else:
+                response, meta = _LOCAL.model.generate(COMPARISON_PROMPT, payload, ComparisonAnswerDraft)
+            record["inputTokens"] += meta.get("inputTokens", 0)
+            record["outputTokens"] += meta.get("outputTokens", 0)
+            stage = {"response": response, "metadata": meta, "validationError": None}
+            record["attempts"].append(stage)
+            try:
+                result = (
+                    response if case.kind == "generate_answer" else validate_answer(response, case.evidence)
                 )
-                record["inputTokens"] += metadata.get("inputTokens", 0)
-                record["outputTokens"] += metadata.get("outputTokens", 0)
-                stage = {"response": response, "metadata": metadata, "validationError": None}
-                record["attempts"].append(stage)
-                try:
-                    result = validate_explanation(case.kind, response, case.evidence)
-                    record.update(
-                        passed=result["status"] == "answered",
-                        answered=result["status"] == "answered",
-                        limited=result["status"] == "insufficient_knowledge",
-                        response=result,
-                    )
-                    break
-                except ExplanationError as error:
-                    repair_error = str(error)
-                    stage["validationError"] = repair_error
-                    if attempt == 1:
-                        record["errorCode"] = repair_error
+                record.update(passed=bool(result), answered=bool(result), response=result)
+                break
+            except (DomainError, ValueError) as error:
+                repair_error = getattr(error, "code", "ANSWER_INVALID")
+                stage["validationError"] = repair_error
+                if attempt == 1:
+                    record["errorCode"] = repair_error
     except ModelError as error:
         record["errorCode"] = error.code
     except Exception as error:
@@ -98,7 +82,7 @@ def main(argv=None):
     parser.add_argument("--repeat", type=int, default=3)
     parser.add_argument("--concurrency", type=int, default=4, choices=range(1, 5))
     parser.add_argument("--case", action="append", default=[])
-    parser.add_argument("--kind", choices=("explain_change", "explain_concept"))
+    parser.add_argument("--kind", choices=("compare_runs", "generate_answer"))
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args(argv)
     if not 1 <= args.repeat <= 10:
@@ -111,7 +95,7 @@ def main(argv=None):
     if not cases:
         parser.error("No matching case")
     expected = len(cases) * args.repeat
-    bypass_count = sum(case.bypass_generation for case in cases) * args.repeat
+    bypass_count = 0
     if args.dry_run:
         print(
             json.dumps(
@@ -161,22 +145,22 @@ def main(argv=None):
                         flush=True,
                     )
     summary = {
-        "evaluationProtocol": "qualitative-synthetic-v1",
+        "evaluationProtocol": "question-and-observations-v2",
         "model": settings.model,
         "reasoningEffort": settings.reasoning_effort,
-        "explanationPromptSha256": hashlib.sha256(EXPLAIN_PROMPT.encode()).hexdigest(),
+        "explanationPromptSha256": hashlib.sha256((COMPARISON_PROMPT + GENERAL_PROMPT).encode()).hexdigest(),
         "expectedAttempts": expected,
         "completedAttempts": len(results),
         "passed": sum(row["passed"] for row in results),
         "answered": sum(row["answered"] for row in results),
         "limited": sum(row["limited"] for row in results),
-        "codeOnlyLimitedCases": sum(row["bypassedGeneration"] for row in results),
+        "codeOnlyLimitedCases": 0,
         "actualModelCalls": sum(row["apiCalls"] for row in results),
         "repairedCases": sum(len(row["attempts"]) > 1 and row["passed"] for row in results),
         "inputTokens": sum(row["inputTokens"] for row in results),
         "outputTokens": sum(row["outputTokens"] for row in results),
         "errors": dict(Counter(row["errorCode"] for row in results if row["errorCode"])),
-        "scope": "Schema, reference coverage, numeric/citation/causal claim guards and explicit direction checks. No domain-expert endorsement or proof of scientific truth.",
+        "scope": "Draft schema, known observation IDs and detectable numeric restatements. Semantic/causal correctness requires human review; no scientific truth guarantee.",
     }
     (destination / "summary.json").write_text(
         json.dumps(summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"

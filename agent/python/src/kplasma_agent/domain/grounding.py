@@ -41,7 +41,7 @@ def _anchors(text):
     for metric, aliases in _ALIASES.items():
         for found in re.finditer(r"(?<![A-Za-z])(?:" + aliases + r")(?![A-Za-z])", text, re.IGNORECASE):
             matches.append((found.start(), found.end(), metric))
-    accepted = []
+    accepted: list[tuple[int, int, str]] = []
     for start, end, metric in sorted(matches, key=lambda m: (m[0], -(m[1] - m[0]))):
         if not accepted or start >= accepted[-1][1]:
             accepted.append((start, end, metric))
@@ -241,7 +241,8 @@ def _same(claim, evidence, *, ignore_operator=False):
     return (
         claim["numbers"] == evidence["numbers"]
         and (
-            not claim["unit"] or not evidence["unit"]
+            not claim["unit"]
+            or not evidence["unit"]
             or _unit_signature(claim["metric"], claim["unit"])
             == _unit_signature(claim["metric"], evidence["unit"])
         )
@@ -269,7 +270,7 @@ def _reference_grounding(operation, question, input_history, prior):
     text = "\n".join(
         [question, *(entry.get("text", "") for entry in input_history if isinstance(entry.get("text"), str))]
     )
-    explicit_baselines = []
+    explicit_baselines: list[tuple[int, str]] = []
     for selector in operation.get("inputs", {}).values():
         if not isinstance(selector, dict) or selector.get("kind") != "run_id":
             continue
@@ -334,8 +335,8 @@ def _goal_grounding(operation, question, history):
             raise DomainError("UNGROUNDED_GOAL", goal["metric"])
     goals = [goal["metric"] for goal in operation.get("inputs", {}).get("goals", [])]
     if priority and len(set(goals)) > 1:
-        expected = [metric for metric in priority if metric in goals]
-        if len(expected) == len(goals) and expected != goals:
+        expected_order = [metric for metric in priority if metric in goals]
+        if len(expected_order) == len(goals) and expected_order != goals:
             raise DomainError("UNGROUNDED_GOAL_PRIORITY", "explicit priority differs from goal order")
 
 
@@ -406,7 +407,12 @@ def validate_grounding(operation, question, input_history, prior_interpretation=
             metric = entry.get("unit_metric")
             mentioned = {key for _, _, key in _anchors(entry["text"])}
             unit = _unit_text(entry["text"])
-            if isinstance(metric, str) and metric in evidence and unit and (not mentioned or mentioned == {metric}):
+            if (
+                isinstance(metric, str)
+                and metric in evidence
+                and unit
+                and (not mentioned or mentioned == {metric})
+            ):
                 evidence[metric] = {**evidence[metric], "unit": unit}
         # Structured values are explicit user input at the corresponding field.
         for claim in _claims({"inputs": entry}, ignore_invalid=True):
@@ -473,3 +479,22 @@ def validate_comparison_metrics(inputs, question, history, previous_metrics):
     raise DomainError(
         "UNGROUNDED_METRICS", "comparison metric scope changed without an explicit user request"
     )
+
+
+def validate_native_comparison_metrics(inputs, question, history):
+    """A named output metric cannot silently turn into a different comparison scope."""
+    history = [entry for entry in (history or []) if isinstance(entry, dict)]
+    explicit = next((entry.get("metrics") for entry in reversed(history) if entry.get("metrics")), None)
+    if explicit:
+        if inputs.get("metrics") != explicit:
+            raise DomainError("UNGROUNDED_METRICS")
+        return True
+    text = "\n".join([question, *(entry["text"] for entry in history if isinstance(entry.get("text"), str))])
+    if re.search(
+        r"(?:모든|전체|전부)\s*(?:측정\s*)?지표|(?:all|every)\s+(?:output\s+)?metrics?", text, re.IGNORECASE
+    ):
+        return True
+    mentioned = {metric for _, _, metric in _anchors(text)} & {"meanIonEnergy", "ionFlux", "iedWidth"}
+    if mentioned and set(inputs.get("metrics") or []) != mentioned:
+        raise DomainError("UNGROUNDED_METRICS")
+    return True

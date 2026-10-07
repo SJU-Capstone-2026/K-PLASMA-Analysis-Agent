@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: K-PLASMA Agent Graph v1
-  version: 1.0.0
+  version: 2.0.0
   description: |
     Python LangGraph worker; Spring owns durable request acceptance and final turns.
     Existing fallback is preserved as source but is not invoked by v1.
@@ -15,7 +15,9 @@ info:
     Reverse goals order common matches and no longer generate independent global
     goal tabs. New reverse snapshots keep goalResults as an empty compatibility
     array; objectiveResults retain independent condition matches.
-    This is an additive schemaVersion 1 field; graphBuildId and promptVersion change.
+    Search presentation stays compatible. New completed answers use schemaVersion 2.
+    One native tool call selects forward_lookup, reverse_search, compare_runs or generate_answer.
+    Old completed schema-1 answers remain readable; old pending jobs fail the build fingerprint fence.
     All worker endpoints require X-Agent-Token configured by AGENT_WORKER_TOKEN.
     The worker has no database credentials. A synchronous HTTP checkpoint adapter
     stores typed serializer bytes as JSON/base64 in PostgreSQL under the same
@@ -53,6 +55,41 @@ paths:
       responses:
         '200': { $ref: '#/components/responses/Request' }
         '404': { description: Request not found }
+  /api/agent/requests/{id}/run-options:
+    parameters: [{ $ref: '#/components/parameters/RequestId' }]
+    get:
+      operationId: getFixedRunSelectionOptions
+      parameters:
+        - { name: pendingInputId, in: query, required: true, schema: { type: string } }
+      description: Frozen aliases and exact Run versions for this pending input. Deleted versions stay visible but disabled. Search/sort/selection are local. No catalog pagination or per-Run full payload fetch.
+      responses:
+        '200':
+          description: One fixed selection inventory.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [requestId, requestRevision, pendingInputId, options]
+                properties:
+                  requestId: { type: string }
+                  requestRevision: { type: integer }
+                  pendingInputId: { type: string }
+                  options:
+                    type: array
+                    items:
+                      type: object
+                      additionalProperties: false
+                      required: [key, ref, conditions, selectable, unavailableReason]
+                      properties:
+                        key: { type: string }
+                        ref: { $ref: '#/components/schemas/RunRef' }
+                        conditions:
+                          type: object
+                          required: [pressure, sourcePower, biasPower]
+                          additionalProperties: { $ref: './agent-answer-v2.schemas.yaml#/components/schemas/ScalarDatum' }
+                        selectable: { type: boolean }
+                        unavailableReason: { type: [string, 'null'] }
+        '409': { description: Wrong request epoch, revision or pending input. }
   /api/agent/requests/{id}/resume:
     parameters: [{ $ref: '#/components/parameters/RequestId' }]
     post:
@@ -70,7 +107,7 @@ paths:
                 pendingInputId: { type: string }
                 input:
                   type: object
-                  description: Natural language uses text; structured slot responses remain JSON.
+                  description: Text replies use type=text and text. Run selection uses type=run_selection, runKeys (at least two fixed aliases), baselineKey (null or selected key). Comparison options use type=comparison_options and baselineKey and/or trendAxis. Browser replies never supply comparisonReference; server enriches trusted events.
                   additionalProperties: true
       responses:
         '200': { $ref: '#/components/responses/Request' }
@@ -152,7 +189,9 @@ paths:
         may be materialized once; replay uses the identical stored query and pool.
         Changing a materialized reverseQuery returns MANIFEST_QUERY_CONFLICT.
         Python still verifies numeric predicates and resolves full Decimal/tie order.
-        explain_concept skips this API.
+        generate_answer skips this API. compare_runs requires referencesOnly and an ordered
+        subset of the saved explicit comparisonReference. It materializes only those exact versions
+        in referencedRuns; runs/catalogRunRefs stay empty. Identity/scalar reads are bulk queries.
       requestBody: { $ref: '#/components/requestBodies/Mutation' }
       responses:
         '200': { $ref: '#/components/responses/Manifest' }
@@ -224,7 +263,7 @@ paths:
       security: [{ workerToken: [] }]
       description: |
         error includes a safe code/message, never raw provider response or secrets.
-        Only explain_change may retain a validated comparison partialResult with
+        Native compare_runs (schema 2) and legacy explain_change may retain a validated comparison partialResult with
         explanationComplete=false and both usedRunRefs. Raw drafts stay private.
       requestBody: { $ref: '#/components/requestBodies/Mutation' }
       responses:
@@ -321,6 +360,18 @@ components:
         stateToken: { $ref: '#/components/schemas/StateToken' }
         baseline: { $ref: '#/components/schemas/RunRef' }
         selectedRunRef: { $ref: '#/components/schemas/RunRef' }
+        attachedRunRefs: { type: array, uniqueItems: true, items: { $ref: '#/components/schemas/RunRef' }, description: Explicit UI tags or selected group only; exact versions. }
+        referenceOrigins:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [ref, kind, turnId, groupId]
+            properties:
+              ref: { $ref: '#/components/schemas/RunRef' }
+              kind: { enum: [run_tag, candidate_group] }
+              turnId: { type: string }
+              groupId: { type: [string, 'null'] }
         candidateReferences: { type: array, items: { $ref: '#/components/schemas/RunRef' } }
     RequestView:
       type: object
@@ -334,9 +385,15 @@ components:
         question: { type: [string, 'null'] }
         pendingInput: { type: [object, 'null'], description: 'At least id and message; optional fields/options. MISSING_UNIT asks for the numeric metric unit before querying; unitMetric identifies the slot for a unit-only reply. Pure high/low sorting needs no unit.' }
         error: { type: [object, 'null'] }
-        partialResult: { type: [object, 'null'] }
+        partialResult:
+          type: [object, 'null']
+          description: Failed compare_runs retains every field of ComparisonResultV2 plus schemaVersion=2 and explanationComplete=false; no answerSnapshot, LLM draft or new turn.
         turnId: { type: [string, 'null'] }
-        answerSnapshot: { type: [object, 'null'] }
+        answerSnapshot:
+          oneOf:
+            - { $ref: './agent-answer-v2.schemas.yaml#/components/schemas/AnswerSnapshotV2' }
+            - { type: object, properties: { schemaVersion: { const: 1 } }, description: Immutable historical schema-1 snapshot. }
+            - { type: 'null' }
         intent: { type: [string, 'null'] }
         usedRunRefs: { type: array, items: { $ref: '#/components/schemas/RunRef' } }
         inputEvents: { type: array, items: { type: object, description: id, requestRevision, input, createdAt } }
@@ -349,7 +406,7 @@ components:
         requestRevision: { type: integer }
         leaseSeconds: { type: integer, minimum: 5, maximum: 300 }
         stage: { type: string }
-        operationKind: { enum: [forward_lookup, reverse_search, compare_runs, explain_change, explain_concept, unsupported] }
+        operationKind: { enum: [forward_lookup, reverse_search, compare_runs, generate_answer, explain_change, explain_concept, unsupported] }
         dependsOnContext: { type: boolean }
         payload: { type: object, description: Opaque bounded checkpoint envelope. }
         pendingInput: { type: object, required: [id, message] }

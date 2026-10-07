@@ -16,11 +16,10 @@ import threading
 import time
 
 from kplasma_agent.config import Settings
-from kplasma_agent.contracts import Interpretation
 from kplasma_agent.graphs.v1 import INTERPRET_PROMPT
 from kplasma_agent.model_client import ModelClient, ModelError
 
-from .cases import CASES
+from .cases import CASES, ACCEPTANCE_CASES
 from .judge import case_payload, judge, public_case
 
 _LOCAL = threading.local()
@@ -35,7 +34,7 @@ def summarize(results, *, model, reasoning_effort, expected_count):
         category["passed"] += result["assessment"]["passed"]
         category["criticalWrongDispatch"] += result["assessment"]["criticalWrongDispatch"]
     return {
-        "evaluationProtocol": "mandatory-slots-v3-scoped-context",
+        "evaluationProtocol": "native-tools-v2-explicit-references",
         "interpretPromptSha256": hashlib.sha256(INTERPRET_PROMPT.encode()).hexdigest(),
         "model": model,
         "reasoningEffort": reasoning_effort,
@@ -68,7 +67,8 @@ def _attempt(case, repeat, settings):
         "errorCode": None,
     }
     try:
-        response, metadata = _LOCAL.model.generate(INTERPRET_PROMPT, case_payload(case), Interpretation)
+        response, metadata = _LOCAL.model.select_tool(INTERPRET_PROMPT, case_payload(case))
+        metadata.pop("responseItems", None)
         record.update(response=response, metadata=metadata, assessment=judge(case, response))
     except ModelError as error:
         record.update(
@@ -107,12 +107,13 @@ def main(argv=None):
     parser.add_argument("--category", choices=["forward", "reverse", "compare", "change", "concept"])
     parser.add_argument("--limit", type=int)
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--acceptance", action="store_true")
     args = parser.parse_args(argv)
     if not 1 <= args.repeat <= 10:
         parser.error("--repeat must be between 1 and 10")
     cases = [
         case
-        for case in CASES
+        for case in (ACCEPTANCE_CASES if args.acceptance else CASES)
         if (not args.case or case.id in args.case) and (not args.category or case.category == args.category)
     ]
     if args.limit is not None:

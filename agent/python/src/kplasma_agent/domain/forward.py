@@ -9,7 +9,7 @@ from .common import DomainError, inputs_dict, is_usable, public_run, run_ref, sc
 def lookup_forward(inputs, ordered_runs):
     query = ForwardInputs.model_validate(inputs_dict(inputs))
     requested = {}
-    defaulted_units = []
+    defaulted_units: list[str] = []
     for metric in CONDITION_KEYS:
         item = getattr(query.conditions, metric)
         if item is None:

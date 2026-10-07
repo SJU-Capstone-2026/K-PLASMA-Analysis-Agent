@@ -6,13 +6,25 @@ import com.kplasma.analysisagent.run.RunQueryService;
 import java.time.Instant;
 import java.util.*;
 import org.springframework.stereotype.Component;
+import org.springframework.jdbc.core.JdbcTemplate;
 
 /** Compact scientific scalar snapshots are allowed; original graph arrays and full Runs are not. */
 @Component
 public class SnapshotValidator {
     private static final Set<String> GRAPH_KEYS=Set.of("graphs","graph","series","points","sourceRun","iedDistribution","residualTrace","iad","iead","current","potential","density","sourceFiles","fullRun","full_run","sourceShape","phaseRange","angleRange");
     private final RunQueryService runs;
-    public SnapshotValidator(RunQueryService runs) {this.runs=runs;}
+    private final JdbcTemplate jdbc;
+    public SnapshotValidator(RunQueryService runs,JdbcTemplate jdbc) {this.runs=runs;this.jdbc=jdbc;}
+    /** One identity query regardless of selection size; never hydrate full Runs. */
+    public void bulkRefs(List<RunRef> refs,String code) {
+        require(refs!=null,code,"RunRefs are required");Set<RunRef> unique=new HashSet<>();List<String> versions=new ArrayList<>();
+        for(var ref:refs){require(ref!=null,code,"RunRef is required");text(ref.runId(),code,"runId");
+            try{UUID.fromString(ref.runVersionId());}catch(Exception e){throw new IntakeException(code,400,"Invalid Run version id");}
+            require(unique.add(ref),code,"Duplicate RunRef");versions.add(ref.runVersionId());}
+        if(refs.isEmpty())return;
+        Set<RunRef> found=new HashSet<>(jdbc.query("select run_id,id::text from run_version where id=any(?::uuid[])",(rs,n)->new RunRef(rs.getString(1),rs.getString(2)),(Object)versions.toArray(String[]::new)));
+        require(found.equals(unique),code,"Run version missing or identity mismatch");
+    }
     public void require(boolean condition,String code,String message) {if(!condition)throw new IntakeException(code,400,message);}
     public void text(String text,String code,String field) {require(text!=null&&!text.isBlank(),code,field+" is required");}
     public void instant(String value,String code,String field) {try{Instant.parse(value);}catch(Exception e){throw new IntakeException(code,400,field+" must be an ISO instant");}}
@@ -42,13 +54,19 @@ public class SnapshotValidator {
         refs(role,code,true);
     }
     public void compact(Object value,String code,Set<RunRef> inventory) {
+        compact(value,code,inventory,false);
+    }
+    public void compactValidated(Object value,String code,Set<RunRef> inventory) {
+        require(inventory!=null,code,"Validated inventory is required");compact(value,code,inventory,true);
+    }
+    private void compact(Object value,String code,Set<RunRef> inventory,boolean validated) {
         if(value instanceof Map<?,?> map) {
-            for(var entry:map.entrySet()) {require(!GRAPH_KEYS.contains(entry.getKey()),code,"Graph or full Run payloads cannot be persisted in snapshots");compact(entry.getValue(),code,inventory);}
+            for(var entry:map.entrySet()) {require(!GRAPH_KEYS.contains(entry.getKey()),code,"Graph or full Run payloads cannot be persisted in snapshots");compact(entry.getValue(),code,inventory,validated);}
             if(map.containsKey("runVersionId")) {
                 require(map.get("runId") instanceof String&&map.get("runVersionId") instanceof String,code,"Snapshot RunRef requires both string identities");
-                var ref=new RunRef((String)map.get("runId"),(String)map.get("runVersionId"));ref(ref,code);
+                var ref=new RunRef((String)map.get("runId"),(String)map.get("runVersionId"));if(!validated)ref(ref,code);
                 if(inventory!=null)require(inventory.contains(ref),code,"Snapshot role RunRef is absent from the immutable inventory");
             }
-        } else if(value instanceof List<?> list)for(var item:list)compact(item,code,inventory);
+        } else if(value instanceof List<?> list)for(var item:list)compact(item,code,inventory,validated);
     }
 }

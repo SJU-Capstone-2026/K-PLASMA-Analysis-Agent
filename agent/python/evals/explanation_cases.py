@@ -2,8 +2,7 @@
 
 from dataclasses import dataclass
 
-from kplasma_agent.domain import compare_runs
-from kplasma_agent.explanations.engine import build_change_evidence
+from kplasma_agent.domain.compare import compare_selected
 
 
 @dataclass(frozen=True)
@@ -12,7 +11,7 @@ class ExplanationCase:
     kind: str
     scenario: str
     evidence: dict
-    bypass_generation: bool = False
+    question: str = ""
 
 
 def synthetic_run(name, *, pressure=10, source=300, bias=100, energy=20, flux=2, width=5):
@@ -102,16 +101,14 @@ def build_cases():
         ),
     ]
     for index, (scenario, baseline, target, metrics) in enumerate(pairs, 1):
-        result = compare_runs(
-            {"metrics": metrics}, synthetic_run("BASELINE", **baseline), synthetic_run("TARGET", **target)
-        )
-        packet = build_change_evidence(result)
-        changes = [
-            row
-            for row in packet["observations"]
-            if row["id"].startswith("metric_") and row["direction"] in ("increased", "decreased")
+        runs = [synthetic_run("BASELINE", **baseline), synthetic_run("TARGET", **target)]
+        entries = [
+            {"key": f"R{i + 1}", "ref": {k: r[k] for k in ("runId", "runVersionId")}, "run": r}
+            for i, r in enumerate(runs)
         ]
-        cases.append(ExplanationCase(f"change-{index:02}", "explain_change", scenario, packet, not changes))
+        result = compare_selected({"metrics": metrics, "baseline_key": "R1"}, entries)
+        question = f"R1을 기준으로 R2의 {', '.join(metrics)} 차이가 나는 가능한 이유를 설명해줘."
+        cases.append(ExplanationCase(f"change-{index:02}", "compare_runs", scenario, result, question))
     concepts = [
         (["ionFlux"], "definition"),
         (["meanIonEnergy"], "definition"),
@@ -138,9 +135,10 @@ def build_cases():
         cases.append(
             ExplanationCase(
                 f"concept-{index:02}",
-                "explain_concept",
+                "generate_answer",
                 f"{aspect}: {' / '.join(topics)}",
-                {"kind": "concept_evidence", "topics": topics, "aspect": aspect},
+                {},
+                f"{', '.join(topics)}의 {aspect}을 일반 물리 지식으로 설명해줘.",
             )
         )
     assert len(cases) == 40

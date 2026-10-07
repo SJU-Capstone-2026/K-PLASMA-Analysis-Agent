@@ -20,3 +20,17 @@
 - batch flush 후 Cloud REST API에서 `agent.request`, 5개 그래프 노드와 LLM 2개, 총 8개 span의 같은 session과 parent 관계 및 입력/출력·버전·사용량 필드를 확인했다. 이 실행의 backend/checkpoint는 테스트용 메모리 구현이었다. 실제 사용자 DB 전체 흐름이나 실험 데이터로 다섯 도구를 Cloud에서 재검증한 것은 아니다.
 - 정상 종료 시에는 `force_flush(timeout_millis=3000)` 요청 뒤 SDK shutdown을 수행한다. 잠근 SDK는 이 timeout 인자를 실제 3초 종료 기한으로 보장하지 않으며, 진행 중인 export와 재시도 때문에 프로세스 종료가 더 늦어질 수 있다. 이 대기는 분석의 요청 완료 뒤이며 복구·결과 저장 기준을 바꾸지 않는다.
 - 실제 클라우드 장애·강제 종료 시 추적 보존, Phoenix UI의 전체 화면 비교는 이번 검증에 포함하지 않았다. 연결 정보와 원문 모델 응답·trace는 Git에 저장하지 않는다.
+
+## 2026-10-07 Tool Calling 전환
+
+새 실행의 LLM span은 `llm.tool_selection`, `llm.responses`(비교),
+`llm.general_answer`로 구분한다. `llm.responses_input`에는 native function call과
+같은 `call_id`의 function output을 포함한 실제 Responses 입력을 남긴다.
+공개 답변에는 provider-native 출력이나 reasoning item을 넣지 않으며 private
+checkpoint와 사용자 승인 범위의 추적에서만 보존한다.
+
+합성 전체 그래프를 실제 모델과 지정 K-PLASMA 프로젝트에서 실행하고 Cloud
+REST API의 `/v1/projects/K-PLASMA/spans`를 읽어 노드/LLM의 입출력·토큰·session을
+확인했다. 이 추적으로 잘못된 관찰 ID와 조건 수치 재인용, 추가 입력의 문맥 오해를
+분리해 확인하고 수정했다. 원문 실패 답변과 연결 정보는 ignored runtime에만
+남겼다. 최신 결과와 검증 경계는 [전환 검증](agent-v1-tool-calling-and-answers.md)을 따른다.

@@ -84,6 +84,7 @@ it('distinguishes persisted graph v1 answers from legacy snapshots without chang
   const before = structuredClone(current);
   expect(isV1AnswerSnapshot(current)).toBe(true);
   expect(isV1AnswerSnapshot({intent:'CHANGE_EXPLANATION'})).toBe(false);
-  expect(isV1AnswerSnapshot({...current,schemaVersion:2})).toBe(false);
+  expect(isV1AnswerSnapshot({...current,schemaVersion:2})).toBe(true);
+  expect(isV1AnswerSnapshot({...current,schemaVersion:3})).toBe(false);
   expect(current).toEqual(before);
 });

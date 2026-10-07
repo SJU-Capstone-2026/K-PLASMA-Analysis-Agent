@@ -10,6 +10,8 @@ execution: code
 
 # K-PLASMA Agent Graph v1 Implementation Plan
 
+**2026-10-07 후속 설계:** [Tool Calling 전환·비교/일반 답변 구현 설계서](2026-10-07-agent-v1-tool-calling-and-answer-design.md)가 신규 실행의 도구 선택, 명시 참조·다중 Run 비교, HITL 실험 선택과 설명 계약을 갱신한다. 네 도구(`forward_lookup/reverse_search/compare_runs/generate_answer`)와 원문 질문 기반 답변을 사용한다. 아래 다섯 도구·pair-only·ConceptId 제한·정성 근거만 전달하는 설명 계약은 기존 구현의 기준으로 남기며, 관련 부분은 후속 설계를 우선한다. 순·역방향 수치·UI·단위·복구·fallback 보존 규칙은 유지한다. 이는 설계 변경 안내이며 제품 코드 전환 완료를 뜻하지 않는다.
+
 **2026-10-05 사용자 수정 지시:** 순·역방향 검색은 v12.3.1의 결과와 화면을 유지한다. “150–160 eV에 가깝게”도 명시된 범위로 먼저 필터링한다. `target_range`는 범위 밖 후보를 허용한다고 명시한 경우에만 사용한다. 기존 F4·X6의 기본 soft 해석을 아래와 같이 수정했다. v1이 만든 결과·평가·정확한 Run 버전을 기존 순·역방향 renderer에 전달하며 JS fallback 실행은 하지 않는다. [수정 및 검증 기록](../../verification/agent-v1-search-parity.md).
 
 **목표:** Python LangGraph 기반 **Agent Graph v1**으로 순방향 조회·역방향 탐색·Run 비교·변화 설명·개념 설명을 구현하고, 실제 수치의 정확성과 장애 후 요청·문맥 복구를 보장한다.

@@ -68,6 +68,7 @@ export function v1SearchModel(turn:TurnSnapshot):Record<string,unknown>{
 
 function originalConditions(turn:TurnSnapshot,result:SearchResult){
  const interpretation=turn.answerSnapshot.interpretation as {operations?:{inputs?:{conditions?:Record<string,{value:number;unit?:string}>}}[]}|undefined;
- const pressure=interpretation?.operations?.[0]?.inputs?.conditions?.pressure;
+ const selection=turn.answerSnapshot.toolSelection as {arguments?:{conditions?:Record<string,{value:number;unit?:string}>}}|undefined;
+ const pressure=selection?.arguments?.conditions?.pressure??interpretation?.operations?.[0]?.inputs?.conditions?.pressure;
  return pressure?{pressure:{...pressure,normalizedValue:result.requestedConditions?.pressure}}:undefined;
 }

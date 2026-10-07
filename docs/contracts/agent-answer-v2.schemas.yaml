@@ -1,0 +1,819 @@
+# Generated from Python public contracts; artificial wire examples: agent/tests/support/answer-v2-wire.json
+components:
+  schemas:
+    AnswerInterpretation:
+      additionalProperties: false
+      properties:
+        text:
+          title: Text
+          type: string
+        observationIds:
+          items:
+            type: string
+          title: Observationids
+          type: array
+        assumptions:
+          items:
+            type: string
+          title: Assumptions
+          type: array
+      required:
+      - text
+      - observationIds
+      - assumptions
+      title: AnswerInterpretation
+      type: object
+    ComparisonAnswer:
+      additionalProperties: false
+      properties:
+        observationIds:
+          items:
+            type: string
+          title: Observationids
+          type: array
+        interpretations:
+          items:
+            $ref: '#/components/schemas/AnswerInterpretation'
+          title: Interpretations
+          type: array
+        limitations:
+          items:
+            type: string
+          title: Limitations
+          type: array
+        kind:
+          const: comparison_answer
+          title: Kind
+          type: string
+        status:
+          const: COMPLETE
+          title: Status
+          type: string
+        knowledgeBasis:
+          const: VERIFIED_RUNS_AND_LLM_GENERAL_KNOWLEDGE
+          title: Knowledgebasis
+          type: string
+      required:
+      - observationIds
+      - interpretations
+      - limitations
+      - kind
+      - status
+      - knowledgeBasis
+      title: ComparisonAnswer
+      type: object
+    RunRef:
+      additionalProperties: false
+      properties:
+        runId:
+          title: Runid
+          type: string
+        runVersionId:
+          title: Runversionid
+          type: string
+      required:
+      - runId
+      - runVersionId
+      title: RunRef
+      type: object
+    ToolSelection:
+      additionalProperties: false
+      properties:
+        call_id:
+          title: Call Id
+          type: string
+        name:
+          enum:
+          - forward_lookup
+          - reverse_search
+          - compare_runs
+          - generate_answer
+          title: Name
+          type: string
+        arguments:
+          additionalProperties: true
+          title: Arguments
+          type: object
+      required:
+      - call_id
+      - name
+      - arguments
+      title: ToolSelection
+      type: object
+    AnswerSnapshotV2:
+      additionalProperties: false
+      properties:
+        implementationId:
+          const: v1
+          title: Implementationid
+          type: string
+        graphVersion:
+          const: v1
+          title: Graphversion
+          type: string
+        schemaVersion:
+          const: 2
+          title: Schemaversion
+          type: integer
+        kind:
+          enum:
+          - forward_lookup
+          - reverse_search
+          - compare_runs
+          - generate_answer
+          title: Kind
+          type: string
+        summary:
+          title: Summary
+          type: string
+        originalQuestion:
+          title: Originalquestion
+          type: string
+        toolSelection:
+          $ref: '#/components/schemas/ToolSelection'
+        resolvedInputs:
+          additionalProperties: true
+          title: Resolvedinputs
+          type: object
+        result:
+          additionalProperties: true
+          title: Result
+          type: object
+        answer:
+          anyOf:
+          - $ref: '#/components/schemas/ComparisonAnswer'
+          - type: 'null'
+        contextProvenance:
+          additionalProperties: true
+          title: Contextprovenance
+          type: object
+        inputHistory:
+          items:
+            additionalProperties: true
+            type: object
+          title: Inputhistory
+          type: array
+        usedRunRefs:
+          items:
+            $ref: '#/components/schemas/RunRef'
+          title: Usedrunrefs
+          type: array
+        versions:
+          additionalProperties: true
+          title: Versions
+          type: object
+      required:
+      - implementationId
+      - graphVersion
+      - schemaVersion
+      - kind
+      - summary
+      - originalQuestion
+      - toolSelection
+      - resolvedInputs
+      - result
+      - answer
+      - contextProvenance
+      - inputHistory
+      - usedRunRefs
+      - versions
+      title: AnswerSnapshotV2
+      type: object
+    ComparisonDifference:
+      additionalProperties: false
+      properties:
+        id:
+          title: Id
+          type: string
+        kind:
+          enum:
+          - absolute_difference
+          - baseline_delta
+          - adjacent_delta
+          title: Kind
+          type: string
+        leftKey:
+          title: Leftkey
+          type: string
+        rightKey:
+          title: Rightkey
+          type: string
+        metric:
+          enum:
+          - meanIonEnergy
+          - ionFlux
+          - iedWidth
+          title: Metric
+          type: string
+        difference:
+          $ref: '#/components/schemas/ScalarDatum'
+        percentChange:
+          anyOf:
+          - $ref: '#/components/schemas/ScalarDatum'
+          - type: 'null'
+        direction:
+          enum:
+          - increase
+          - decrease
+          - unchanged
+          - not_applicable
+          - unavailable
+          title: Direction
+          type: string
+      required:
+      - id
+      - kind
+      - leftKey
+      - rightKey
+      - metric
+      - difference
+      - percentChange
+      - direction
+      title: ComparisonDifference
+      type: object
+    ComparisonRun:
+      additionalProperties: false
+      properties:
+        key:
+          title: Key
+          type: string
+        ref:
+          $ref: '#/components/schemas/RunRef'
+        conditions:
+          additionalProperties:
+            $ref: '#/components/schemas/ScalarDatum'
+          propertyNames:
+            enum:
+            - pressure
+            - sourcePower
+            - biasPower
+          title: Conditions
+          type: object
+        metrics:
+          additionalProperties:
+            $ref: '#/components/schemas/ScalarDatum'
+          propertyNames:
+            enum:
+            - meanIonEnergy
+            - ionFlux
+            - iedWidth
+          title: Metrics
+          type: object
+        quality:
+          $ref: '#/components/schemas/Quality'
+      required:
+      - key
+      - ref
+      - conditions
+      - metrics
+      - quality
+      title: ComparisonRun
+      type: object
+    MetricSummary:
+      additionalProperties: false
+      properties:
+        id:
+          title: Id
+          type: string
+        metric:
+          enum:
+          - meanIonEnergy
+          - ionFlux
+          - iedWidth
+          title: Metric
+          type: string
+        availableCount:
+          title: Availablecount
+          type: integer
+        minimum:
+          $ref: '#/components/schemas/ScalarDatum'
+        minimumKeys:
+          items:
+            type: string
+          title: Minimumkeys
+          type: array
+        maximum:
+          $ref: '#/components/schemas/ScalarDatum'
+        maximumKeys:
+          items:
+            type: string
+          title: Maximumkeys
+          type: array
+        range:
+          $ref: '#/components/schemas/ScalarDatum'
+      required:
+      - id
+      - metric
+      - availableCount
+      - minimum
+      - minimumKeys
+      - maximum
+      - maximumKeys
+      - range
+      title: MetricSummary
+      type: object
+    Observation:
+      additionalProperties: false
+      properties:
+        id:
+          title: Id
+          type: string
+        source:
+          $ref: '#/components/schemas/ObservationSource'
+        text:
+          title: Text
+          type: string
+      required:
+      - id
+      - source
+      - text
+      title: Observation
+      type: object
+    ObservationSource:
+      additionalProperties: false
+      properties:
+        kind:
+          enum:
+          - run
+          - comparison
+          - summary
+          - trend
+          title: Kind
+          type: string
+        key:
+          title: Key
+          type: string
+        metric:
+          enum:
+          - meanIonEnergy
+          - ionFlux
+          - iedWidth
+          title: Metric
+          type: string
+      required:
+      - kind
+      - key
+      - metric
+      title: ObservationSource
+      type: object
+    Quality:
+      additionalProperties: false
+      properties:
+        convergenceStatus:
+          title: Convergencestatus
+          type: string
+        qualityStatus:
+          title: Qualitystatus
+          type: string
+        catalogStatus:
+          title: Catalogstatus
+          type: string
+      required:
+      - convergenceStatus
+      - qualityStatus
+      - catalogStatus
+      title: Quality
+      type: object
+    ScalarDatum:
+      additionalProperties: false
+      properties:
+        value:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Value
+        unit:
+          title: Unit
+          type: string
+        status:
+          enum:
+          - AVAILABLE
+          - UNAVAILABLE
+          title: Status
+          type: string
+        reason:
+          anyOf:
+          - enum:
+            - MISSING_VALUE
+            - MISSING_BASELINE
+            - MISSING_TARGET
+            - MISSING_BOTH
+            - ZERO_BASELINE
+            - INVALID_VALUE
+            - UNIT_NOT_COMPARABLE
+            - NUMERIC_OVERFLOW
+            - INSUFFICIENT_DATA
+            type: string
+          - type: 'null'
+          title: Reason
+        sourceValue:
+          anyOf:
+          - $ref: '#/components/schemas/SourceValue'
+          - type: 'null'
+      required:
+      - value
+      - unit
+      - status
+      - reason
+      - sourceValue
+      title: ScalarDatum
+      type: object
+    SourceValue:
+      additionalProperties: false
+      properties:
+        value:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Value
+        unit:
+          title: Unit
+          type: string
+      required:
+      - value
+      - unit
+      title: SourceValue
+      type: object
+    TrendGroup:
+      additionalProperties: false
+      properties:
+        id:
+          title: Id
+          type: string
+        metric:
+          enum:
+          - meanIonEnergy
+          - ionFlux
+          - iedWidth
+          title: Metric
+          type: string
+        axis:
+          enum:
+          - pressure
+          - sourcePower
+          - biasPower
+          title: Axis
+          type: string
+        fixedConditions:
+          additionalProperties:
+            $ref: '#/components/schemas/ScalarDatum'
+          propertyNames:
+            enum:
+            - pressure
+            - sourcePower
+            - biasPower
+          title: Fixedconditions
+          type: object
+        orderedKeys:
+          items:
+            type: string
+          title: Orderedkeys
+          type: array
+        comparisonIds:
+          items:
+            type: string
+          title: Comparisonids
+          type: array
+        direction:
+          enum:
+          - increasing
+          - decreasing
+          - constant
+          - non_monotonic
+          - insufficient_data
+          - unavailable
+          title: Direction
+          type: string
+      required:
+      - id
+      - metric
+      - axis
+      - fixedConditions
+      - orderedKeys
+      - comparisonIds
+      - direction
+      title: TrendGroup
+      type: object
+    ComparisonResultV2:
+      additionalProperties: false
+      properties:
+        kind:
+          const: compare_runs
+          title: Kind
+          type: string
+        resultStatus:
+          enum:
+          - COMPARISON_READY
+          - COMPARISON_PARTIAL
+          - NO_COMPARABLE_DATA
+          title: Resultstatus
+          type: string
+        mode:
+          enum:
+          - values
+          - pair
+          - overview
+          - baseline
+          - trend
+          title: Mode
+          type: string
+        metricIds:
+          items:
+            enum:
+            - meanIonEnergy
+            - ionFlux
+            - iedWidth
+            type: string
+          title: Metricids
+          type: array
+        baselineKey:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Baselinekey
+        trendAxis:
+          anyOf:
+          - enum:
+            - pressure
+            - sourcePower
+            - biasPower
+            type: string
+          - type: 'null'
+          title: Trendaxis
+        runs:
+          items:
+            $ref: '#/components/schemas/ComparisonRun'
+          title: Runs
+          type: array
+        comparisons:
+          items:
+            $ref: '#/components/schemas/ComparisonDifference'
+          title: Comparisons
+          type: array
+        summaries:
+          items:
+            $ref: '#/components/schemas/MetricSummary'
+          title: Summaries
+          type: array
+        trends:
+          items:
+            $ref: '#/components/schemas/TrendGroup'
+          title: Trends
+          type: array
+        observations:
+          items:
+            $ref: '#/components/schemas/Observation'
+          title: Observations
+          type: array
+        usedRunRefs:
+          items:
+            $ref: '#/components/schemas/RunRef'
+          title: Usedrunrefs
+          type: array
+        numericPolicyVersion:
+          const: v1
+          title: Numericpolicyversion
+          type: string
+        aggregationPolicyVersion:
+          const: multi-run-1
+          title: Aggregationpolicyversion
+          type: string
+      required:
+      - kind
+      - resultStatus
+      - mode
+      - metricIds
+      - baselineKey
+      - trendAxis
+      - runs
+      - comparisons
+      - summaries
+      - trends
+      - observations
+      - usedRunRefs
+      - numericPolicyVersion
+      - aggregationPolicyVersion
+      title: ComparisonResultV2
+      type: object
+    Conditions:
+      additionalProperties: false
+      properties:
+        pressure:
+          anyOf:
+          - $ref: '#/components/schemas/NumberWithUnit'
+          - type: 'null'
+          default: null
+        sourcePower:
+          anyOf:
+          - $ref: '#/components/schemas/NumberWithUnit'
+          - type: 'null'
+          default: null
+        biasPower:
+          anyOf:
+          - $ref: '#/components/schemas/NumberWithUnit'
+          - type: 'null'
+          default: null
+      title: Conditions
+      type: object
+    NumberWithUnit:
+      additionalProperties: false
+      properties:
+        value:
+          title: Value
+          type: number
+        unit:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Unit
+      required:
+      - value
+      title: NumberWithUnit
+      type: object
+    ForwardInputs:
+      additionalProperties: false
+      properties:
+        conditions:
+          $ref: '#/components/schemas/Conditions'
+        context_rules:
+          items:
+            const: selected_run_conditions
+            type: string
+          title: Context Rules
+          type: array
+      title: ForwardInputs
+      type: object
+    Constraint:
+      additionalProperties: false
+      properties:
+        metric:
+          enum:
+          - pressure
+          - sourcePower
+          - biasPower
+          - meanIonEnergy
+          - ionFlux
+          - iedWidth
+          title: Metric
+          type: string
+        operator:
+          enum:
+          - eq
+          - lte
+          - gte
+          - lt
+          - gt
+          - between
+          title: Operator
+          type: string
+        value:
+          anyOf:
+          - type: number
+          - type: 'null'
+          default: null
+          title: Value
+        min:
+          anyOf:
+          - type: number
+          - type: 'null'
+          default: null
+          title: Min
+        max:
+          anyOf:
+          - type: number
+          - type: 'null'
+          default: null
+          title: Max
+        unit:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Unit
+      required:
+      - metric
+      - operator
+      title: Constraint
+      type: object
+    Goal:
+      additionalProperties: false
+      properties:
+        metric:
+          enum:
+          - meanIonEnergy
+          - ionFlux
+          - iedWidth
+          title: Metric
+          type: string
+        direction:
+          enum:
+          - maximize
+          - minimize
+          - target_range
+          title: Direction
+          type: string
+        min:
+          anyOf:
+          - type: number
+          - type: 'null'
+          default: null
+          title: Min
+        max:
+          anyOf:
+          - type: number
+          - type: 'null'
+          default: null
+          title: Max
+        unit:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Unit
+      required:
+      - metric
+      - direction
+      title: Goal
+      type: object
+    ReverseInputs:
+      additionalProperties: false
+      properties:
+        constraints:
+          items:
+            $ref: '#/components/schemas/Constraint'
+          title: Constraints
+          type: array
+        goals:
+          items:
+            $ref: '#/components/schemas/Goal'
+          title: Goals
+          type: array
+        context_rules:
+          items:
+            enum:
+            - energy_slightly_higher
+            - flux_maintained_and_width_lower
+            type: string
+          title: Context Rules
+          type: array
+      title: ReverseInputs
+      type: object
+    CompareToolInputs:
+      additionalProperties: false
+      properties:
+        ref_keys:
+          anyOf:
+          - items:
+              type: string
+            type: array
+          - type: 'null'
+          default: null
+          title: Ref Keys
+        metrics:
+          anyOf:
+          - items:
+              enum:
+              - meanIonEnergy
+              - ionFlux
+              - iedWidth
+              type: string
+            type: array
+          - type: 'null'
+          default: null
+          title: Metrics
+        analysis:
+          anyOf:
+          - enum:
+            - auto
+            - values
+            - differences
+            - trend
+            - interpretation
+            type: string
+          - type: 'null'
+          default: null
+          title: Analysis
+        baseline_key:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Baseline Key
+        trend_axis:
+          anyOf:
+          - enum:
+            - pressure
+            - sourcePower
+            - biasPower
+            type: string
+          - type: 'null'
+          default: null
+          title: Trend Axis
+      title: CompareToolInputs
+      type: object
+    GeneralInputs:
+      additionalProperties: false
+      properties: {}
+      title: GeneralInputs
+      type: object

@@ -76,12 +76,28 @@ try{
   assert.deepEqual(after.conversation,before.conversation);
   assert.deepEqual(after.stateToken,before.stateToken);
   summary.passed.push('completed_answer_and_idempotent_resume_after_server_restart');
+
+  const other=runs.find(item=>item.runVersionId!==run.runVersionId&&item.catalogStatus==='READY'&&item.qualityStatus==='VERIFIED'&&item.convergenceStatus==='CONVERGED');assert.ok(other);
+  const comparison=await submit(`${run.runId}를 기준으로 ${other.runId}의 평균 이온 에너지와 이온 플럭스를 비교해줘`);
+  const picker=await terminal(comparison.requestId);assert.equal(picker.status,'NEEDS_INPUT');assert.equal(picker.pendingInput.type,'run_selection');
+  const optionsPath=`/api/agent/requests/${comparison.requestId}/run-options?pendingInputId=${encodeURIComponent(picker.pendingInput.id)}`;
+  const options=await request(optionsPath);
+  const exited=new Promise(resolve=>worker.once('exit',resolve));worker.kill('SIGKILL');await exited;
+  await environment.restartBackend();
+  assert.deepEqual(await request(optionsPath),options);assert.deepEqual(await request(`/api/agent/requests/${comparison.requestId}`),picker);
+  worker=spawn(join(repo,'agent/python/.venv',process.platform==='win32'?'Scripts/python.exe':'bin/python'),['agent/python/tests/runtime_worker.py','--connection',environment.connection],{cwd:repo,env,stdio:['ignore','pipe','pipe']});
+  const resumedLog=createWriteStream(join(output,'resumed-worker.log'));worker.stdout.pipe(resumedLog,{end:false});worker.stderr.pipe(resumedLog,{end:false});worker.on('exit',()=>resumedLog.end());
+  const chosen=[run,other].map(run=>options.options.find(option=>option.ref.runVersionId===run.runVersionId));assert.ok(chosen.every(Boolean));
+  await request(`/api/agent/requests/${comparison.requestId}/resume`,{expectedRequestRevision:picker.requestRevision,pendingInputId:picker.pendingInput.id,input:{type:'run_selection',runKeys:chosen.map(option=>option.key),baselineKey:chosen[0].key}});
+  const compared=await terminal(comparison.requestId);assert.equal(compared.status,'COMPLETED');
+  assert.equal(compared.answerSnapshot.schemaVersion,2);assert.deepEqual(compared.answerSnapshot.usedRunRefs,chosen.map(option=>option.ref));
+  summary.passed.push('frozen_picker_and_native_comparison_after_worker_kill_and_server_restart');
   summary.status='PASS';
 }catch(error){summary.error=error instanceof Error?error.message:'Restart verification failed';process.exitCode=1;}
 finally{
   if(worker&&worker.exitCode===null&&worker.signalCode===null){const stopped=once(worker,'exit');worker.kill('SIGTERM');await Promise.race([stopped,sleep(5000)]);if(worker.exitCode===null&&worker.signalCode===null){worker.kill('SIGKILL');await stopped;}}
   await environment?.close();
   await writeFile(join(output,'summary.json'),JSON.stringify(summary,null,2));
-  console.log(`Graph v1 Spring restart: ${summary.status}, ${summary.passed.length}/3 scenarios. Local evidence: ${output}`);
+  console.log(`Graph v1 restart: ${summary.status}, ${summary.passed.length}/4 scenarios. Local evidence: ${output}`);
   if(summary.error)console.error('Restart verification failed; inspect the local synthetic summary.');
 }

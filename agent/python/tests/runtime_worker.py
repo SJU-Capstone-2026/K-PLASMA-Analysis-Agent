@@ -29,73 +29,69 @@ class RuntimeTestModel:
     def __init__(self, _settings):
         pass
 
-    def generate(self, _instructions, payload, output_model):
-        if output_model.__name__ == "Interpretation":
-            value = self.interpret(payload)
-        elif output_model.__name__ == "ChangeDraft":
-            evidence = payload["evidence"]
-            refs = [
-                item["id"]
-                for item in evidence["observations"]
-                if item["available"] and item["id"].startswith("metric_")
-            ]
-            value = {
-                "status": "answered" if refs else "insufficient_knowledge",
-                "interpretations": (
-                    [
-                        {
-                            "text": "관찰된 차이는 플라즈마 내부의 입자 생성과 손실 변화에 관련됐을 수 있습니다.",
-                            "observation_refs": refs[:3],
-                            "assumptions": ["세부 메커니즘은 추가 관찰로 확인해야 합니다."],
-                        }
-                    ]
-                    if refs
-                    else []
-                ),
-                "limitations": ["일반 지식에 따른 가능한 해석이며 원인을 확정할 수 없습니다."],
-                "suggested_checks": [],
+    def select_tool(self, _instructions, payload):
+        operation = self.interpret(payload)["operations"][0]
+        if operation["kind"] in ("compare_runs", "explain_change"):
+            entries = payload.get("explicitReferences", {}).get("entries", [])
+            wanted = re.findall(r"RUN-[A-Za-z0-9_-]+", payload["question"])
+            keys = [e["key"] for e in entries if not wanted or e["ref"]["runId"] in wanted]
+            operation = {
+                "kind": "compare_runs",
+                "inputs": {
+                    "ref_keys": keys or None,
+                    "metrics": ["meanIonEnergy", "ionFlux"],
+                    "analysis": "interpretation" if "이유" in payload["question"] else "differences",
+                    "baseline_key": keys[0] if len(keys) >= 2 else None,
+                },
             }
-        elif output_model.__name__ == "ConceptDraft":
-            definitions = {
-                "meanIonEnergy": "평균 이온 에너지는 입사 이온이 지닌 에너지의 평균을 나타내는 지표입니다.",
-                "ionFlux": "이온 플럭스는 단위 면적에 도달하는 이온의 유량을 나타내는 지표입니다.",
-                "iedWidth": "이온 에너지 분포의 폭은 입사 이온들의 에너지가 퍼진 정도를 나타냅니다.",
-            }
-            topics = payload["evidence"]["topics"]
-            value = {
-                "status": "answered",
-                "sections": [
-                    {
-                        "topic_refs": [topic],
-                        "text": definitions.get(
-                            topic, "공정 조건과 플라즈마 상태를 설명하기 위한 일반적인 개념입니다."
-                        ),
-                    }
-                    for topic in topics
-                ],
-                "limitations": ["검토된 문헌을 조회하지 않은 일반 지식 설명입니다."],
-            }
-        else:
-            raise AssertionError(f"Unexpected test model schema: {output_model.__name__}")
-        # The same strict application contracts still validate every fixture reply.
-        value = output_model.model_validate(value).model_dump(exclude_none=True)
-        return value, {
+        elif operation["kind"] == "explain_concept":
+            operation = {"kind": "generate_answer", "inputs": {}}
+        from kplasma_agent.tools import TOOL_MODELS
+
+        inputs = TOOL_MODELS[operation["kind"]].model_validate(operation["inputs"]).model_dump()
+        return {"call_id": "offline-call", "name": operation["kind"], "arguments": inputs}, {
             "model": "test-v1-deterministic",
-            "reasoningEffort": "none",
-            "inputTokens": 0,
-            "outputTokens": 0,
+            "responseItems": [],
         }
+
+    def generate(self, _instructions, payload, output_model, **kwargs):
+        refs = [
+            item["id"]
+            for item in payload["evidence"]["observations"]
+            if item["source"]["kind"] == "comparison"
+        ]
+        value = {
+            "observationIds": refs or [payload["evidence"]["observations"][0]["id"]],
+            "interpretations": [
+                {
+                    "text": "관찰된 차이는 입자 생성과 손실의 변화에 관련됐을 수 있습니다.",
+                    "observationIds": refs or [payload["evidence"]["observations"][0]["id"]],
+                    "assumptions": ["일반적인 플라즈마 지식에 따른 가능한 해석입니다."],
+                }
+            ],
+            "limitations": ["관찰된 차이만으로 원인을 확정할 수 없습니다."],
+        }
+        return output_model.model_validate(value).model_dump(), {"model": "test-v1-deterministic"}
+
+    def answer(self, _instructions, payload, **kwargs):
+        return (
+            "평균 이온 에너지는 이온 에너지 분포의 평균입니다. 이온 에너지는 개별 이온의 에너지를 의미할 수 있습니다.",
+            {"model": "test-v1-deterministic"},
+        )
 
     @staticmethod
     def interpret(payload):
         question = payload["question"]
         ids = re.findall(r"RUN-[A-Za-z0-9_-]+", question)
-        if len(ids) == 2:
+        if len(ids) == 2 or (
+            len(payload.get("explicitReferences", {}).get("entries", [])) >= 2
+            and any(word in question for word in ("차이", "비교", "이유"))
+        ):
             operation = {
                 "kind": "explain_change" if "이유" in question else "compare_runs",
                 "inputs": {
-                    "baseline": {"kind": "run_id", "run_id": ids[0]},
-                    "target": {"kind": "run_id", "run_id": ids[1]},
+                    "baseline": {"kind": "run_id", "run_id": ids[0]} if ids else None,
+                    "target": {"kind": "run_id", "run_id": ids[1]} if ids else None,
                     "metrics": ["meanIonEnergy", "ionFlux"],
                 },
             }

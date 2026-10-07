@@ -1,4 +1,4 @@
-import {isV1AnswerSnapshot,type RunRef,type Snapshot,type TurnSnapshot} from 'agent';
+import {isV1AnswerSnapshot,type RunRef,type Snapshot,type TurnSnapshot,type WorkspaceView,type ReferenceOrigin} from 'agent';
 import {searchGroups,snapshotResult,type SearchResult} from './agent-contract';
 export interface MemoryEntry {demo:boolean;decision:string;createdAt:string;question:string;conditions:Record<string,number>;note:string;sharedComment:string;recordId:string}
 export interface MemoryRun {runId:string;entries:MemoryEntry[]}
@@ -11,6 +11,21 @@ export function v1CandidateRefs(turn:TurnSnapshot):RunRef[]{
  return [...new Map(refs.map(ref=>[JSON.stringify(ref),ref])).values()];
 }
 const asRef=(run:RunRef):RunRef=>({runId:run.runId,runVersionId:run.runVersionId});
+/** Only references selected in the UI qualify. Merely present historical candidates do not. */
+export function explicitReferences(state:WorkspaceView,override?:{candidateReference:WorkspaceView['candidateReference'];activeRun:RunRef|null}):{refs:RunRef[];origins:ReferenceOrigin[]}{
+ const reference=override?.candidateReference??state.candidateReference;
+ const active=override?override.activeRun:state.conversation.activeRun;
+ const proposed=[...new Map((reference?.runs??(active?[active]:[])).map(r=>[`${r.runId}\0${r.runVersionId}`,asRef(r)])).values()];
+ // A catalog-only legacy reference has no saved turn origin; the comparison picker resolves it.
+ const refs=proposed.filter(ref=>state.conversation.turns.some(t=>t.answerRunRefs.some(r=>r.runId===ref.runId&&r.runVersionId===ref.runVersionId)));
+ const origins=refs.map(ref=>{
+  const turn=state.conversation.turns.slice().reverse().find(t=>t.answerRunRefs.some(r=>r.runId===ref.runId&&r.runVersionId===ref.runVersionId));
+  if(!turn)throw new Error(`${ref.runId}의 저장된 실험 참조를 찾을 수 없습니다. 실험 선택 화면에서 다시 선택해 주세요.`);
+  const group=reference?.kind==='후보 집합'&&reference.runs.some(r=>r.runVersionId===ref.runVersionId)&&isV1AnswerSnapshot(turn.answerSnapshot)&&['forward_lookup','reverse_search'].includes(String(turn.answerSnapshot.kind))?searchGroups(snapshotResult<SearchResult>(turn.answerSnapshot)).find(g=>g.runs.some(r=>r.runId===ref.runId&&r.runVersionId===ref.runVersionId)):undefined;
+  return {ref,kind:group?'candidate_group' as const:'run_tag' as const,turnId:turn.id,groupId:group?.id??null};
+ });
+ return {refs,origins};
+}
 /** Snapshot/UI selection only: never search or recompute persisted answers. */
 export function candidateRefs(turn:TurnSnapshot):RunRef[]{
  if(isV1AnswerSnapshot(turn.answerSnapshot)){if(!['forward_lookup','reverse_search'].includes(String(turn.answerSnapshot.kind)))return [];const groups=searchGroups(snapshotResult<SearchResult>(turn.answerSnapshot));return (groups.find(g=>g.id===turn.ui.activeCandidateGroup)??groups[0]).runs.map(r=>({runId:r.runId,runVersionId:r.runVersionId}));}

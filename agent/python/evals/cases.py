@@ -5,7 +5,7 @@ These cases assess interpretation, grounding and clarification. They do not
 certify the physical correctness of model-generated scientific explanations.
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 
 @dataclass(frozen=True)
@@ -21,6 +21,7 @@ class Case:
     context_available: dict = field(default_factory=dict)
     input_history: list = field(default_factory=list)
     prior_interpretation: dict | None = None
+    references: list = field(default_factory=list)
 
 
 def scalar(value, unit=None):
@@ -111,8 +112,13 @@ def build_cases():
         ("압력 25 mTorr에 소스 650 W, 바이어스 350 W로 실행해 둔 결과 보여줘.", conditions(25, 650, 350)),
         ("압력 7.25 mTorr, 소스 333 W, 바이어스 77 W 조건 결과를 확인해줘.", conditions(7.25, 333, 77)),
     ]:
-        add("forward", question, "forward_lookup", {"conditions": values},
-            clarification=any(not scalar.get("unit") for scalar in values.values()))
+        add(
+            "forward",
+            question,
+            "forward_lookup",
+            {"conditions": values},
+            clarification=any(not scalar.get("unit") for scalar in values.values()),
+        )
     for question, supplied, missing in [
         ("압력 10 mTorr와 소스 300 W의 결과를 보여줘.", conditions(10, 300), "biasPower"),
         ("바이어스 100 W, 압력 8 mTorr로 조회해줘.", conditions(8, None, 100), "sourcePower"),
@@ -615,4 +621,164 @@ def build_cases():
     return cases
 
 
-CASES = build_cases()
+# Old question wording is retained; obsolete concept/role gates are intentionally removed.
+
+
+def native_case(case):
+    if case.kind in ("forward_lookup", "reverse_search") and not case.unsupported:
+        return case
+    if case.kind in ("compare_runs", "explain_change"):
+        metrics = case.expected_inputs.get("metrics")
+        return replace(
+            case,
+            kind="compare_runs",
+            expected_inputs={"metrics": metrics} if metrics else {},
+            absent_slots=(),
+            clarification=True,
+            unsupported=False,
+        )
+    return replace(
+        case,
+        kind="generate_answer",
+        expected_inputs={},
+        absent_slots=(),
+        clarification=False,
+        unsupported=False,
+    )
+
+
+CASES = [native_case(case) for case in build_cases()]
+
+_refs = [
+    {
+        "key": f"R{i + 1}",
+        "ref": {"runId": f"SYNTHETIC-{i}", "runVersionId": f"synthetic-{i}"},
+        "origin": {"kind": "run_tag", "turnId": "synthetic-turn", "groupId": None, "pendingInputId": None},
+    }
+    for i in range(5)
+]
+ACCEPTANCE_CASES = [
+    Case(
+        "AE1",
+        "forward",
+        "압력 8 mTorr, 소스 300 오ㅏ트, 바이어스 600 왓트 결과 보여줘",
+        "forward_lookup",
+        {"conditions": conditions(8, 300, 600)},
+    ),
+    Case(
+        "AE2",
+        "forward",
+        "압력 8 mTorr, 소스 300, 바이어스 600 W 결과 보여줘",
+        "forward_lookup",
+        {
+            "conditions": {
+                "pressure": scalar(8, "mTorr"),
+                "sourcePower": scalar(300),
+                "biasPower": scalar(600, "W"),
+            }
+        },
+        clarification=True,
+    ),
+    Case(
+        "AE3",
+        "reverse",
+        "Ion Flux는 높게, Mean Ion Energy는 150–160 e볼트에 가깝게 후보 찾아줘",
+        "reverse_search",
+        {
+            "constraints": [constraint("meanIonEnergy", "between", low=150, high=160, unit="eV")],
+            "goals": [goal("ionFlux", "maximize")],
+        },
+    ),
+    Case(
+        "AE4",
+        "reverse",
+        "Ion Flux는 높게, Mean Ion Energy는 150–160에 가깝게 후보 찾아줘",
+        "reverse_search",
+        {
+            "constraints": [constraint("meanIonEnergy", "between", low=150, high=160)],
+            "goals": [goal("ionFlux", "maximize")],
+        },
+        clarification=True,
+    ),
+    Case(
+        "AE5",
+        "compare",
+        "방금거랑 아까 압력 8 mTorr일 때 플럭스 경향 차이 분석해줘",
+        "compare_runs",
+        {"metrics": ["ionFlux"]},
+        clarification=True,
+    ),
+    Case(
+        "AE6",
+        "compare",
+        "선택한 두 실험의 플럭스 차이를 설명해줘",
+        "compare_runs",
+        {"metrics": ["ionFlux"]},
+        references=_refs[:2],
+    ),
+    Case(
+        "AE7",
+        "compare",
+        "이 실험과 아까 실험을 비교해줘",
+        "compare_runs",
+        clarification=True,
+        references=_refs[:1],
+    ),
+    Case(
+        "AE8",
+        "compare",
+        "태그한 후보 전체의 플럭스 차이를 설명해줘",
+        "compare_runs",
+        {"metrics": ["ionFlux"]},
+        references=_refs,
+    ),
+    Case(
+        "AE9",
+        "compare",
+        "R1을 기준으로 R2의 플럭스 변화율을 알려줘",
+        "compare_runs",
+        {"metrics": ["ionFlux"], "baseline_key": "R1"},
+        references=_refs[:2],
+    ),
+    Case("AE10", "concept", "평균 이온 에너지가 뭐야? 이온 에너지랑 다른건가?", "generate_answer"),
+    Case(
+        "AE11",
+        "concept",
+        "소스 전력을 올리면 플럭스와 평균 에너지가 다르게 변하는 이유는?",
+        "generate_answer",
+    ),
+    Case(
+        "AE12-values",
+        "compare",
+        "선택한 실험들의 플럭스 차이 값만 알려줘",
+        "compare_runs",
+        {"metrics": ["ionFlux"], "analysis": "differences"},
+        references=_refs[:3],
+    ),
+    Case(
+        "AE12-trend",
+        "compare",
+        "선택한 실험들의 소스 전력에 따른 플럭스 경향을 설명해줘",
+        "compare_runs",
+        {"metrics": ["ionFlux"], "analysis": "trend", "trend_axis": "sourcePower"},
+        references=_refs[:3],
+    ),
+    Case(
+        "AE12-why",
+        "compare",
+        "선택한 실험들의 플럭스 차이가 나는 가능한 이유를 설명해줘",
+        "compare_runs",
+        {"metrics": ["ionFlux"], "analysis": "interpretation"},
+        references=_refs[:3],
+    ),
+]
+for word in ("와트", "왓트", "왛트", "오ㅏ트"):
+    ACCEPTANCE_CASES.append(
+        Case(
+            "watt-" + word,
+            "forward",
+            f"압력8mTorr 소스300{word} 바이어스600{word} 결과 조회",
+            "forward_lookup",
+            {"conditions": conditions(8, 300, 600)},
+        )
+    )

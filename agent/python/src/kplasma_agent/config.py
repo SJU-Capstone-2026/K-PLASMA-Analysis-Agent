@@ -15,7 +15,7 @@ class Settings:
     reasoning_effort: str = "none"
     timeout: float = 30
     poll_seconds: float = 1
-    graph_build_id: str = "v1-2026-10-06.3"
+    graph_build_id: str = "v1-2026-10-07.tool-1"
     phoenix_endpoint: str = ""
     phoenix_api_key: str = field(default="", repr=False)
     phoenix_project_name: str = "K-PLASMA"
@@ -32,26 +32,32 @@ class Settings:
             model=os.getenv("OPENAI_MODEL", "gpt-5.6-luna"),
             reasoning_effort=os.getenv("OPENAI_REASONING_EFFORT", "none"),
             timeout=float(os.getenv("AGENT_MODEL_TIMEOUT_SECONDS", "30")),
-            graph_build_id=os.getenv("AGENT_GRAPH_BUILD_ID", "v1-2026-10-06.3"),
+            graph_build_id=os.getenv("AGENT_GRAPH_BUILD_ID", "v1-2026-10-07.tool-1"),
             phoenix_endpoint=os.getenv("PHOENIX_COLLECTOR_ENDPOINT", ""),
             phoenix_api_key=os.getenv("PHOENIX_API_KEY", ""),
             phoenix_project_name=os.getenv("PHOENIX_PROJECT_NAME", "K-PLASMA"),
         )
 
     def versions(self):
-        from .graphs.v1 import EXPLAIN_PROMPT, INTERPRET_PROMPT
+        from .tools import SELECTION_PROMPT as INTERPRET_PROMPT, GENERAL_PROMPT, native_tools
+        from .explanations.answers import COMPARISON_PROMPT as EXPLAIN_PROMPT
 
         fields = {
             "graphVersion": "v1",
             "graphBuildId": self.graph_build_id,
-            "schemaVersion": "1",
-            "promptVersion": "interpret-4",
+            "schemaVersion": "2",
+            "promptVersion": "tool-selection-1",
             "numericPolicyVersion": "v1",
-            "explanationPromptVersion": "explain-1",
+            "explanationPromptVersion": "comparison-answer-1",
             "interpretationPromptHash": hashlib.sha256(INTERPRET_PROMPT.encode()).hexdigest(),
             "explanationPromptHash": hashlib.sha256(EXPLAIN_PROMPT.encode()).hexdigest(),
-            "explanationSchemaVersion": "1",
-            "evidencePolicyVersion": "qualitative-1",
+            "explanationSchemaVersion": "2",
+            "evidencePolicyVersion": "observations-1",
+            "aggregationPolicyVersion": "multi-run-1",
+            "toolRegistryHash": hashlib.sha256(
+                json.dumps(native_tools(), sort_keys=True).encode()
+            ).hexdigest(),
+            "generalPromptHash": hashlib.sha256(GENERAL_PROMPT.encode()).hexdigest(),
             "model": self.model,
             "reasoningEffort": self.reasoning_effort,
         }

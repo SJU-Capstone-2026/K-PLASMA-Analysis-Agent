@@ -5,11 +5,80 @@ import java.net.http.*;
 import java.util.*;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.context.TestPropertySource;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
+import static org.mockito.Mockito.*;
 import tools.jackson.databind.JsonNode;
 import static org.assertj.core.api.Assertions.*;
 
 @TestPropertySource(properties="kplasma.agent.worker-token=synthetic-worker-token")
 class AgentRequestPersistenceTest extends WorkspaceTestSupport {
+    @MockitoSpyBean JdbcTemplate observedJdbc;
+    @ParameterizedTest @ValueSource(ints={2,5,150})
+    void comparisonMaterializationUsesTwoBulkReadsAtEverySelectionSize(int size)throws Exception{
+        var template=jdbc.queryForObject("select summary::text from run_version where id=?::uuid",String.class,refs.getFirst().get("runVersionId").stringValue());
+        var source=jdbc.queryForObject("select source_id from run_version where id=?::uuid",UUID.class,refs.getFirst().get("runVersionId").stringValue());
+        for(int i=4;i<size;i++){
+            String runId="SYNTHETIC-"+i;UUID version=UUID.randomUUID();var full=(tools.jackson.databind.node.ObjectNode)mapper.readTree(template);full.put("runId",runId);full.put("runVersionId",version.toString());
+            jdbc.update("insert into run(run_id) values (?)",runId);jdbc.update("insert into run_version(id,run_id,source_id,registered_at,summary,full_run) values (?,?,?,now(),?::jsonb,?::jsonb)",version,runId,source,full.toString(),full.toString());
+            jdbc.update("update run set current_version_id=? where run_id=?",version,runId);refs.add(mapper.valueToTree(Map.of("runId",runId,"runVersionId",version.toString())));
+        }
+        var chosen=refs.subList(0,size);var saved=turn();saved.set("answerRunRefs",mapper.valueToTree(chosen));
+        ok("POST","/api/workspace/turns",Map.of("stateToken",token(),"turn",saved),"bulk-turn");
+        var origins=chosen.stream().map(ref->Map.of("ref",ref,"kind","run_tag","turnId",saved.get("id").stringValue())).toList();
+        var job=ok("POST","/api/agent/requests",Map.of("text","선택한 실험 비교","stateToken",token(),"attachedRunRefs",chosen,"referenceOrigins",origins),"bulk-request");
+        var claimed=claim();String path="/requests/"+job.get("requestId").stringValue();internal(path+"/heartbeat",mutation(claimed,"operationKind","compare_runs"));
+        var input=new HashMap<>(fence(claimed));input.put("referencesOnly",true);input.put("requiredRunRefs",chosen);
+        clearInvocations(observedJdbc);var manifest=internal(path+"/context",input);
+        var runReads=mockingDetails(observedJdbc).getInvocations().stream().filter(call->call.getArguments().length==3&&call.getArguments()[1] instanceof org.springframework.jdbc.core.RowMapper<?> &&call.getArguments()[0] instanceof String sql&&sql.startsWith("select")&&sql.contains("from run_version")).toList();
+        assertThat(runReads).hasSize(2);assertThat(manifest.get("referencedRuns").size()).isEqualTo(size);assertThat(manifest.get("catalogRunRefs").size()).isZero();
+        clearInvocations(observedJdbc);internal(path+"/context",input);
+        assertThat(mockingDetails(observedJdbc).getInvocations().stream().filter(call->call.getArguments().length==3&&call.getArguments()[1] instanceof org.springframework.jdbc.core.RowMapper<?> &&call.getArguments()[0] instanceof String sql&&sql.startsWith("select")&&sql.contains("from run_version"))).hasSize(1);
+    }
+    @Test void runPickerFreezesAliasesAndResumePinsOnlySelectedVersions() throws Exception {
+        var job=accepted();var claimed=claim();String path="/requests/"+job.get("requestId").stringValue();
+        internal(path+"/heartbeat",mutation(claimed,"operationKind","compare_runs"));
+        internal(path+"/needs-input",mutation(claimed,"pendingInput",Map.of("type","run_selection","id","pick","message","비교할 실험을 선택해 주세요","minSelections",2,"baselineRequired",false,"optionsUrl","/api/agent"+path+"/run-options?pendingInputId=pick")));
+        var options=ok("GET","/api/agent"+path+"/run-options?pendingInputId=pick",null,null);
+        assertThat(options.get("options").size()).isEqualTo(4);
+        var input=Map.of("expectedRequestRevision",0,"pendingInputId","pick","input",Map.of("type","run_selection","runKeys",List.of("R1","R3")));
+        var resumed=ok("POST","/api/agent"+path+"/resume",input,"pick-input");
+        assertThat(resumed.get("status").stringValue()).isEqualTo("QUEUED");
+        var next=claim();assertThat(next.get("context").get("comparisonReference").get("entries").size()).isEqualTo(2);
+        var only=new HashMap<>(fence(next));only.put("referencesOnly",true);only.put("requiredRunRefs",List.of(options.get("options").get(0).get("ref"),options.get("options").get(2).get("ref")));
+        var manifest=internal(path+"/context",only);
+        assertThat(manifest.get("runs").size()).isZero();assertThat(manifest.get("referencedRuns").size()).isEqualTo(2);
+        assertThat(manifest.get("catalogRunRefs").size()).isZero();
+        assertThat(ok("POST","/api/agent"+path+"/resume",input,"pick-input").get("requestId")).isEqualTo(resumed.get("requestId"));
+    }
+    @Test void deletedOptionIsDisabledAndOnlySelectedDeletionCancelsComparison()throws Exception{
+        var job=accepted();var claimed=claim();String path="/requests/"+job.get("requestId").stringValue();
+        internal(path+"/heartbeat",mutation(claimed,"operationKind","compare_runs"));
+        internal(path+"/needs-input",mutation(claimed,"pendingInput",Map.of("type","run_selection","id","pick","message","실험 선택","minSelections",2,"baselineRequired",false)));
+        ok("POST","/api/runs/delete",Map.of("runIds",List.of("SYNTHETIC-3")),null);
+        var options=ok("GET","/api/agent"+path+"/run-options?pendingInputId=pick",null,null);
+        assertThat(options.get("options").size()).isEqualTo(4);assertThat(options.get("options").get(3).get("selectable").booleanValue()).isFalse();
+        var bad=send("POST","/api/agent"+path+"/resume",Map.of("expectedRequestRevision",0,"pendingInputId","pick","input",Map.of("type","run_selection","runKeys",List.of("R1","R4"))),"deleted-option");assertThat(bad.statusCode()).isEqualTo(400);
+        ok("POST","/api/agent"+path+"/resume",Map.of("expectedRequestRevision",0,"pendingInputId","pick","input",Map.of("type","run_selection","runKeys",List.of("R1","R2"))),"valid-option");
+        var next=claim();ok("POST","/api/runs/delete",Map.of("runIds",List.of("SYNTHETIC-2")),null);
+        assertThat(ok("GET","/api/agent"+path,null,null).get("status").stringValue()).isEqualTo("RUNNING");
+        ok("POST","/api/runs/delete",Map.of("runIds",List.of("SYNTHETIC-0")),null);
+        assertThat(ok("GET","/api/agent"+path,null,null).get("status").stringValue()).isEqualTo("CANCELLED");
+        assertThat(internalResponse(path+"/checkpoint",mutation(next,"payload",Map.of("late",true))).statusCode()).isEqualTo(409);
+    }
+    @Test void generalAnswerHasNoManifestAndSurvivesRunDeletion()throws Exception{
+        var job=accepted();var claimed=claim();String path="/requests/"+job.get("requestId").stringValue();
+        internal(path+"/heartbeat",mutation(claimed,"operationKind","generate_answer"));
+        ok("POST","/api/runs/delete",Map.of("runIds",List.of("SYNTHETIC-0")),null);
+        assertThat(ok("GET","/api/agent"+path,null,null).get("status").stringValue()).isEqualTo("RUNNING");
+        var fixture=mapper.readTree(java.nio.file.Files.readString(java.nio.file.Path.of("../agent/tests/support/answer-v2-wire.json")));
+        var snapshot=(tools.jackson.databind.node.ObjectNode)fixture.get("general").deepCopy();snapshot.put("originalQuestion","설명해줘");
+        var answer=new HashMap<String,Object>();answer.put("intent","GENERAL_ANSWER");answer.put("status","ANSWER_READY");answer.put("candidates",List.of());answer.put("explanation",null);answer.put("usedRunRefs",List.of());answer.put("answerSnapshot",snapshot);
+        assertThat(internal(path+"/finalize",mutation(claimed,"answer",answer)).get("status").stringValue()).isEqualTo("COMPLETED");
+        assertThat(jdbc.queryForObject("select manifest is null from agent_request where id=?",Boolean.class,UUID.fromString(job.get("requestId").stringValue()))).isTrue();
+    }
     private HttpResponse<String> internalResponse(String path,Object body) throws Exception {
         var request=HttpRequest.newBuilder(URI.create("http://localhost:"+port+"/internal/agent"+path))
             .header("Content-Type","application/json").header("X-Agent-Token","synthetic-worker-token")

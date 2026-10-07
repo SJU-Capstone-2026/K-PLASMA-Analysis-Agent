@@ -8,8 +8,9 @@ closed so the decision layer can ask the user to clarify.
 
 import math
 import re
+from typing import Any
 
-from ..contracts import ForwardInputs, ReverseInputs
+from ..contracts import ForwardInputs, ReverseInputs, StrictModel
 from ..metric_registry import CONDITION_KEYS, UNITS, is_finite, normalize_value
 from .common import DomainError, inputs_dict, is_usable, run_ref, scalar
 
@@ -110,7 +111,8 @@ def apply_context_rules(kind, inputs, question, selected_run=None):
     snapshot. This function never resolves an ID, chooses another Run, changes
     a caller object, calls a model, or fills unrelated missing numeric slots.
     """
-    model = {"forward_lookup": ForwardInputs, "reverse_search": ReverseInputs}.get(kind)
+    models: dict[str, type[StrictModel]] = {"forward_lookup": ForwardInputs, "reverse_search": ReverseInputs}
+    model = models.get(kind)
     if model is None:
         raise DomainError("UNSUPPORTED_CONTEXT_OPERATION", str(kind))
     raw = inputs_dict(inputs)
@@ -123,7 +125,7 @@ def apply_context_rules(kind, inputs, question, selected_run=None):
         raise DomainError("CONTEXT_RULE_CONFLICT", "wrong operation policy")
     resolved = model.model_validate(raw).model_dump(exclude_none=True)
     rules = resolved.get("context_rules", [])
-    response = {"inputs": resolved, "appliedRules": [], "usedRunRefs": [], "interpretationNotes": []}
+    response: dict[str, Any] = {"inputs": resolved, "appliedRules": [], "usedRunRefs": [], "interpretationNotes": []}
     if not rules:
         return response
     allowed = (

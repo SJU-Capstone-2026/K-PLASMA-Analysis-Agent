@@ -39,17 +39,17 @@ class Backend:
 class Model:
     calls = 0
 
-    def generate(self, *args):
+    def select_tool(self, *args):
         self.calls += 1
         return {
-            "status": "resolved",
-            "operations": [
-                {
-                    "kind": "forward_lookup",
-                    "inputs": {"conditions": {"pressure": {"value": 10, "unit": "mTorr"},
-                                              "sourcePower": {"value": 300, "unit": "W"}}},
+            "name": "forward_lookup",
+            "call_id": "test-call",
+            "arguments": {
+                "conditions": {
+                    "pressure": {"value": 10, "unit": "mTorr"},
+                    "sourcePower": {"value": 300, "unit": "W"},
                 }
-            ],
+            },
         }, {}
 
 
@@ -88,8 +88,13 @@ def test_trace_groups_resume_and_expected_input_wait_without_error(trace_capture
 
     backend = Backend()
     model = Model()
-    claim = {"request": {"requestId": "synthetic-trace", "question": "압력 10 mTorr 소스 300 W 조건 조회"},
-             "context": {}, "inputEvents": [], "claimGeneration": 1, "requestRevision": 0}
+    claim = {
+        "request": {"requestId": "synthetic-trace", "question": "압력 10 mTorr 소스 300 W 조건 조회"},
+        "context": {},
+        "inputEvents": [],
+        "claimGeneration": 1,
+        "requestRevision": 0,
+    }
     run_claim(claim, backend, model, Settings())
     claim["inputEvents"] = [{"input": {"conditions": {"biasPower": {"value": 100, "unit": "W"}}}}]
     claim["claimGeneration"] = 2
@@ -124,13 +129,21 @@ def test_blocked_failed_cloud_export_cannot_block_graph_or_repeat_model(monkeypa
             return SpanExportResult.FAILURE
 
     provider = TracerProvider()
-    provider.add_span_processor(BatchSpanProcessor(
-        BlockedExporter(), schedule_delay_millis=1, max_export_batch_size=1, max_queue_size=32,
-    ))
+    provider.add_span_processor(
+        BatchSpanProcessor(
+            BlockedExporter(),
+            schedule_delay_millis=1,
+            max_export_batch_size=1,
+            max_queue_size=32,
+        )
+    )
     monkeypatch.setattr(tracing, "_tracer", provider.get_tracer("synthetic-export"))
     backend, model = Backend(), Model()
-    claim = {"request": {"requestId": "synthetic-export", "question": "압력 10 mTorr 소스 300 W 조건 조회"},
-             "context": {}, "inputEvents": []}
+    claim = {
+        "request": {"requestId": "synthetic-export", "question": "압력 10 mTorr 소스 300 W 조건 조회"},
+        "context": {},
+        "inputEvents": [],
+    }
 
     def execute_claim():
         try:

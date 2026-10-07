@@ -58,7 +58,7 @@ def test_pending_numeric_writes_reconcile_edges_before_finalization_after_proces
 
         def save(self, payload):
             self.payload = deepcopy(payload)
-            if self.crash and self.current_stage == ("forward" if kind == "forward_lookup" else "reverse"):
+            if self.crash and self.current_stage == "calculate":
                 self.crash = False
                 self.killed_payload = deepcopy(payload)
                 raise SimulatedProcessKill()
@@ -71,7 +71,11 @@ def test_pending_numeric_writes_reconcile_edges_before_finalization_after_proces
 
         def context(self, refs=None, **options):
             self.context_reads += 1
-            return {"runs": [run("A")] if kind == "reverse_search" else [], "referencedRuns": [], "context": {}}
+            return {
+                "runs": [run("A")] if kind == "reverse_search" else [],
+                "referencedRuns": [],
+                "context": {},
+            }
 
         def finalize(self, answer):
             self.answer = answer
@@ -82,25 +86,20 @@ def test_pending_numeric_writes_reconcile_edges_before_finalization_after_proces
     class Model:
         calls = 0
 
-        def generate(self, *args):
+        def select_tool(self, *args):
             self.calls += 1
-            return {
-                "status": "resolved",
-                "operations": [
-                    {
-                        "kind": kind,
-                        "inputs": {
-                            "conditions": {
-                                "pressure": {"value": 10, "unit": "mTorr"},
-                                "sourcePower": {"value": 300, "unit": "W"},
-                                "biasPower": {"value": 100, "unit": "W"},
-                            }
-                        }
-                        if kind == "forward_lookup"
-                        else {"goals": [{"metric": "ionFlux", "direction": "maximize"}]},
+            inputs = (
+                {
+                    "conditions": {
+                        "pressure": {"value": 10, "unit": "mTorr"},
+                        "sourcePower": {"value": 300, "unit": "W"},
+                        "biasPower": {"value": 100, "unit": "W"},
                     }
-                ],
-            }, {}
+                }
+                if kind == "forward_lookup"
+                else {"goals": [{"metric": "ionFlux", "direction": "maximize"}]}
+            )
+            return {"name": kind, "arguments": inputs, "call_id": "test-call"}, {}
 
     backend, model = Backend(), Model()
     claim = {

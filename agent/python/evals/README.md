@@ -1,66 +1,69 @@
-# Synthetic live interpretation evaluation
+# Native Tool Calling and answer evaluation
 
-The 141 cases cover 101 forward lookup/reverse search/Run comparison requests and
-40 change/concept explanation requests. They include exact numbers and units,
-strict bounds, explicit hard versus soft ranges, goal priority, missing inputs,
-context continuation, Korean/English names, spelling variants, and unsupported
-scope. All numbers and Run IDs are artificial query inputs, not physical results.
+The registry contains four native functions: `forward_lookup`, `reverse_search`,
+`compare_runs`, `generate_answer`. The 141 synthetic selection cases retain the
+original user wording while judging native names and arguments. They cover units,
+misspellings, hard/soft ranges, sort priority, missing inputs, explicit references,
+comparison intent and unrestricted general concepts. Query numbers and Run IDs
+are artificial inputs, not physical results.
 
 From `agent/python`:
 
 ```sh
-PYTHONPATH=src:. .venv/bin/python -m pytest evals/test_harness.py -q
+PYTHONPATH=src:. .venv/bin/python -m pytest tests evals -q
 PYTHONPATH=src:. .venv/bin/python -m evals.run_interpretation --dry-run --repeat 3
+PYTHONPATH=src:. .venv/bin/python -m evals.run_interpretation --acceptance --repeat 3
 PYTHONPATH=src:. .venv/bin/python -m evals.run_interpretation --repeat 3 --concurrency 4
+PYTHONPATH=src:. .venv/bin/python -m evals.run_acceptance --repeat 3 --concurrency 3
 ```
 
-The live command uses `OPENAI_API_KEY` from the local environment or repository
-`.env`, `gpt-5.6-luna`, and reasoning effort `none`. It performs 423 independent
-interpretation requests. Use `--case forward-01`, `--category reverse`, or
-`--limit 5 --repeat 1` for a smaller explicit run. Concurrency cannot exceed four.
-The evaluation harness does not silently retry errors; each API failure remains
-a failed attempt in the aggregate.
+Live commands read `OPENAI_API_KEY` from the environment or repository `.env` and
+use `gpt-5.6-luna` with reasoning `none`. The full selection suite has 423 attempts.
+`--acceptance` selects 18 core scenarios (54 attempts with three repeats), including
+four Korean watt spelling variants. Selection also supports `--case forward-01`,
+`--category reverse`, or `--limit 5 --repeat 1` for a smaller run.
 
-`judge.py` checks operation kind, required values/units/selectors, ordered goals
-and metrics, complete constraint membership, fields that must remain absent,
-and whether the answer can execute or requires clarification. A generic refusal
-or unnecessary question cannot pass a normal executable case. The numerical
-grounding gate rejects invented or swapped numeric slots and unmentioned IDs.
-The aggregate also reports failed answers that the checked decision rules could
-otherwise dispatch. All failures still require review: zero such dispatches
-does not certify the absence of every possible unsafe or incorrect interpretation.
+`judge.py` checks the native function name, required argument values/units,
+ordered goals and metrics, constraint membership, absent fields, explicit alias
+membership and expected clarification. Numerical grounding independently checks
+mentioned values and slots. A missing unit must remain null; a pure sort needs
+no unit. Between filtering cannot silently become an out-of-range soft target.
 
-Raw synthetic questions, model outputs and detailed judgments are saved only in
-the Git-ignored `.runtime/evals/<UTC timestamp>/attempts.jsonl`. An aggregate
-`summary.json` is written beside it, and only aggregate progress is printed.
-Never move raw runtime output or real user/Run data into committed fixtures.
+`run_acceptance` executes the actual graph, including a synthetic five-Run catalog,
+trusted picker/options replies and text unit clarification. It checks exact Run
+inventories, original-question preservation, general-answer catalog bypass and
+completed schema-2 snapshots. Its recorder counts **all** provider requests,
+including clarification and repair, rather than only the last call per node.
+Phoenix is enabled when configured. This graph harness uses an in-memory saver;
+HTTP/PostgreSQL and process-loss coverage come from the browser/restart suites.
 
-This suite evaluates interpretation and routing, **not** the physical truth of
-generated explanations or production end-to-end recovery. Use the graph/domain
-tests and live five-tool scenarios for those execution paths, and have a domain
-expert separately assess scientific explanation quality. A passing machine
-score must not be described as a scientific correctness guarantee.
-
-## Explanation generation checks
+## Answer generation checks
 
 ```sh
-PYTHONPATH=src:. .venv/bin/python -m pytest evals/test_explanation_harness.py -q
 PYTHONPATH=src:. .venv/bin/python -m evals.run_explanations --dry-run --repeat 3
 PYTHONPATH=src:. .venv/bin/python -m evals.run_explanations --repeat 3 --concurrency 4
 ```
 
-The separate explanation suite has 20 distinct change packets and 20 concept
-packets. Change cases include a single changed condition, multiple changed
-conditions, the same recorded conditions, incomplete conditions, unavailable
-metrics and a zero baseline. Concept cases cover definitions, differences and
-relationships. Only qualitative packets reach the model: no Run IDs, scalar
-measurements, deltas or percentages. An offline test verifies that restriction.
+This separate 40-case suite contains 20 comparison questions with code-generated
+observations and 20 unrestricted general questions. Comparison drafts select
+known observation IDs and supply qualitative interpretations, assumptions and
+limits. Detectable numeric restatements are rejected with at most one repair.
+General answers receive the original question without a concept enum or count
+gate, and may use illustrative numbers and formulas. The runtime graph additionally
+constrains observation IDs in the provider schema and preserves the native
+function-call roundtrip. The separate draft suite is not a substitute for that
+full graph test.
 
-With three repeats, 120 paths are checked. Nine paths have no observed metric
-change or no comparable metrics and must return a code-generated limited answer
-without calling the model. The other 111 paths make live generation requests,
-with at most one semantic repair, matching the graph. The aggregate explicitly
-reports actual model calls, repairs and limited responses. Successful validation
-means the schema and implemented conservative guards passed; a domain expert
-must separately review the scientific interpretation. Output remains under
-the ignored `.runtime/evals/explanations/` directory.
+## Evidence and limits
+
+Detailed synthetic questions, answers, failures, judgments and token usage remain
+in Git-ignored `.runtime/evals/` or `.runtime/full-graph-evals/` directories. Do not
+commit raw runtime output, actual user data, actual Run payloads or credentials.
+API failures remain visible; graph retries and repairs are bounded and counted.
+
+These scores establish routing, wire contracts and implemented grounding checks.
+They do **not** certify scientific truth, identify every semantic contradiction or
+guarantee future model outputs. A domain expert should review causal explanations
+separately. General answers are LLM knowledge, with no reviewed-literature/RAG
+claim. See [implementation verification](../../../docs/verification/agent-v1-tool-calling-and-answers.md)
+for the exercised HTTP, UI, database and recovery scope.

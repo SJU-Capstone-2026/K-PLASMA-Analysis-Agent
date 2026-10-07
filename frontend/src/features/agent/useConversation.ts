@@ -2,7 +2,7 @@ import {useEffect,useRef,useState} from 'react';
 import {isV1AnswerSnapshot,type AgentRequestView,type AgentSubmission,type WorkspaceView,type ReferenceState,type RunRef,type TurnUiSnapshot,type Snapshot,type StateToken} from 'agent';
 import {cancelAgentRequest,fetchAgentRequest,resumeAgentRequest,submitAgentRequest} from '../../api/agent';
 import {ApiClientError} from '../../api/client';
-import {resolveCandidateRef} from './references';
+import {resolveCandidateRef,explicitReferences} from './references';
 import {fetchWorkspace,patchTurnUi,replaceConversation,writeReference} from '../../api/workspace';
 export const emptyWorkspace:WorkspaceView={stateToken:{workspaceEpoch:0,conversationEpoch:0,revision:0},conversation:{version:1,activeRun:null,turns:[]},candidateReference:null};
 export const initialTurnUi:TurnUiSnapshot={collapsed:false,openRunIds:[],runDetailTabs:{},activeCandidateGroup:'common',continuedRunId:null,lookupExpanded:false,selectedCandidateRunId:null};
@@ -52,7 +52,7 @@ export function useConversation(){
     const id=turn.ui.selectedCandidateRunId;if(!id)return [];
     return isV1AnswerSnapshot(turn.answerSnapshot)?resolveCandidateRef(turn,id)??[]:turn.answerRunRefs.filter(ref=>ref.runId===id);
    })[0];
-   if(!submission.current)submission.current={key:crypto.randomUUID(),body:{text,stateToken:current.current.stateToken,...(selected?{selectedRunRef:asRef(selected)}:{}),...(requestContext?.activeRun?{baseline:asRef(requestContext.activeRun)}:{}),...(requestContext?.candidateReference?{candidateReferences:requestContext.candidateReference.runs.map(asRef)}:{})}};
+   if(!submission.current){const explicit=explicitReferences(current.current,requestContext);submission.current={key:crypto.randomUUID(),body:{text,stateToken:current.current.stateToken,attachedRunRefs:explicit.refs,referenceOrigins:explicit.origins,...(selected?{selectedRunRef:asRef(selected)}:{}),...(requestContext?.activeRun?{baseline:asRef(requestContext.activeRun)}:{}),...(requestContext?.candidateReference?{candidateReferences:requestContext.candidateReference.runs.map(asRef)}:{})}};}
    const next=await submitAgentRequest(submission.current.body,submission.current.key,c.signal);if(c.signal.aborted||epoch!==generation.current)return;submission.current=null;workspaceNeedsSync.current=true;await accept(next,c,epoch);if(recoveringDifferentText)throw new Error('이전 요청의 처리 상태를 복원했습니다. 새 질문은 다시 입력해 주세요.');
   }catch(e){if(!c.signal.aborted&&epoch===generation.current){if(e instanceof ApiClientError&&e.status<500)submission.current=null;try{await reconcile(c,epoch);}catch{/* Keep the original key when acceptance is still unknown. */}if(!c.signal.aborted&&epoch===generation.current){setError(e instanceof Error?e.message:String(e));throw e;}}}finally{controllers.current.delete(c);if(epoch===generation.current){busy.current=false;setSending(false);}}
  }

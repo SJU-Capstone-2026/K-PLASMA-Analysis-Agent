@@ -63,8 +63,9 @@ public class AgentRequestRepository {
     public void invalidateRuns(Set<String> ids){
         var rows=jdbc.query("select * from agent_request where context_snapshot is not null or manifest is not null or partial_result is not null order by id for update",this::row);
         for(var row:rows) {
-            if("explain_concept".equals(row.operationKind()))continue;
-            if(containsRun(row.context(),ids)||containsRun(row.manifest(),ids)||containsRun(row.partial(),ids)){
+            if(Set.of("explain_concept","generate_answer").contains(String.valueOf(row.operationKind())))continue;
+            Object dependency="compare_runs".equals(row.operationKind())&&row.context()!=null&&row.context().containsKey("comparisonReference")?row.context().get("comparisonReference"):row.context();
+            if(containsRun(dependency,ids)||containsRun(row.manifest(),ids)||containsRun(row.partial(),ids)){
                 if(invalidateContext(row,"RUN_DELETED"))jdbc.update("update agent_request set context_snapshot=null,partial_result=null where id=?",row.id());
             }
         }

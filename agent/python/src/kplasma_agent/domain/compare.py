@@ -1,4 +1,5 @@
 import math
+from typing import Any
 
 from ..contracts import CompareInputs
 from ..metric_registry import CONDITION_KEYS, DEFAULT_METRICS, NUMERIC_POLICY_VERSION, UNITS, is_finite
@@ -100,3 +101,236 @@ def compare_runs(inputs, baseline, target):
         "usedRunRefs": [baseline_ref, target_ref],
         "numericPolicyVersion": NUMERIC_POLICY_VERSION,
     }
+
+
+def datum(value, unit, reason=None, source=None):
+    return {
+        "value": value if reason is None else None,
+        "unit": unit,
+        "status": "AVAILABLE" if reason is None else "UNAVAILABLE",
+        "reason": reason,
+        "sourceValue": source,
+    }
+
+
+def run_datum(run, metric):
+    value, error = scalar(run, metric)
+    raw = raw_value(run, metric)
+    source = {"value": raw if is_finite(raw) else None, "unit": source_unit(run, metric)}
+    if not is_usable(run):
+        error = "INSUFFICIENT_DATA"
+    return datum(value, UNITS[metric], error, source)
+
+
+def compare_selected(inputs, entries):
+    """Deterministic selected-version comparison. No implicit catalog or baseline."""
+    from ..answer_contracts import ComparisonResultV2
+    from ..tools import CompareToolInputs
+    from .comparison_evidence import observations
+
+    query = CompareToolInputs.model_validate(inputs)
+    keys = [e["key"] for e in entries]
+    refs = [e["ref"] for e in entries]
+    if len(entries) < 2 or len(set(keys)) != len(keys) or len({tuple(r.items()) for r in refs}) != len(refs):
+        raise DomainError("INVALID_COMPARISON_SELECTION")
+    if any(run_ref(e["run"]) != e["ref"] for e in entries):
+        raise DomainError("RESULT_SOURCE_MISMATCH")
+    if query.baseline_key is not None and query.baseline_key not in keys:
+        raise DomainError("INVALID_BASELINE_KEY")
+    metrics = query.metrics or DEFAULT_METRICS
+    rows = [
+        {
+            "key": e["key"],
+            "ref": e["ref"],
+            "conditions": {m: run_datum(e["run"], m) for m in CONDITION_KEYS},
+            "metrics": {m: run_datum(e["run"], m) for m in metrics},
+            "quality": {
+                k: e["run"].get(k, "UNKNOWN") for k in ("convergenceStatus", "qualityStatus", "catalogStatus")
+            },
+        }
+        for e in entries
+    ]
+    comparisons = []
+
+    def difference(left, right, metric, kind):
+        signed = kind != "absolute_difference"
+        a, b = left["metrics"][metric], right["metrics"][metric]
+        error = None
+        if a["status"] != "AVAILABLE" or b["status"] != "AVAILABLE":
+            errors = [x["reason"] for x in (a, b) if x["reason"]]
+            error = next(
+                (
+                    e
+                    for e in errors
+                    if e in ("UNIT_NOT_COMPARABLE", "INVALID_VALUE", "NUMERIC_OVERFLOW", "INSUFFICIENT_DATA")
+                ),
+                "MISSING_BOTH"
+                if len(errors) == 2
+                else "MISSING_BASELINE"
+                if a["reason"]
+                else "MISSING_TARGET",
+            )
+        delta = None if error else b["value"] - a["value"]
+        if error is None and not is_finite(delta):
+            error = "NUMERIC_OVERFLOW"
+        diff = datum(delta if signed or delta is None else abs(delta), UNITS[metric], error)
+        percent = None
+        if signed:
+            if error:
+                percent = datum(None, "%", error)
+            elif a["value"] == 0:
+                percent = datum(None, "%", "ZERO_BASELINE")
+            else:
+                ratio = (delta / abs(a["value"])) * 100
+                percent = datum(ratio, "%") if is_finite(ratio) else datum(None, "%", "NUMERIC_OVERFLOW")
+        direction = (
+            "unavailable"
+            if error or delta is None
+            else "not_applicable"
+            if not signed
+            else ("increase" if delta > 0 else "decrease" if delta < 0 else "unchanged")
+        )
+        row = {
+            "id": f"{kind}:{left['key']}:{right['key']}:{metric}",
+            "kind": kind,
+            "leftKey": left["key"],
+            "rightKey": right["key"],
+            "metric": metric,
+            "difference": diff,
+            "percentChange": percent,
+            "direction": direction,
+        }
+        comparisons.append(row)
+        return row
+
+    mode = (
+        "values"
+        if query.analysis == "values"
+        else "trend"
+        if query.analysis == "trend"
+        else ("baseline" if query.baseline_key else "pair" if len(rows) == 2 else "overview")
+    )
+    if mode == "baseline":
+        baseline = next(r for r in rows if r["key"] == query.baseline_key)
+        for target in rows:
+            if target is not baseline:
+                for metric in metrics:
+                    difference(baseline, target, metric, "baseline_delta")
+    elif mode == "pair":
+        for metric in metrics:
+            difference(rows[0], rows[1], metric, "absolute_difference")
+    summaries = []
+    for metric in metrics:
+        available = [r for r in rows if r["metrics"][metric]["status"] == "AVAILABLE"]
+        values = [r["metrics"][metric]["value"] for r in available]
+        minimum, maximum = (min(values), max(values)) if values else (None, None)
+        span = maximum - minimum if len(values) >= 2 and maximum is not None and minimum is not None else None
+        summaries.append(
+            {
+                "id": f"summary:{metric}",
+                "metric": metric,
+                "availableCount": len(values),
+                "minimum": datum(minimum, UNITS[metric], None if values else "INSUFFICIENT_DATA"),
+                "minimumKeys": [r["key"] for r in available if r["metrics"][metric]["value"] == minimum],
+                "maximum": datum(maximum, UNITS[metric], None if values else "INSUFFICIENT_DATA"),
+                "maximumKeys": [r["key"] for r in available if r["metrics"][metric]["value"] == maximum],
+                "range": datum(
+                    span,
+                    UNITS[metric],
+                    "INSUFFICIENT_DATA"
+                    if span is None
+                    else ("NUMERIC_OVERFLOW" if not is_finite(span) else None),
+                ),
+            }
+        )
+    trends = []
+    if mode == "trend":
+        axis = query.trend_axis
+        if axis is None:
+            raise DomainError("MISSING_TREND_AXIS")
+        fixed = [k for k in CONDITION_KEYS if k != axis]
+        groups: dict[tuple, list[dict[str, Any]]] = {}
+        for row in rows:
+            signature = tuple(row["conditions"][k]["value"] for k in fixed)
+            # Missing conditions cannot establish a controlled comparison group.
+            if any(row["conditions"][k]["status"] != "AVAILABLE" for k in CONDITION_KEYS):
+                signature = (*signature, row["key"])
+            groups.setdefault(signature, []).append(row)
+        for index, group in enumerate(groups.values()):
+            ordered = sorted(
+                group,
+                key=lambda r: (r["conditions"][axis]["value"] is None, r["conditions"][axis]["value"] or 0),
+            )
+            axis_values = [r["conditions"][axis]["value"] for r in ordered]
+            for metric in metrics:
+                ids = []
+                if len(ordered) < 2:
+                    direction = "insufficient_data"
+                elif None in axis_values or len(set(axis_values)) != len(axis_values):
+                    direction = "unavailable"
+                else:
+                    changes = [
+                        difference(a, b, metric, "adjacent_delta") for a, b in zip(ordered, ordered[1:])
+                    ]
+                    ids = [c["id"] for c in changes]
+                    directions = {c["direction"] for c in changes}
+                    direction = (
+                        "unavailable"
+                        if "unavailable" in directions
+                        else "constant"
+                        if directions == {"unchanged"}
+                        else "increasing"
+                        if directions <= {"increase", "unchanged"}
+                        else "decreasing"
+                        if directions <= {"decrease", "unchanged"}
+                        else "non_monotonic"
+                    )
+                trends.append(
+                    {
+                        "id": f"trend:{index}:{metric}",
+                        "metric": metric,
+                        "axis": axis,
+                        "fixedConditions": {k: ordered[0]["conditions"][k] for k in fixed},
+                        "orderedKeys": [r["key"] for r in ordered],
+                        "comparisonIds": ids,
+                        "direction": direction,
+                    }
+                )
+    scalar_data = [r["metrics"][m] for r in rows for m in metrics]
+    if mode == "values":
+        comparable = any(d["status"] == "AVAILABLE" for d in scalar_data)
+        summaries = []
+    elif mode in ("pair", "baseline"):
+        comparable = any(c["difference"]["status"] == "AVAILABLE" for c in comparisons)
+    elif mode == "trend":
+        comparable = any(t["direction"] not in ("unavailable", "insufficient_data") for t in trends)
+    else:
+        comparable = any(s["range"]["status"] == "AVAILABLE" for s in summaries)
+    partial = any(d["status"] != "AVAILABLE" for d in scalar_data)
+    partial |= any(d["status"] != "AVAILABLE" for r in rows for d in r["conditions"].values())
+    partial |= any(
+        d["difference"]["status"] != "AVAILABLE"
+        or (d["percentChange"] is not None and d["percentChange"]["status"] != "AVAILABLE")
+        for d in comparisons
+    )
+    partial |= any(t["direction"] in ("unavailable", "insufficient_data") for t in trends)
+    result = {
+        "kind": "compare_runs",
+        "resultStatus": "NO_COMPARABLE_DATA"
+        if not comparable
+        else ("COMPARISON_PARTIAL" if partial else "COMPARISON_READY"),
+        "mode": mode,
+        "metricIds": metrics,
+        "baselineKey": query.baseline_key,
+        "trendAxis": query.trend_axis,
+        "runs": rows,
+        "comparisons": comparisons,
+        "summaries": summaries,
+        "trends": trends,
+        "observations": [],
+        "usedRunRefs": refs,
+        "numericPolicyVersion": "v1",
+        "aggregationPolicyVersion": "multi-run-1",
+    }
+    result["observations"] = observations(result)
+    return ComparisonResultV2.model_validate(result).model_dump()

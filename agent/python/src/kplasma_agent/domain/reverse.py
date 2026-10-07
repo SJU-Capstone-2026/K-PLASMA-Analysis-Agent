@@ -2,6 +2,7 @@
 
 import math
 from decimal import Decimal
+from typing import Any
 
 from ..contracts import ReverseInputs
 from ..metric_registry import NUMERIC_POLICY_VERSION, OUTPUT_METRICS, UNITS, normalize_value
@@ -22,7 +23,9 @@ def _normalized_query(inputs):
     query = ReverseInputs.model_validate(inputs_dict(inputs))
     if query.context_rules:
         raise DomainError("UNRESOLVED_CONTEXT", "Apply context rules before domain execution")
-    constraints, goals, defaulted = [], [], []
+    constraints: list[dict[str, Any]] = []
+    goals: list[dict[str, Any]] = []
+    defaulted: list[str] = []
     for collection, output in ((query.constraints, constraints), (query.goals, goals)):
         for model in collection:
             item = model.model_dump(exclude_none=True)

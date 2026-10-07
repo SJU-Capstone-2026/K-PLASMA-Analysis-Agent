@@ -42,6 +42,16 @@ npm run dev:agent
 
 frontend 기본 주소는 [http://localhost:5173](http://localhost:5173)다. `VITE_API_TARGET`의 `/api` 프록시로 backend에 연결한다. health 응답은 DB·저장소 모두 준비되면 `UP`이며 실패하면 HTTP 503을 반환한다. PostgreSQL volume, backend 원본 보관소, frontend 정적 파일은 서로 다른 역할이다. `bootRun` 기본 `./storage`는 `backend/storage/`에 해당한다. JAR를 다른 작업 폴더에서 실행할 때는 `KPLASMA_STORAGE_ROOT`를 원하는 절대 경로로 설정한다. 보관소와 DB를 같이 보존해야 불변 Run 버전과 원본 계보를 추적할 수 있다.
 
+## v1의 Tool Calling과 답변
+
+등록한 도구는 `forward_lookup`, `reverse_search`, `compare_runs`, `generate_answer` 네 개다. 첫 LLM 호출은 strict function schema로 도구 하나와 인자를 반환하며, LangGraph의 고정 노드가 단위·수치·참조를 검증하고 실행한다. 순·역방향 조회는 계산 결과를 기존 프로토타입 카드로 표시한다. 수치 조건의 단위가 없으면 추가 입력을 요청하며, 와트·왓트·e볼트 등의 표기는 LLM이 정규화하고 배율 변환은 코드가 수행한다. 높게·낮게만 요청한 정렬은 단위를 묻지 않는다.
+
+실험의 값·차이·경향·가능한 원인은 모두 `compare_runs`로 처리한다. **이 Run으로 이어서 질문** 또는 **전체 후보 기준 질문**으로 명시한 정확한 버전이 두 개 이상 필요하다. 참조가 없거나 불명확하면 실험 선택 화면이 나오며 검색·정렬·전체 선택과 기준 실험 선택을 제공한다. 선택 답변은 같은 요청을 재개하고 도구 선택 LLM을 다시 호출하지 않는다. 원문에 Run 이름이나 “아까 실험”을 적었다는 이유로 과거 실험을 자동 선택하지 않는다.
+
+비교 수치와 관찰 문장은 코드가 계산한다. 두 번째 LLM은 원문 질문과 확정된 결과를 받아 관찰 문장을 선택하고 가능한 해석·가정·한계를 설명한다. 검증 실패는 한 번 보완을 요청하며, 계속 실패하면 오류와 검증된 수치만 표시하고 미완성 설명을 완료 답변으로 저장하지 않는다. 일반 개념 질문은 `generate_answer`에서 원문을 그대로 일반 LLM에 전달하며 개념 목록·개수 제한이나 Run 조회를 거치지 않는다. 일반 지식 답변은 문헌 검토를 거친 답변이 아니다.
+
+새 완료 답변은 `AnswerSnapshotV2`로 저장하며 예전 schema 1 완료 답변도 읽을 수 있다. 변경된 그래프·프롬프트와 맞지 않는 미완료 요청은 취소 후 다시 질문한다. worker를 새 코드로 재시작해야 전환이 적용된다. API와 JSON 계약은 [Agent API](contracts/agent-v1.openapi.yaml), [답변 schema 2](contracts/agent-answer-v2.schemas.yaml)를 따른다.
+
 ## Phoenix Cloud 추적
 
 Phoenix Settings의 collector endpoint와 API key를 기존 `.env`에 추가한다. Space URL은 프로젝트 화면 주소의 `/s/<space>`까지만 사용한다. 프로젝트 이름은 Phoenix에 만든 이름과 같아야 한다.
@@ -57,7 +67,7 @@ uv sync --project agent/python --frozen --extra tracing
 npm run dev:agent
 ```
 
-기존 worker는 종료하고 다시 실행한다. 시작 로그의 `Phoenix tracing ready: project=K-PLASMA`를 확인한 뒤 새 질문을 보낸다. Phoenix 프로젝트의 Traces/Spans에서 `agent.request`를 열면 그래프 노드, LLM 호출, backend context·checkpoint·최종 저장의 시간과 결과를 확인할 수 있다. `llm.responses`에는 프롬프트·입력 JSON·원문 응답·검증 결과·모델·추론 설정·토큰 수가 들어간다. 질문·문맥·Run 수치를 포함한 전체 노드 상태와 최종 답변을 설정한 클라우드로 전송한다. API 키와 내부 인증 토큰은 제외하며 opaque checkpoint 직렬화와 heartbeat polling은 수집하지 않는다.
+기존 worker는 종료하고 다시 실행한다. 시작 로그의 `Phoenix tracing ready: project=K-PLASMA`를 확인한 뒤 새 질문을 보낸다. Phoenix 프로젝트의 Traces/Spans에서 `agent.request`를 열면 그래프 노드, LLM 호출, backend context·checkpoint·최종 저장의 시간과 결과를 확인할 수 있다. `llm.tool_selection`은 도구 후보·선택·인자, `llm.responses`는 비교 설명, `llm.general_answer`는 일반 답변을 기록한다. 프롬프트·입력 JSON·원문 응답·검증 결과·모델·추론 설정·토큰 수와 실제 Responses 입력(`llm.responses_input`)을 확인할 수 있다. 질문·문맥·Run 수치를 포함한 전체 노드 상태와 최종 답변을 설정한 클라우드로 전송한다. API 키와 내부 인증 토큰은 제외하며 opaque checkpoint 직렬화와 heartbeat polling은 수집하지 않는다.
 
 `session.id`는 Agent 요청 ID다. 추가 입력이나 재시작은 같은 session에 새 실행 trace를 만들며, generation/revision·`kplasma.resumed`와 그래프·프롬프트 버전으로 당시 실행을 구분한다. `NEEDS_INPUT`은 정상 대기이며 오류로 표시하지 않는다. 수치 검증이나 모델 오류는 안전한 `error.code`로 표시한다. 관찰 코드는 상태·수치·최종 저장·복구 버전을 바꾸지 않는다.
 
@@ -104,15 +114,15 @@ npm run test:agent:restart
 npm run verify:public-files
 ```
 
-Linux에서 브라우저 시스템 의존성이 없으면 `playwright install --with-deps chromium`을 사용한다. `test:e2e`는 인공 입력 3 Run을 만들고 독립 PostgreSQL·backend JAR·Python worker·Vite를 시작한다. 다섯 v1 답변, 정확한 Run 버전, 추가 입력 대기·resume·reload와 페이지 배치를 390/800/1008/1440px에서 검사한다. HTTP·그래프·체크포인트·수치 계산은 실제 구현을 쓰며 모델만 테스트 모듈의 고정 응답으로 대체한다. 이는 실제 LLM 품질 검증이 아니다. `npm run test:e2e:live`는 동일 흐름에 실제 `gpt-5.6-luna`/`none`을 연결하며 키와 API 사용량이 필요하다. 제품 worker에는 테스트 모델 선택 옵션이 없다.
+Linux에서 브라우저 시스템 의존성이 없으면 `playwright install --with-deps chromium`을 사용한다. `test:e2e`는 인공 입력 3 Run을 만들고 독립 PostgreSQL·backend JAR·Python worker·Vite를 시작한다. 네 도구를 통한 여섯 완료 답변, 정확한 Run 버전, 실험 선택·추가 입력 대기·resume·reload와 페이지 배치를 390/800/1008/1440px에서 검사한다. HTTP·그래프·체크포인트·수치 계산은 실제 구현을 쓰며 모델만 테스트 모듈의 고정 응답으로 대체한다. 이는 실제 LLM 품질 검증이 아니다. `npm run test:e2e:live`는 동일 흐름에 실제 `gpt-5.6-luna`/`none`을 연결하며 키와 API 사용량이 필요하다. 제품 worker에는 테스트 모델 선택 옵션이 없다.
 
 DB는 테스트 전용 이름과 임의 localhost 포트로 생성하며 자기 컨테이너만 정리한다. 다른 개발 DB나 서버를 재사용하지 않는다. Gradle build 출력과 project cache도 실행별로 나뉘고 복사한 JAR로 서버를 실행한다. 기본 제품 서버의 Clock을 변경하지 않는다. v1 검증 결과는 Git에서 제외한 `agent/python/.runtime/`에만 보관한다. 질문·응답·체크포인트·trace·토큰이 포함될 수 있는 연결 파일을 게시하지 않는다.
 
-`test:agent:restart`는 독립 인공 환경의 Spring 서버만 SIGKILL하고 같은 DB·보관소·포트로 다시 시작한다. 접수 상태, 추가 입력/checkpoint, 완료 답변과 같은 요청의 멱등 재개를 세 시나리오로 확인한다. 실제 그래프·HTTP·DB를 사용하고 모델만 고정 테스트 응답이며, OpenAI 호출은 없다. 기본 CI에도 포함한다.
+`test:agent:restart`는 독립 인공 환경에서 서버와 자기 테스트 worker를 강제 종료한다. 접수 상태, 추가 입력/checkpoint, 완료 답변의 멱등 재개, 실험 선택 대기 중 worker·서버 재시작을 네 시나리오로 확인한다. 같은 DB·보관소와 고정된 선택 목록·정확한 Run 버전으로 이어지는지 검사한다. 실제 그래프·HTTP·DB를 사용하고 모델만 고정 테스트 응답이며, OpenAI 호출은 없다. 기본 CI에도 포함한다.
 
 `frontend/playwright.config.ts`와 `test:e2e:legacy`는 이전 fallback UI 검증을 보존한 역사적 실행기다. v1에서 같은 답변 문구·카드 구조를 요구하지 않으므로 현재 기본 CI 통과 기준으로 사용하지 않는다. fallback 순수 함수 테스트는 계속 `npm test`에 포함된다. 외부 원본 파싱·수치 비교용 `verify:reference`의 기존 전체 UI 단계도 이 역사적 검증 범위이며, v1의 실제 LLM 평가와 혼동하지 않는다.
 
-인공 질문 140개를 모델별 세 번 평가하는 명령과 결과 판정 범위는 [Agent 평가 문서](../agent/python/evals/README.md)를 따른다. 프로세스 강제 종료 테스트는 `node scripts/agent/dev-verification.mjs --no-worker`로 독립 환경을 시작한 후 출력된 연결 파일을 `agent/python/.venv/bin/python scripts/agent/fault-verification.py --connection <파일>`에 전달한다. 이 환경에 다른 worker를 동시에 연결하지 않는다.
+인공 질문 141개의 도구 선택 평가와 18개 핵심 질문의 전체 그래프 반복 평가 명령·판정 범위는 [Agent 평가 문서](../agent/python/evals/README.md)를 따른다. 프로세스 강제 종료 테스트는 `node scripts/agent/dev-verification.mjs --no-worker`로 독립 환경을 시작한 후 출력된 연결 파일을 `agent/python/.venv/bin/python scripts/agent/fault-verification.py --connection <파일>`에 전달한다. 이 환경에 다른 worker를 동시에 연결하지 않는다.
 
 이미 검증한 Chromium을 명시할 때는 `KPLASMA_BROWSER_EXECUTABLE`에 실행 파일 경로를 넣을 수 있다. 보고서에 실제 browser.version을 기록하며 기준과 React는 같은 브라우저 컨텍스트의 폰트·ko-KR locale·Asia/Seoul 시간대·1배율·고정 시각을 사용한다. 개발자 개인 설치 경로는 소스에 하드코딩하지 않는다.
 
