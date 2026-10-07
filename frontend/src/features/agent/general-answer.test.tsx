@@ -72,3 +72,45 @@ $\htmlClass{injected}{x}$
 <script>alert(1)</script>`)}/>);
  expect(container.querySelector('script,img,[onerror],a[href^="javascript:"],.injected')).toBeNull();
 });
+
+test.each(['**Ar⁺**는 양이온 표기입니다.','주로 **Ar⁺**가 표시됩니다.','**e⁻**는 전자 표기입니다.','**압력(mTorr)**는 단위를 포함합니다.'])(
+ 'saved answer renders emphasis next to Korean without exposing markers: %s',markdown=>{
+  const result=Object.freeze(answer(markdown));
+  const {container}=render(<GeneralAnswerCard result={result}/>);
+  expect(container.querySelector('strong')).not.toBeNull();
+  expect(container.textContent).not.toContain('**');
+  expect(container.textContent).toContain(markdown.replaceAll('**',''));
+  expect(result.markdown).toBe(markdown);
+ });
+
+test('Korean emphasis preserves inline math, legacy math and nested emphasis',()=>{
+ const result=Object.freeze(answer(String.raw`**$\mathrm{Ar}^{+}$**는 기호입니다.
+
+**\(\mathrm{Ar}_{2}^{+}\)**는 다른 기호입니다.
+
+**전하 *+***는 강조 예시입니다.`));
+ const {container}=render(<GeneralAnswerCard result={result}/>);
+ expect(container.querySelectorAll('strong')).toHaveLength(3);
+ expect(container.querySelectorAll('strong .katex math')).toHaveLength(2);
+ expect(container.querySelector('strong em')).toHaveTextContent('+');
+ expect(container.textContent).not.toContain('**');
+ expect(result.markdown).toContain('**\\(\\mathrm{Ar}_{2}^{+}\\)**는');
+});
+
+test('Korean emphasis leaves escaped markers, code, links and formula source untouched',()=>{
+ const markdown=[
+  String.raw`\*\*Ar⁺\*\*는 그대로 표시합니다.`,
+  '코드: `**Ar⁺**는`',
+  '~~~text\n**Ar⁺**는\n~~~',
+  '[기호 문서](https://example.com/**Ar⁺**)',
+  '$x^{**}$',
+  '~~기존 취소선~~',
+ ].join('\n\n');
+ const {container}=render(<GeneralAnswerCard result={answer(markdown)}/>);
+ expect(screen.getByText('**Ar⁺**는 그대로 표시합니다.')).toBeInTheDocument();
+ expect([...container.querySelectorAll('code')].map(el=>el.textContent)).toEqual(['**Ar⁺**는','**Ar⁺**는\n']);
+ expect(screen.getByRole('link',{name:'기호 문서'})).toHaveAttribute('href','https://example.com/**Ar%E2%81%BA**');
+ expect(container.querySelector('annotation')).toHaveTextContent('x^{**}');
+ expect(container.querySelector('del')).toHaveTextContent('기존 취소선');
+ expect(container.querySelector('strong')).toBeNull();
+});
