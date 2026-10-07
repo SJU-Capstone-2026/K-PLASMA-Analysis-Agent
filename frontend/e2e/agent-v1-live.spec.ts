@@ -18,9 +18,11 @@ for(const width of widths)test(`v1 real HTTP answers four tools, clarification a
  const errors:string[]=[];const clientAppends:string[]=[];let submitCount=0;page.on('pageerror',error=>errors.push(error.message));page.on('request',req=>{if(req.method()!=='POST')return;const path=new URL(req.url()).pathname;if(path==='/api/workspace/turns')clientAppends.push(path);if(path==='/api/agent/requests')submitCount++;});
  try{
   await page.setViewportSize({width,height:1000});await page.goto('/');await expect(page.locator('.agent-welcome')).toBeVisible();
-  const forward=await askComplete(page,`압력 ${a.pressure} mTorr, 소스 ${a.sourcePower} W, 바이어스 ${a.biasPower} W 결과를 보여줘`,'forward_lookup',1);expect(forward.answerSnapshot.result).toMatchObject({resultStatus:'EXACT',selectedRun:{runId:a.runId,runVersionId:a.runVersionId}});
+  const forward=await askComplete(page,`압력 ${a.pressure}, 소스 ${a.sourcePower}, 바이어스 ${a.biasPower} 결과를 보여줘`,'forward_lookup',1);expect(forward.answerSnapshot.result).toMatchObject({resultStatus:'EXACT',selectedRun:{runId:a.runId,runVersionId:a.runVersionId}});
+  expect(forward.answerSnapshot.unitAssumptions).toHaveLength(3);await expect(page.locator('.v1-unit-notice')).toContainText('압력 mTorr · 소스 전력 W · 바이어스 전력 W');
   const energy=a.metrics.meanIonEnergy!;const low=Math.max(0,energy-0.1),high=energy+0.1;
-  const reverse=await askComplete(page,`Ion Flux는 높게, Mean Ion Energy는 ${low}–${high} eV에 가깝게 후보를 찾아줘`,'reverse_search',2);
+  const reverse=await askComplete(page,`Ion Flux는 높게, Mean Ion Energy는 ${low}–${high}에 가깝게 후보를 찾아줘`,'reverse_search',2);
+  expect(reverse.answerSnapshot.unitAssumptions).toEqual([{metric:'meanIonEnergy',unit:'eV'}]);
   const searched=reverse.answerSnapshot.result as unknown as {resultStatus:string;commonCandidates:{run:RunSummary}[];goalResults:unknown[]};
   expect(searched.resultStatus).toBe('MATCH');
   expect(searched.goalResults).toEqual([]);
@@ -38,10 +40,20 @@ for(const width of widths)test(`v1 real HTTP answers four tools, clarification a
   const options=(await optionResponse.json()).options as {key:string;ref:{runId:string;runVersionId:string}}[];
   const keyA=options.find(o=>o.ref.runVersionId===a.runVersionId)!.key;const keyB=options.find(o=>o.ref.runVersionId===b.runVersionId)!.key;
   await page.reload();await expect(page.getByRole('checkbox',{name:`${keyA} · ${a.runId} · ${a.runVersionId}`})).toBeVisible();
+  // Check actual picker geometry: generic full-width input CSS once squeezed
+  // the Run text into a one-character column without overflowing the page.
+  const geometry=await page.locator('.v1-picker-option').first().evaluate(el=>{
+   const checkbox=el.querySelector('input')!.getBoundingClientRect();const text=el.querySelector('span')!.getBoundingClientRect();const row=el.getBoundingClientRect();
+   return {checkboxWidth:checkbox.width,checkboxHeight:checkbox.height,textWidth:text.width,rowWidth:row.width,rowHeight:row.height};
+  });
+  expect(geometry.checkboxWidth).toBeLessThanOrEqual(24);expect(geometry.checkboxHeight).toBeLessThanOrEqual(24);
+  expect(geometry.textWidth).toBeGreaterThan(geometry.rowWidth*.65);expect(geometry.rowHeight).toBeLessThan(180);
   await page.getByRole('checkbox',{name:`${keyA} · ${a.runId} · ${a.runVersionId}`}).check();await page.getByRole('checkbox',{name:`${keyB} · ${b.runId} · ${b.runVersionId}`}).check();
+  await page.locator('.v1-run-selection').screenshot({path:info.outputPath(`picker-artificial-${width}.png`)});
   await page.getByLabel('비교 기준 (필수)').selectOption(keyA);const picked=page.waitForResponse(r=>new URL(r.url()).pathname.endsWith(`/${acceptedCompare.requestId}/resume`)&&r.request().method()==='POST');await page.getByRole('button',{name:'선택한 실험으로 계속'}).click();expect((await picked).status()).toBe(200);
   const compared=await terminal(request,acceptedCompare.requestId,1);expect(compared.status,compared.error?.code).toBe('COMPLETED');await expect(page.locator('.agent-turn')).toHaveCount(3);
   const compare=(await workspace(request)).conversation.turns.at(-1)!;expect(compare.answerSnapshot).toMatchObject({schemaVersion:2,kind:'compare_runs',result:{baselineKey:keyA,runs:expect.arrayContaining([{key:keyA,ref:{runId:a.runId,runVersionId:a.runVersionId},conditions:expect.any(Object),metrics:expect.any(Object),quality:expect.any(Object)}])}});
+  await page.locator(`[data-turn-id="${compare.id}"] .v1-comparison`).screenshot({path:info.outputPath(`comparison-artificial-${width}.png`)});
   // Reattach saved exact versions; the reason question uses the same comparison tool.
   const current=await workspace(request);expect((await request.put(`${api}/api/workspace/reference`,{data:{stateToken:current.stateToken,activeRun:null,candidateReference:{kind:'후보 집합',runs:compare.answerRunRefs}}})).status()).toBe(200);await page.reload();
   await askComplete(page,'태그한 실험들의 평균 이온 에너지와 이온 플럭스 차이가 나는 가능한 이유를 설명해줘','compare_runs',4);

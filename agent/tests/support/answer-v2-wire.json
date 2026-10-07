@@ -395,7 +395,8 @@
     "versions": {
       "graphBuildId": "synthetic-tool-1",
       "schemaVersion": "2"
-    }
+    },
+    "unitAssumptions": []
   },
   "general": {
     "implementationId": "v1",
@@ -424,7 +425,8 @@
     "versions": {
       "graphBuildId": "synthetic-tool-1",
       "schemaVersion": "2"
-    }
+    },
+    "unitAssumptions": []
   },
   "forward": {
     "implementationId": "v1",
@@ -439,8 +441,7 @@
       "arguments": {
         "conditions": {
           "pressure": {
-            "value": 10,
-            "unit": "mTorr"
+            "value": 10
           },
           "sourcePower": {
             "value": 300,
@@ -599,7 +600,13 @@
     "versions": {
       "graphBuildId": "synthetic-tool-1",
       "schemaVersion": "2"
-    }
+    },
+    "unitAssumptions": [
+      {
+        "metric": "pressure",
+        "unit": "mTorr"
+      }
+    ]
   },
   "reverse": {
     "implementationId": "v1",
@@ -1214,7 +1221,8 @@
     "versions": {
       "graphBuildId": "synthetic-tool-1",
       "schemaVersion": "2"
-    }
+    },
+    "unitAssumptions": []
   },
   "partial": {
     "kind": "compare_runs",

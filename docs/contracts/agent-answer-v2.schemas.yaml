@@ -162,6 +162,11 @@ components:
           additionalProperties: true
           title: Versions
           type: object
+        unitAssumptions:
+          items:
+            $ref: '#/components/schemas/UnitAssumption'
+          title: Unitassumptions
+          type: array
       required:
       - implementationId
       - graphVersion
@@ -816,4 +821,25 @@ components:
       additionalProperties: false
       properties: {}
       title: GeneralInputs
+      type: object
+    UnitAssumption:
+      additionalProperties: false
+      properties:
+        metric:
+          enum:
+          - pressure
+          - sourcePower
+          - biasPower
+          - meanIonEnergy
+          - ionFlux
+          - iedWidth
+          title: Metric
+          type: string
+        unit:
+          title: Unit
+          type: string
+      required:
+      - metric
+      - unit
+      title: UnitAssumption
       type: object

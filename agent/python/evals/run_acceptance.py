@@ -173,7 +173,37 @@ def attempt(case, repeat, settings):
                 if case.kind == "generate_answer":
                     record["passed"] &= backend.reads == 0 and snapshot["originalQuestion"] == case.question
                 if case.id in ("AE2", "AE4"):
-                    record["passed"] &= bool(pending) and pending[0].get("reason") == "MISSING_UNIT"
+                    record["passed"] &= not pending and snapshot["unitAssumptions"] == [
+                        {
+                            "metric": "sourcePower" if case.id == "AE2" else "meanIonEnergy",
+                            "unit": "W" if case.id == "AE2" else "eV",
+                        }
+                    ]
+                if case.id == "defaults-forward":
+                    record["passed"] &= not pending and len(snapshot["unitAssumptions"]) == 3
+                    record["passed"] &= snapshot["result"]["requestedConditions"] == {
+                        "pressure": 8,
+                        "sourcePower": 300,
+                        "biasPower": 600,
+                    }
+                if case.id == "defaults-flux":
+                    record["passed"] &= not pending and snapshot["unitAssumptions"] == [
+                        {"metric": "ionFlux", "unit": "10¹⁸ m⁻²s⁻¹"},
+                        {"metric": "sourcePower", "unit": "W"},
+                    ]
+                    record["passed"] &= [r["runId"] for r in snapshot["result"]["candidates"]] == [
+                        "SYNTHETIC-2",
+                        "SYNTHETIC-3",
+                        "SYNTHETIC-4",
+                    ]
+                if case.id == "baseline-picker":
+                    record["passed"] &= bool(pending) and pending[0].get("baselineRequired") is True
+                    record["passed"] &= snapshot["result"]["baselineKey"] == "R1"
+                if case.id == "unknown-unit":
+                    record["passed"] &= bool(pending) and pending[0].get("reason") in (
+                        "UNSUPPORTED_UNIT",
+                        "MISSING_UNIT",
+                    )
             span.output(record)
     except Exception as error:
         record["errorCode"] = getattr(error, "code", type(error).__name__)

@@ -383,7 +383,7 @@ components:
         stage: { type: string }
         graphVersion: { const: v1 }
         question: { type: [string, 'null'] }
-        pendingInput: { type: [object, 'null'], description: 'At least id and message; optional fields/options. MISSING_UNIT asks for the numeric metric unit before querying; unitMetric identifies the slot for a unit-only reply. Pure high/low sorting needs no unit.' }
+        pendingInput: { type: [object, 'null'], description: 'At least id and message; optional fields/options. Omitted numeric units use fixed defaults saved as answerSnapshot.unitAssumptions. Unknown/incompatible explicit units still require clarification; unitMetric binds a unit-only correction to its slot. Pure high/low sorting needs no unit.' }
         error: { type: [object, 'null'] }
         partialResult:
           type: [object, 'null']

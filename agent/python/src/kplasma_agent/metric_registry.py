@@ -89,8 +89,8 @@ def normalize_value(metric: str, value, unit: str | None = None) -> float:
         raise NumericError("UNSUPPORTED_METRIC", metric)
     if not is_finite(value):
         raise NumericError("INVALID_VALUE", metric)
-    # Defaults are for stored scalar data and unitless ranking goals only.
-    # Numeric query inputs require explicit units at the graph/tool boundary.
+    # Stored scalars and resolved query inputs share canonical units.
+    # The graph records omitted query units before execution.
     unit = UNITS[metric] if unit is None else normalize_unit(metric, unit)
     converted = float(value)
     if unit == UNITS[metric]:

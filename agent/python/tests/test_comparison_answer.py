@@ -43,3 +43,22 @@ def test_provider_schema_limits_both_observation_lists_to_the_frozen_result():
     schema = strict_schema(comparison_draft_model(result))
     assert schema["properties"]["observationIds"]["items"]["enum"] == ids
     assert schema["$defs"]["ScopedInterpretation"]["properties"]["observationIds"]["items"]["enum"] == ids
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "R1을 기준으로 보면 플럭스가 더 큽니다.",
+        "R2를 기준 Run으로 해석했습니다.",
+        "Relative to baseline R1, flux rises.",
+    ],
+)
+def test_answer_cannot_invent_a_baseline_in_an_unbased_pair(text):
+    result = compare_selected({"metrics": ["ionFlux"]}, selected(run("A", flux=2), run("B", flux=4)))
+    draft = {
+        "observationIds": ["O1"],
+        "interpretations": [{"text": text, "observationIds": ["O1"], "assumptions": []}],
+        "limitations": [],
+    }
+    with pytest.raises(DomainError, match="ANSWER_BASELINE_MISMATCH"):
+        validate_answer(draft, result)

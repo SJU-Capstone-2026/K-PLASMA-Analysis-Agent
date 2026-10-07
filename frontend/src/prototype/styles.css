@@ -2900,9 +2900,12 @@ p.manual-limit { margin-bottom: 0; color: #826947; font-size: 9px; line-height: 
 .v1-run-selection input[type=search],.v1-run-selection select,.v1-pending select{width:100%;min-width:0;padding:10px;border:1px solid #d6e0f3;border-radius:10px;background:white;color:inherit}
 .v1-picker-list{max-height:390px;overflow:auto;margin:16px 0;padding:12px;border:1px solid #d6e0f3;border-radius:12px}
 .v1-picker-option{display:flex;gap:12px;align-items:flex-start;padding:12px;border-radius:8px;border-bottom:1px solid #e7ecf6;cursor:pointer}
-.v1-picker-option.is-selected{background:#edf3ff}.v1-picker-option span{min-width:0}.v1-picker-option small,.v1-comparison-table small{display:block;overflow-wrap:anywhere}
-.v1-picker-option input{margin-top:4px;flex:0 0 auto}.v1-picker-chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:12px}
+.v1-picker-option.is-selected{background:#edf3ff}.v1-picker-option span{min-width:0;flex:1 1 0}.v1-picker-option small,.v1-comparison-table small{display:block;overflow-wrap:anywhere}
+.v1-picker-option input[type=checkbox]{width:18px;height:18px;min-width:18px;min-height:18px;padding:0;margin:4px 0 0;flex:0 0 18px;accent-color:#315ed8}.v1-picker-chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:12px}
 .v1-picker-chips button{max-width:100%;overflow-wrap:anywhere;border:1px solid #cad9f5;border-radius:16px;background:#f5f8ff;padding:6px 10px;color:#2f59cf}
 .v1-baseline{display:grid;gap:6px;margin:14px 0}.v1-table-scroll{max-width:100%;overflow:auto}.v1-comparison-table{min-width:650px}
+.v1-unit-notice{padding:12px 16px;margin:0 0 16px;border:1px solid #cad9f5;border-radius:12px;background:#f3f7ff;color:#3a5077;font-size:14px;line-height:1.6;overflow-wrap:anywhere}
+.v1-unit-help{margin-top:12px;font-size:13px;color:#627594}.v1-unit-help summary,.v1-comparison details summary{cursor:pointer}.v1-unit-help ul{display:flex;flex-wrap:wrap;gap:6px 16px;list-style:none;padding:0}
+.v1-comparison .v1-calculation-evidence{margin-top:18px;padding:12px 16px;border:1px solid #d6e0f3;border-radius:10px;background:#f8faff}.v1-comparison .v1-run-metadata{font-weight:400;font-size:12px;color:#627594;margin:6px 0}
 .v1-markdown{line-height:1.7}.v1-markdown pre{overflow:auto;background:#f5f7fc;padding:14px;border-radius:10px}.v1-markdown table{display:block;max-width:100%;overflow:auto}.v1-markdown th,.v1-markdown td{padding:8px;border:1px solid #d6e0f3}
 @media(max-width:600px){.v1-picker-controls{gap:10px}.v1-picker-list{max-height:320px}.v1-picker-chips{max-height:140px;overflow:auto}.v1-run-selection .v1-card-actions{flex-wrap:wrap}.v1-run-selection .button{max-width:100%;white-space:normal}}

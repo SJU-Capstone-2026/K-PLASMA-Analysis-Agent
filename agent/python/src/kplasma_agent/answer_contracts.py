@@ -2,7 +2,7 @@
 
 from typing import Literal
 from .contracts import StrictModel, FiniteNumber, ConditionId, OutputMetric
-from pydantic import model_validator
+from pydantic import Field, model_validator
 
 Reason = Literal[
     "MISSING_VALUE",
@@ -179,6 +179,11 @@ class ToolSelection(StrictModel):
     arguments: dict
 
 
+class UnitAssumption(StrictModel):
+    metric: Literal["pressure", "sourcePower", "biasPower", "meanIonEnergy", "ionFlux", "iedWidth"]
+    unit: str
+
+
 class AnswerSnapshotV2(StrictModel):
     implementationId: Literal["v1"]
     graphVersion: Literal["v1"]
@@ -194,6 +199,7 @@ class AnswerSnapshotV2(StrictModel):
     inputHistory: list[dict]
     usedRunRefs: list[RunRef]
     versions: dict
+    unitAssumptions: list[UnitAssumption] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def result_contract(self):
@@ -206,6 +212,25 @@ class AnswerSnapshotV2(StrictModel):
         ):
             raise ValueError("tool/result mismatch")
         TOOL_MODELS[self.kind].model_validate(self.toolSelection.arguments)
+        if self.unitAssumptions:
+            from .metric_registry import UNITS
+
+            if self.kind not in ("forward_lookup", "reverse_search"):
+                raise ValueError("unit assumptions are only valid for searches")
+            seen = set()
+            quantities = {**self.resolvedInputs.get("conditions", {})}
+            for group in ("constraints", "goals"):
+                for item in self.resolvedInputs.get(group, []):
+                    if any(item.get(k) is not None for k in ("value", "min", "max")):
+                        quantities[item["metric"]] = item
+            for assumption in self.unitAssumptions:
+                if (
+                    assumption.metric in seen
+                    or assumption.unit != UNITS[assumption.metric]
+                    or quantities.get(assumption.metric, {}).get("unit") != assumption.unit
+                ):
+                    raise ValueError("unit assumption does not match resolved input")
+                seen.add(assumption.metric)
         if self.kind == "compare_runs":
             value = ComparisonResultV2.model_validate(self.result)
             if self.answer is None or value.usedRunRefs != self.usedRunRefs:

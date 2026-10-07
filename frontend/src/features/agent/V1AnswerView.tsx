@@ -1,4 +1,4 @@
-import type {TurnSnapshot,Snapshot,ComparisonAnswer,ComparisonResultV2,GeneralAnswerResult} from 'agent';
+import type {TurnSnapshot,Snapshot,ComparisonAnswer,ComparisonResultV2,GeneralAnswerResult,UnitAssumption} from 'agent';
 import {PrototypeAnswerMarkup,type AnswerAction} from './PrototypeAnswerMarkup';
 import {v1SearchModel} from './v1-search-model';
 import {GeneralAnswerCard} from './GeneralAnswerCard';
@@ -20,4 +20,4 @@ function answerBody(turn:TurnSnapshot,onAction:AnswerAction){
   default: return <p>지원 범위: 조건 조회 · 후보 탐색 · Run 비교 · 변화 설명 · 개념 설명</p>;
  }
 }
-export function V1AnswerView({turn,onAction}:{turn:TurnSnapshot;onAction:AnswerAction}){const snapshot=turn.answerSnapshot;const search=['forward_lookup','reverse_search'].includes(String(snapshot.kind));return <div className={search?'v1-search-answer':'v1-answer'} data-implementation="v1">{!search&&typeof snapshot.summary==='string'&&<p className="v1-summary">{snapshot.summary}</p>}{answerBody(turn,onAction)}{!search&&<AppliedInterpretation snapshot={snapshot}/>}</div>;}
+export function V1AnswerView({turn,onAction}:{turn:TurnSnapshot;onAction:AnswerAction}){const snapshot=turn.answerSnapshot;const search=['forward_lookup','reverse_search'].includes(String(snapshot.kind));return <div className={search?'v1-search-answer':'v1-answer'} data-implementation="v1">{!search&&typeof snapshot.summary==='string'&&<p className="v1-summary">{snapshot.summary}</p>}{search&&((snapshot.unitAssumptions as unknown as UnitAssumption[]|undefined)??[]).length>0&&<p className="v1-unit-notice">단위를 생략해 기본 단위로 조회했습니다: {(snapshot.unitAssumptions as unknown as UnitAssumption[]).map(item=>`${metricNames[item.metric]??item.metric} ${item.unit}`).join(' · ')}</p>}{answerBody(turn,onAction)}{!search&&<AppliedInterpretation snapshot={snapshot}/>}</div>;}

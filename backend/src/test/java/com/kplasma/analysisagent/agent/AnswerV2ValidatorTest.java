@@ -19,7 +19,7 @@ class AnswerV2ValidatorTest {
         var result=(Map<?,?>)snapshot.get("result");
         @SuppressWarnings("unchecked") var refs=(List<Map<String,Object>>)snapshot.get("usedRunRefs");
         var inventory=refs.stream().map(r->mapper.convertValue(r,RunRef.class)).toList();
-        return new AgentResponse("compare_runs".equals(snapshot.get("kind"))?"RUN_COMPARISON":"GENERAL_ANSWER",String.valueOf(result.get("resultStatus")),List.of(),null,snapshot,inventory);
+        return new AgentResponse(Map.of("compare_runs","RUN_COMPARISON","generate_answer","GENERAL_ANSWER","forward_lookup","FORWARD_LOOKUP","reverse_search","REVERSE_SEARCH").get(snapshot.get("kind")),String.valueOf(result.get("resultStatus")),List.of(),null,snapshot,inventory);
     }
     @Test void sharedFixturePreservesZeroNullAndCompletePartial()throws Exception{
         var comparison=wire("comparison");validator.answer(response(comparison),"인공 질문");
@@ -39,5 +39,14 @@ class AnswerV2ValidatorTest {
         assertThatThrownBy(()->validator.answer(response(snapshot),"인공 질문")).hasMessageContaining("Unknown answer observation");
         var second=wire("comparison");Collections.reverse((List<?>)second.get("usedRunRefs"));
         assertThatThrownBy(()->validator.answer(response(second),"인공 질문")).hasMessageContaining("inventory mismatch");
+    }
+    @Test void savedUnitNoticeMustMatchTheSearchAndOlderSnapshotsRemainReadable()throws Exception{
+        var snapshot=wire("forward");snapshot.put("unitAssumptions",List.of(Map.of("metric","pressure","unit","mTorr")));
+        validator.answer(response(snapshot),(String)snapshot.get("originalQuestion"));
+        snapshot.put("unitAssumptions",List.of(Map.of("metric","pressure","unit","Torr")));
+        assertThatThrownBy(()->validator.answer(response(snapshot),(String)snapshot.get("originalQuestion"))).hasMessageContaining("unit assumption");
+        snapshot.remove("unitAssumptions");validator.answer(response(snapshot),(String)snapshot.get("originalQuestion"));
+        var general=wire("general");general.put("unitAssumptions",List.of(Map.of("metric","pressure","unit","mTorr")));
+        assertThatThrownBy(()->validator.answer(response(general),(String)general.get("originalQuestion"))).hasMessageContaining("unit assumptions");
     }
 }

@@ -17,9 +17,9 @@ from kplasma_agent import worker
 
 _NUMBER = r"[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?"
 _CONDITIONS = {
-    "pressure": rf"압력\s*({_NUMBER})\s*(mTorr|Torr|Pa)",
-    "sourcePower": rf"소스\s*(?:전력\s*)?({_NUMBER})\s*(kW|W)",
-    "biasPower": rf"바이어스\s*(?:전력\s*)?({_NUMBER})\s*(kW|W)",
+    "pressure": rf"압력\s*({_NUMBER})\s*(mTorr|Torr|Pa)?",
+    "sourcePower": rf"소스\s*(?:전력\s*)?({_NUMBER})\s*(kW|W)?",
+    "biasPower": rf"바이어스\s*(?:전력\s*)?({_NUMBER})\s*(kW|W)?",
 }
 
 
@@ -41,7 +41,7 @@ class RuntimeTestModel:
                     "ref_keys": keys or None,
                     "metrics": ["meanIonEnergy", "ionFlux"],
                     "analysis": "interpretation" if "이유" in payload["question"] else "differences",
-                    "baseline_key": keys[0] if len(keys) >= 2 else None,
+                    "baseline_key": keys[0] if len(keys) >= 2 and "기준" in payload["question"] else None,
                 },
             }
         elif operation["kind"] == "explain_concept":
@@ -99,7 +99,7 @@ class RuntimeTestModel:
             topic = "ionFlux" if "플럭스" in question else "meanIonEnergy"
             operation = {"kind": "explain_concept", "inputs": {"topics": [topic], "aspect": "definition"}}
         elif "Ion Flux는 높게, Mean Ion Energy는" in question:
-            bounds = re.search(r"([\d.]+)–([\d.]+) eV", question)
+            bounds = re.search(r"([\d.]+)–([\d.]+)( eV)?", question)
             assert bounds is not None
             operation = {
                 "kind": "reverse_search",
@@ -110,7 +110,7 @@ class RuntimeTestModel:
                             "operator": "between",
                             "min": float(bounds[1]),
                             "max": float(bounds[2]),
-                            "unit": "eV",
+                            "unit": "eV" if bounds[3] else None,
                         }
                     ],
                     "goals": [{"metric": "ionFlux", "direction": "maximize"}],

@@ -31,15 +31,26 @@ final class AnswerV2Validator {
         if(map.get("sourceValue")!=null){var source=object(map.get("sourceValue"));fields(source,"value","unit");nullableNumber(source.get("value"));text(source.get("unit"));}}
     private void dataMap(Object value,Set<String> keys){var map=object(value);require(map.keySet().equals(keys),"Scalar map keys mismatch");map.values().forEach(this::scalar);}
     void answer(AgentResponse answer,String originalQuestion){
-        var snapshot=answer.answerSnapshot();fields(snapshot,"implementationId","graphVersion","schemaVersion","kind","summary","originalQuestion","toolSelection","resolvedInputs","result","answer","contextProvenance","inputHistory","usedRunRefs","versions");
+        var snapshot=answer.answerSnapshot();var requiredFields=new HashMap<>(snapshot);requiredFields.remove("unitAssumptions");fields(requiredFields,"implementationId","graphVersion","schemaVersion","kind","summary","originalQuestion","toolSelection","resolvedInputs","result","answer","contextProvenance","inputHistory","usedRunRefs","versions");
         require("v1".equals(snapshot.get("graphVersion"))&&snapshot.get("schemaVersion") instanceof Number n&&n.doubleValue()==2,"Unknown answer version");text(snapshot.get("summary"));require(Objects.equals(snapshot.get("originalQuestion"),originalQuestion),"Original question mismatch");
         String kind=text(snapshot.get("kind"));enumeration(kind,"forward_lookup","reverse_search","compare_runs","generate_answer");var selection=object(snapshot.get("toolSelection"));fields(selection,"call_id","name","arguments");text(selection.get("call_id"));require(kind.equals(selection.get("name")),"Tool selection mismatch");object(selection.get("arguments"));object(snapshot.get("resolvedInputs"));object(snapshot.get("contextProvenance"));array(snapshot.get("inputHistory"));object(snapshot.get("versions"));
         require(refs(snapshot.get("usedRunRefs")).equals(answer.usedRunRefs()),"Snapshot inventory mismatch");
+        if(snapshot.containsKey("unitAssumptions"))unitAssumptions(snapshot,kind);
         var result=object(snapshot.get("result"));require(kind.equals(result.get("kind"))&&Objects.equals(answer.status(),result.get("resultStatus")),"Result/status mismatch");
         String intent=Map.of("forward_lookup","FORWARD_LOOKUP","reverse_search","REVERSE_SEARCH","compare_runs","RUN_COMPARISON","generate_answer","GENERAL_ANSWER").get(kind);require(intent.equals(answer.intent()),"Intent/tool mismatch");
         if(kind.equals("compare_runs")){require(answer.candidates().isEmpty()&&answer.explanation()==null,"Comparison has no legacy candidates/explanation");comparison(result,answer.usedRunRefs(),false);comparisonAnswer(snapshot.get("answer"),result);}
         else require(snapshot.get("answer")==null,"Only comparisons have an answer object");
         if(kind.equals("generate_answer")){fields(result,"kind","resultStatus","markdown","knowledgeBasis","usedRunRefs");require("ANSWER_READY".equals(result.get("resultStatus"))&&"LLM_GENERAL_KNOWLEDGE".equals(result.get("knowledgeBasis")),"Invalid general answer");text(result.get("markdown"));require(answer.usedRunRefs().isEmpty()&&refs(result.get("usedRunRefs")).isEmpty()&&answer.candidates().isEmpty()&&answer.explanation()==null,"General answer cannot depend on Run refs");require(object(snapshot.get("resolvedInputs")).isEmpty()&&object(snapshot.get("contextProvenance")).isEmpty()&&object(selection.get("arguments")).isEmpty(),"General inputs must be empty");}
+    }
+    private void unitAssumptions(Map<?,?> snapshot,String kind){
+        var assumptions=array(snapshot.get("unitAssumptions"));
+        require(assumptions.isEmpty()||Set.of("forward_lookup","reverse_search").contains(kind),"Only searches have unit assumptions");
+        var units=Map.of("pressure","mTorr","sourcePower","W","biasPower","W","meanIonEnergy","eV","ionFlux","10¹⁸ m⁻²s⁻¹","iedWidth","eV");
+        var inputs=object(snapshot.get("resolvedInputs"));Map<String,Map<?,?>> quantities=new HashMap<>();
+        if(inputs.get("conditions") instanceof Map<?,?> conditions)conditions.forEach((key,value)->quantities.put(String.valueOf(key),object(value)));
+        for(String group:List.of("constraints","goals"))if(inputs.get(group) instanceof List<?> rows)for(Object value:rows){var row=object(value);if(row.get("value")!=null||row.get("min")!=null||row.get("max")!=null)quantities.put(text(row.get("metric")),row);}
+        Set<String> seen=new HashSet<>();
+        for(Object value:assumptions){var row=object(value);fields(row,"metric","unit");String metric=text(row.get("metric"));require(seen.add(metric)&&units.containsKey(metric)&&units.get(metric).equals(row.get("unit"))&&quantities.containsKey(metric)&&Objects.equals(quantities.get(metric).get("unit"),row.get("unit")),"Invalid unit assumption");}
     }
     void comparison(Map<?,?> result,List<RunRef> inventory,boolean partial){
         Set<String> expected=new HashSet<>(Set.of("kind","resultStatus","mode","metricIds","baselineKey","trendAxis","runs","comparisons","summaries","trends","observations","usedRunRefs","numericPolicyVersion","aggregationPolicyVersion"));if(partial){expected.add("schemaVersion");expected.add("explanationComplete");require(result.get("schemaVersion") instanceof Number n&&n.doubleValue()==2&&Boolean.FALSE.equals(result.get("explanationComplete")),"Invalid partial version");}require(result.keySet().equals(expected),"Comparison fields mismatch");

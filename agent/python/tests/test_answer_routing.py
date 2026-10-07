@@ -3,6 +3,7 @@ from langgraph.types import Command
 from fixtures import run
 from kplasma_agent.config import Settings
 from kplasma_agent.graphs.v1 import build_graph
+import pytest
 
 
 class Model:
@@ -51,7 +52,12 @@ def test_independent_lookup_and_comparison_require_scope_before_any_data_read():
     graph = build_graph(model, backend, Settings(), InMemorySaver())
     config = {"configurable": {"thread_id": "mixed"}}
     result = graph.invoke(
-        {"request_id": "mixed", "question": "압력 8 mTorr 결과를 조회하고 아까 두 실험을 비교해줘", "context": {}}, config
+        {
+            "request_id": "mixed",
+            "question": "압력 8 mTorr 결과를 조회하고 아까 두 실험을 비교해줘",
+            "context": {},
+        },
+        config,
     )
     assert result["pending"]["reason"] == "MIXED_REQUEST"
     assert backend.refs == [] and model.calls == ["select"]
@@ -143,3 +149,58 @@ def test_named_comparison_metric_is_not_silently_replaced():
     assert validate_native_comparison_metrics(
         {"metrics": ["meanIonEnergy"]}, "평균 이온 에너지 차이를 알려줘", []
     )
+
+
+@pytest.mark.parametrize(
+    "question",
+    ["기준 Run과 선택한 Run의 이온 플럭스를 비교해줘", "Compare the baseline run and selected run ion flux"],
+)
+def test_baseline_run_request_requires_the_picker_to_choose_a_baseline(question):
+    result = build_graph(
+        Model("compare_runs", {"metrics": ["ionFlux"]}), Backend(), Settings(), InMemorySaver()
+    ).invoke(
+        {"request_id": "baseline-request", "question": question, "context": {}},
+        {"configurable": {"thread_id": "baseline-request"}},
+    )
+    assert result["pending"]["baselineRequired"] is True
+
+
+def test_routing_model_cannot_assign_the_first_attached_run_as_baseline():
+    entries = [
+        {
+            "key": key,
+            "ref": {"runId": name, "runVersionId": f"synthetic-{name}-v1"},
+            "origin": {"kind": "run_tag", "turnId": "t", "groupId": None, "pendingInputId": None},
+        }
+        for key, name in (("R1", "A"), ("R2", "B"))
+    ]
+    backend = Backend()
+    result = build_graph(
+        Model("compare_runs", {"metrics": ["ionFlux"], "baseline_key": "R1"}),
+        backend,
+        Settings(),
+        InMemorySaver(),
+    ).invoke(
+        {
+            "request_id": "guessed-baseline",
+            "question": "태그한 실험의 이온 플럭스를 비교해줘",
+            "context": {"comparisonReference": {"entries": entries, "baselineKey": None}},
+        },
+        {"configurable": {"thread_id": "guessed-baseline"}},
+    )
+    assert result["pending"]["type"] == "comparison_options"
+    assert backend.refs == []
+
+
+@pytest.mark.parametrize(
+    "question",
+    ["기준 Run 없이 실험들의 이온 플럭스 차이를 알려줘", "Compare run ion flux without a baseline"],
+)
+def test_explicit_unbased_comparison_does_not_require_a_baseline(question):
+    result = build_graph(
+        Model("compare_runs", {"metrics": ["ionFlux"]}), Backend(), Settings(), InMemorySaver()
+    ).invoke(
+        {"request_id": "no-baseline", "question": question, "context": {}},
+        {"configurable": {"thread_id": "no-baseline"}},
+    )
+    assert result["pending"]["baselineRequired"] is False

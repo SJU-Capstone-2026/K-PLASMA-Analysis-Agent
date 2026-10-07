@@ -117,7 +117,7 @@ def build_cases():
             question,
             "forward_lookup",
             {"conditions": values},
-            clarification=any(not scalar.get("unit") for scalar in values.values()),
+            clarification=False,
         )
     for question, supplied, missing in [
         ("압력 10 mTorr와 소스 300 W의 결과를 보여줘.", conditions(10, 300), "biasPower"),
@@ -659,6 +659,36 @@ _refs = [
 ]
 ACCEPTANCE_CASES = [
     Case(
+        "defaults-forward",
+        "forward",
+        "압력 8 소스 300 바이어스 600 조회해줘",
+        "forward_lookup",
+        {"conditions": {"pressure": scalar(8), "sourcePower": scalar(300), "biasPower": scalar(600)}},
+    ),
+    Case(
+        "defaults-flux",
+        "reverse",
+        "이온플러스 20 이상, 소스 500 이상 후보 찾아줘",
+        "reverse_search",
+        {"constraints": [constraint("ionFlux", "gte", 20), constraint("sourcePower", "gte", 500)]},
+    ),
+    Case(
+        "baseline-picker",
+        "compare",
+        "기준 Run과 선택한 Run의 평균 이온 에너지와 이온 플럭스를 비교해줘",
+        "compare_runs",
+        {"metrics": ["meanIonEnergy", "ionFlux"]},
+        clarification=True,
+    ),
+    Case(
+        "unknown-unit",
+        "reverse",
+        "평균 이온 에너지 170 psi 이하 후보 찾아줘",
+        "reverse_search",
+        {"constraints": [constraint("meanIonEnergy", "lte", 170, unit="psi")]},
+        clarification=True,
+    ),
+    Case(
         "AE1",
         "forward",
         "압력 8 mTorr, 소스 300 오ㅏ트, 바이어스 600 왓트 결과 보여줘",
@@ -677,7 +707,7 @@ ACCEPTANCE_CASES = [
                 "biasPower": scalar(600, "W"),
             }
         },
-        clarification=True,
+        clarification=False,
     ),
     Case(
         "AE3",
@@ -698,7 +728,7 @@ ACCEPTANCE_CASES = [
             "constraints": [constraint("meanIonEnergy", "between", low=150, high=160)],
             "goals": [goal("ionFlux", "maximize")],
         },
-        clarification=True,
+        clarification=False,
     ),
     Case(
         "AE5",

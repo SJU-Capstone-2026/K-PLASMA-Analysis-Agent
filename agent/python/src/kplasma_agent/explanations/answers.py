@@ -9,6 +9,10 @@ COMPARISON_PROMPT = """originalQuestion의 실제 실험 비교 질문에 답한
 observationIds로 질문에 필요한 코드 관찰 문장을 선택한다. 없는 ID나 다른 실험을 사용하지 않는다.
 evidence.runs의 별칭과 resolvedInputs가 확정된 선택이다. 이전 function_call의 제안은
 HITL에서 수정될 수 있으므로 확정된 결과를 따른다. 관찰 ID는 복사해서 사용한다.
+evidence.baselineKey가 null이면 기준 실험이 없는 비교다. 임의로 어느 실험을 기준 Run으로
+지정하거나 'R1을 기준으로' 같은 표현을 쓰지 않는다. 두 실험의 값·절대 차이로 설명한다.
+baselineKey가 있으면 그 별칭만 기준으로 사용한다. repair_error=ANSWER_BASELINE_MISMATCH이면
+기준 역할을 새로 가정한 모든 문장과 assumptions를 수정한다.
 수치 표와 관찰 문장은 UI가 그대로 출력한다. interpretations와 limitations에는 실험 수치·퍼센트·배율을
 다시 쓰거나 계산하지 말고 정성적으로 설명한다. 압력·전력 등 공정 조건의 숫자도 이 금지에 포함한다.
 예: '압력 8 mTorr에서' 대신 '같은 압력 조건에서'라고 쓴다. Run 별칭은 사용할 수 있다.
@@ -57,6 +61,20 @@ def validate_answer(draft, result):
         *(i["text"] for i in value["interpretations"]),
         *(a for i in value["interpretations"] for a in i["assumptions"]),
     ]
+    # Detect role assignment, including assumptions, without blocking a limitation
+    # such as '기준 실험이 없어 변화율을 계산하지 않았습니다.'
+    aliases = "|".join(re.escape(run["key"]) for run in result["runs"])
+    role_patterns = [
+        rf"(?<![A-Za-z0-9_])({aliases})(?![A-Za-z0-9_])\s*(?:을|를|이|가)?\s*(?:비교\s*)?기준",
+        rf"기준\s*(?:Run|런|실험)?\s*(?:은|는|으로|:|=)?\s*({aliases})(?![A-Za-z0-9_])",
+        rf"\b(?:baseline|reference)\s*(?:run\s*)?[:=]?\s*({aliases})\b",
+        rf"\b({aliases})\s+(?:as\s+(?:the\s+)?)?(?:baseline|reference)\b",
+    ]
+    for text in texts:
+        for pattern in role_patterns:
+            for match in re.finditer(pattern, text, re.IGNORECASE):
+                if match.group(1).casefold() != (result.get("baselineKey") or "").casefold():
+                    raise DomainError("ANSWER_BASELINE_MISMATCH")
     pattern = r"(?<![\w])[-+]?\d+(?:\.\d+)?\s*(?:%|퍼센트|배(?!열)|eV|전자볼트|와트|mTorr|Torr|W\b|m[⁻^-])"
     if any(re.search(pattern, text, re.IGNORECASE) for text in texts):
         raise DomainError("ANSWER_NUMERIC_RESTATEMENT")

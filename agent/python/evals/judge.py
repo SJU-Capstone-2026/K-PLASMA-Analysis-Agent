@@ -55,12 +55,8 @@ def _clarification_needed(value, context, case=None):
     try:
         for metric, quantity in inputs.get("conditions", {}).items():
             if quantity:
-                if not quantity.get("unit"):
-                    return True
                 normalize_value(metric, quantity["value"], quantity.get("unit"))
         for rule in [*inputs.get("constraints", []), *inputs.get("goals", [])]:
-            if any(rule.get(key) is not None for key in ("value", "min", "max")) and not rule.get("unit"):
-                return True
             normalize_value(rule["metric"], 0, rule.get("unit"))
     except NumericError:
         return True
@@ -109,7 +105,9 @@ def judge(case, raw):
         if operation["kind"] not in ("forward_lookup", "reverse_search"):
             continue
         try:
-            validate_grounding(operation, case.question, case.input_history, case.prior_interpretation)
+            validate_grounding(
+                operation, case.question, case.input_history, case.prior_interpretation, defaulted_units=[]
+            )
         except DomainError as error:
             grounding_error = error.code
             break

@@ -107,3 +107,4 @@ export interface AgentSubmission {text:string;stateToken:StateToken;selectedRunR
 export interface AgentResume {expectedRequestRevision:number;pendingInputId:string;input:Snapshot}
 export function isV1AnswerSnapshot(snapshot:Snapshot):boolean {return snapshot.implementationId==='v1'&&(snapshot.schemaVersion===1||snapshot.schemaVersion===2);}
 export type * from './answers.js';
+export {queryDefaultUnits} from './answers.js';

@@ -50,6 +50,7 @@ class GraphState(TypedDict, total=False):
     answer: dict
     comparison_answer: dict
     comparison_reference: dict
+    unit_assumptions: list
 
 
 def _request_input(state, message, reason, fields=None, options=None):
@@ -213,13 +214,20 @@ def build_graph(model, backend, settings, checkpointer):
                     if re.search(phrase, text):
                         chosen.append(name)
             if chosen != [kind] or kind not in scope_choices:
-                labels = {"forward_lookup": "조건 조회", "reverse_search": "후보 탐색", "compare_runs": "실험 비교"}
+                labels = {
+                    "forward_lookup": "조건 조회",
+                    "reverse_search": "후보 탐색",
+                    "compare_runs": "실험 비교",
+                }
                 return _request_input(
                     state,
                     "조회·탐색과 비교를 각각 실행해야 하는 질문입니다. 먼저 처리할 작업 하나를 선택해 주세요.",
                     "MIXED_REQUEST",
                     options=[
-                        {"label": labels[name] + " 먼저", "input": {"text": "먼저 " + labels[name] + "를 해줘"}}
+                        {
+                            "label": labels[name] + " 먼저",
+                            "input": {"text": "먼저 " + labels[name] + "를 해줘"},
+                        }
                         for name in scope_choices
                     ],
                 )
@@ -235,7 +243,23 @@ def build_graph(model, backend, settings, checkpointer):
             requested = inputs.get("ref_keys")
             allowed = {e["key"] for e in all_entries}
             baseline_required = bool(
-                re.search(r"변화율|퍼센트|%|기준\s*(?:대비|으로)|대비", state["question"])
+                re.search(
+                    r"변화율|퍼센트|%|대비",
+                    state["question"],
+                    re.IGNORECASE,
+                )
+                or (
+                    re.search(
+                        r"기준\s*(?:으로|Run|런|실험)|\bbaseline\b|\breference\s+run\b",
+                        state["question"],
+                        re.IGNORECASE,
+                    )
+                    and not re.search(
+                        r"기준\s*(?:Run|런|실험)?\s*(?:없이|없|미지정)|\b(?:without\s+(?:a\s+)?|no\s+)baseline\b",
+                        state["question"],
+                        re.IGNORECASE,
+                    )
+                )
             )
             if requested and not set(requested) <= allowed:
                 return _picker(state, baseline_required)
@@ -257,9 +281,28 @@ def build_graph(model, backend, settings, checkpointer):
                 inputs["baseline_key"] = snapshot["baselineKey"]
             if inputs.get("baseline_key") and inputs["baseline_key"] not in {e["key"] for e in entries}:
                 raise DomainError("INVALID_BASELINE_KEY")
-            if baseline_required and not inputs.get("baseline_key"):
+            baseline = inputs.get("baseline_key")
+            baseline_confirmed = baseline == snapshot.get("baselineKey") or any(
+                event.get("type") == "comparison_options" and event.get("baselineKey") == baseline
+                for event in state.get("input_history", [])
+            )
+            if baseline and not baseline_confirmed:
+                entry = next(e for e in entries if e["key"] == baseline)
+                names = "|".join(re.escape(name) for name in (baseline, entry["ref"]["runId"]))
+                text = "\n".join(
+                    [state["question"], *(e.get("text", "") for e in state.get("input_history", []))]
+                )
+                baseline_confirmed = bool(
+                    re.search(
+                        rf"(?<![A-Za-z0-9_-])(?:{names})(?![A-Za-z0-9_-])\s*(?:을|를)?\s*기준"
+                        rf"|(?:기준\s*[:=]\s*|\bbaseline\s*[:=]?\s*)(?:{names})(?![A-Za-z0-9_-])",
+                        text,
+                        re.IGNORECASE,
+                    )
+                )
+            if (baseline_required and not baseline) or (baseline and not baseline_confirmed):
                 request = _request_input(
-                    state, "변화율을 계산할 기준 실험을 선택해 주세요.", "MISSING_BASELINE", ["baselineKey"]
+                    state, "비교 기준으로 사용할 실험을 선택해 주세요.", "MISSING_BASELINE", ["baselineKey"]
                 )
                 request["pending"] = {
                     "type": "comparison_options",
@@ -269,18 +312,24 @@ def build_graph(model, backend, settings, checkpointer):
                     "allowedRunKeys": [e["key"] for e in entries],
                     "allowedTrendAxes": list(CONDITION_KEYS),
                 }
-                return {**request, "comparison_reference": {"entries": entries, "baselineKey": None}}
+                return {
+                    **request,
+                    "inputs": {**inputs, "baseline_key": None},
+                    "comparison_reference": {"entries": entries, "baselineKey": None},
+                }
             return {
                 "inputs": inputs,
                 "comparison_reference": {"entries": entries, "baselineKey": inputs.get("baseline_key")},
                 "route": "gather",
             }
+        defaulted_units: list[str] = []
         try:
             validate_grounding(
                 {"kind": kind, "inputs": inputs},
                 state["question"],
                 state.get("input_history", []),
-                state.get("interpretation"),
+                state.get("selection_payload", {}).get("prior_interpretation"),
+                defaulted_units=defaulted_units,
             )
         except DomainError as error:
             if error.code == "MISSING_UNIT":
@@ -293,16 +342,26 @@ def build_graph(model, backend, settings, checkpointer):
                 )
                 request["pending"]["unitMetric"] = metric
                 return request
-            return _request_input(
+            request = _request_input(
                 state,
                 "요청 조건을 확실히 연결하지 못했습니다. 지표별 수치·단위를 다시 알려 주세요.",
                 error.code,
             )
+            request["interpretation"] = {
+                "status": "unsupported",
+                "operations": [state["operation"]],
+                "unresolved": [{"reason": error.code}],
+            }
+            return request
         proposed = list((inputs.get("conditions") or {}).items())
         proposed += [
             (item["metric"], item) for group in ("constraints", "goals") for item in inputs.get(group, [])
         ]
         for metric, scalar_value in proposed:
+            if metric in defaulted_units and any(
+                scalar_value.get(k) is not None for k in ("value", "min", "max")
+            ):
+                scalar_value["unit"] = UNITS[metric]
             try:
                 normalize_value(metric, 0, scalar_value.get("unit"))
             except NumericError:
@@ -327,7 +386,11 @@ def build_graph(model, backend, settings, checkpointer):
             inputs.get(k) for k in ("constraints", "goals", "context_rules")
         ):
             return _request_input(state, "찾을 지표와 목표 또는 범위를 알려 주세요.", "MISSING_OBJECTIVE")
-        return {"route": "gather", "inputs": inputs}
+        return {
+            "route": "gather",
+            "inputs": inputs,
+            "unit_assumptions": [{"metric": metric, "unit": UNITS[metric]} for metric in defaulted_units],
+        }
 
     def wait_input(state):
         reply = interrupt(state["pending"])
@@ -606,6 +669,7 @@ def build_graph(model, backend, settings, checkpointer):
             "result": result,
             "answer": state.get("comparison_answer") if kind == "compare_runs" else None,
             "contextProvenance": state.get("context_provenance", {}) if kind != "generate_answer" else {},
+            "unitAssumptions": state.get("unit_assumptions", []) if search else [],
             "inputHistory": state.get("input_history", []),
             "usedRunRefs": refs,
             "versions": settings.versions(),

@@ -83,7 +83,7 @@ def claim():
     ]
     return {
         "request": {"requestId": "synthetic-recovery", "question": "선택한 실험의 플럭스 차이를 설명해줘"},
-        "context": {"comparisonReference": {"entries": entries, "baselineKey": None}},
+        "context": {"comparisonReference": {"entries": entries, "baselineKey": "R1"}},
         "inputEvents": [],
     }
 

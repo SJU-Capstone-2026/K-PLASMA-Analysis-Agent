@@ -19,6 +19,7 @@ _UNIT = (
     r"|(?:킬로|메가|밀리)\s*(?:전자\s*볼트|[e이]\s*볼트|와트|토[르어])"
     r"|millitorr|mTorr|Torr|밀리\s*토[르어]|토[르어]|kPa|Pa|keV|eV"
     r"|electron\s*volts?|전자\s*볼트|일렉트론\s*볼트|[e이]\s*볼트"
+    r"|줄|쥴|주울|파스칼|파스컬|암페어|켈빈"
     r"|watts?|(?:da|[yzafpnumkMGTPEZYµμ])?W(?:h)?|[A-Za-zµμ]*[가-힣ㄱ-ㅣᄀ-ᇿ]*트)"
 )
 _UNIT_RE = re.compile(r"(?<![A-Za-z])" + _UNIT + r"(?![A-Za-z])", re.IGNORECASE)
@@ -27,7 +28,7 @@ _ALIASES = {
     "sourcePower": r"source\s*power|source|소스\s*(?:전력|파워)?",
     "biasPower": r"bias\s*power|bias|바이어스\s*(?:전력|파워)?",
     "meanIonEnergy": r"mean\s*ion\s*energy|ion\s*energy|energy|평균\s*이온\s*에너지|이온\s*에너지|에너지",
-    "ionFlux": r"ion\s*flux|flux|이온\s*(?:플럭스|플럿스)|플럭스|플럿스",
+    "ionFlux": r"ion\s*flux|flux|이온\s*(?:플럭스|플럿스|플러스)|플럭스|플럿스",
     "iedWidth": r"ied\s*(?:width|폭)|width|폭",
 }
 
@@ -55,7 +56,40 @@ def _without_ids(text):
 
 def _unit_text(segment):
     match = _UNIT_RE.search(segment)
-    return match.group() if match else None
+    if match:
+        return match.group()
+    # An unfamiliar explicit symbol (e.g. psi) must not become an omitted unit.
+    unknown = re.search(_NUMBER + r"\s*([A-Za-zµμ]+)\b", segment)
+    if unknown and unknown.group(1).casefold() not in {
+        "and",
+        "or",
+        "to",
+        "at",
+        "most",
+        "least",
+        "above",
+        "below",
+        "under",
+        "over",
+        "less",
+        "greater",
+        "near",
+        "around",
+        "closest",
+        "candidates",
+        "candidate",
+        "runs",
+        "run",
+        "find",
+        "show",
+        "is",
+        "in",
+        "with",
+        "for",
+        "please",
+    }:
+        return unknown.group(1)
+    return None
 
 
 def _unit_signature(metric, unit):
@@ -382,12 +416,16 @@ def _comparison_intent_grounding(operation, question, history, prior):
             )
 
 
-def validate_grounding(operation, question, input_history, prior_interpretation=None):
+def validate_grounding(
+    operation, question, input_history, prior_interpretation=None, *, defaulted_units=None
+):
     """Return True or raise DomainError; never modify/repair a proposed operation.
 
     Prior input must be an already accepted interpretation. A rejected grounding
     result cannot become a trusted inherited slot on the next turn. Structured
-    history entries bind only their explicitly provided fields.
+    history entries bind only their explicitly provided fields. When the graph
+    supplies a defaulted_units collector, omitted units may use the registry's
+    fixed unit. Explicit units and numeric magnitudes are never repaired here.
     """
     operation = inputs_dict(operation)
     history = [item for item in (input_history or []) if isinstance(item, dict)]
@@ -429,21 +467,31 @@ def validate_grounding(operation, question, input_history, prior_interpretation=
         if isinstance(latest, str) and not _anchors(latest):
             anonymous = _evidence(_without_ids(latest))
     missing_units = []
+
+    def check_unit(claim, observed):
+        metric = claim["metric"]
+        if defaulted_units is not None and not observed.get("unit"):
+            if claim.get("unit") and _unit_signature(metric, claim["unit"]) != _unit_signature(
+                metric, UNITS[metric]
+            ):
+                raise DomainError("UNGROUNDED_NUMBER", ".".join(claim["key"]))
+            if metric not in defaulted_units:
+                defaulted_units.append(metric)
+        elif not claim.get("unit") or not observed.get("unit"):
+            missing_units.append(metric)
+
     for claim in claims:
         observed = evidence.get(claim["metric"])
         if observed is not None:
             if _same(claim, observed):
-                if not claim["unit"] or not observed.get("unit"):
-                    missing_units.append(claim["metric"])
+                check_unit(claim, observed)
                 continue
             raise DomainError("UNGROUNDED_NUMBER", ".".join(claim["key"]))
         if any(old["key"] == claim["key"] and _same(claim, old) for old in prior_claims):
-            if not claim["unit"]:
-                missing_units.append(claim["metric"])
+            check_unit(claim, claim)
             continue
         if anonymous is not None and claim is new_claims[0] and _same(claim, anonymous):
-            if not claim["unit"] or not anonymous.get("unit"):
-                missing_units.append(claim["metric"])
+            check_unit(claim, anonymous)
             continue
         raise DomainError("UNGROUNDED_NUMBER", ".".join(claim["key"]))
     if missing_units:
