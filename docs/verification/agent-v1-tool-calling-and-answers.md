@@ -78,6 +78,6 @@ flowchart TD
 
 모델 응답을 checkpoint에 저장하기 전에 종료되면 외부 호출이 반복될 수 있다. 영속 저장된 draft 이후에는 재사용하며 최종 저장 효과를 한 번으로 제한한다. Phoenix batch 전송은 SIGKILL·네트워크 장애에서 유실될 수 있고 SDK 종료 지연이 가능하다. 복구 기준은 PostgreSQL이다.
 
-빌드는 성공했지만 minified 초기 JS chunk가 약 564KB라는 경고가 있다. 일반 답변은 안전한 Markdown을 지원하며 LaTeX 수식의 별도 typesetting은 이번 범위에 도입하지 않았다. 현재 worker·backend·frontend를 재시작해야 새 코드가 실행된다. 오래된 미완료 작업은 새 질문으로 제출하고 완료 스냅샷을 다시 생성하지 않는다.
+2026-10-07 검증 당시 빌드는 성공했지만 minified 초기 JS chunk가 약 564KB라는 경고가 있었다. 그때 일반 답변은 안전한 Markdown을 지원했으며 LaTeX 수식의 별도 typesetting은 도입하지 않았다. 이후 수식 렌더링과 일반 답변 지연 로딩은 [2026-10-08 후속 검증](agent-v1-math-rendering.md)에 기록했다. worker·backend·frontend를 재시작해야 새 코드가 실행된다. 오래된 미완료 작업은 새 질문으로 제출하고 완료 스냅샷을 다시 생성하지 않는다.
 
 운영 담당자는 처음 30분 동안 네 종류 질문과 누락 단위/참조 추가 입력을 시험하고 Phoenix의 tool_selection·generate_answer·validate_answer와 사용량을 확인한다. 지속되는 `MODEL_UNAVAILABLE`, `MODEL_ATTEMPT_LIMIT`, `ANSWER_OBSERVATION_MISMATCH`, `ANSWER_NUMERIC_RESTATEMENT`, `RECOVERY_VERSION_MISMATCH` 또는 중복 turn/틀린 버전은 worker 중지·설정/배포 버전 확인 신호다. 자동 fallback으로 우회하지 않는다. 키와 상세 trace를 Git·CI artifact에 게시하지 않는다.

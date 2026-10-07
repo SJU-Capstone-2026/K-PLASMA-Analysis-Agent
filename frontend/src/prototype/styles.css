@@ -2908,4 +2908,7 @@ p.manual-limit { margin-bottom: 0; color: #826947; font-size: 9px; line-height: 
 .v1-unit-help{margin-top:12px;font-size:13px;color:#627594}.v1-unit-help summary,.v1-comparison details summary{cursor:pointer}.v1-unit-help ul{display:flex;flex-wrap:wrap;gap:6px 16px;list-style:none;padding:0}
 .v1-comparison .v1-calculation-evidence{margin-top:18px;padding:12px 16px;border:1px solid #d6e0f3;border-radius:10px;background:#f8faff}.v1-comparison .v1-run-metadata{font-weight:400;font-size:12px;color:#627594;margin:6px 0}
 .v1-markdown{line-height:1.7}.v1-markdown pre{overflow:auto;background:#f5f7fc;padding:14px;border-radius:10px}.v1-markdown table{display:block;max-width:100%;overflow:auto}.v1-markdown th,.v1-markdown td{padding:8px;border:1px solid #d6e0f3}
+.v1-markdown .katex{overflow-wrap:normal}
+.v1-markdown .katex-display{max-width:100%;overflow-x:auto;overflow-y:hidden;padding:4px 0}
+.v1-markdown .katex-error{white-space:pre-wrap;overflow-wrap:anywhere}
 @media(max-width:600px){.v1-picker-controls{gap:10px}.v1-picker-list{max-height:320px}.v1-picker-chips{max-height:140px;overflow:auto}.v1-run-selection .v1-card-actions{flex-wrap:wrap}.v1-run-selection .button{max-width:100%;white-space:normal}}
