@@ -47,6 +47,7 @@
 | Python Ruff / Mypy | 통과 / 24개 source file 오류 없음 |
 | `playwright test --config frontend/src/features/agent/agent-v1.playwright.config.ts` | **16 통과 / 외부 프로토타입 전용 8 생략** |
 | `KPLASMA_V1_LIVE_WIDTHS=1440 npm run test:e2e` | 실제 HTTP·PostgreSQL·Python graph와 고정 모델 대역: **2 통과** |
+| `KPLASMA_V1_LIVE_WIDTHS=1440 npm run test:e2e:live` | 실제 모델·HTTP·DB·worker·브라우저: **2 통과**. 네 도구, 비교 선택, 추가 입력·reload·모달·중복 방지 확인 |
 | 실제 `gpt-5.6-luna` / 추론 `none` | 후보 전체 조회 → 태그 3개 잔차 파형·마지막/최대 비교 → 플럭스 비교 **3/3 완료** |
 | `npm run verify:public-files`, `git diff --check` | 통과; heuristic guard와 변경 파일 수동 검토 병행 |
 
