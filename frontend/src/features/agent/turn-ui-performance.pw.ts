@@ -65,7 +65,7 @@ test('synthetic card and stored graph-tab click latency, with identical 500ms UI
   const sample=await measure(page,selector,`${selector}[aria-selected="true"]`);
   if(index>=2)results.graph.push(sample);await expect.poll(()=>writes).toBe(++expectedWrites);
  }
- const report={variant:process.env.KPLASMA_UI_BASELINE_FILE?'before':'after',browser:page.context().browser()?.version(),viewport:{width:1440,height:1000},saveDelayMs:500,samplesPerAction:20,warmupPerAction:2,writes,
+ const report={variant:(process.env.KPLASMA_UI_BASELINE_FILE||process.env.KPLASMA_UI_BASELINE_REF)?'before':'after',browser:page.context().browser()?.version(),viewport:{width:1440,height:1000},saveDelayMs:500,samplesPerAction:20,warmupPerAction:2,writes,
   stats:{card:{dom:stats(results.card.map(s=>s.domMs)),frame:stats(results.card.map(s=>s.frameMs))},graph:{dom:stats(results.graph.map(s=>s.domMs)),frame:stats(results.graph.map(s=>s.frameMs))}},samples:results};
  const path=process.env.KPLASMA_UI_PERF_REPORT??info.outputPath('turn-ui-performance.json');
  await writeFile(path,JSON.stringify(report,null,2));console.log(JSON.stringify({...report,samples:undefined}));
@@ -118,7 +118,7 @@ test('existing workspace card and graph latency over real HTTP and PostgreSQL',a
   const live=await load();expect(fingerprint(live)).toBe(fingerprint(original));
   const runsResponse=await request.get(`${api}/api/runs`);expect(runsResponse.status()).toBe(200);const runs=await runsResponse.json() as unknown[];
   const aggregate=(values:LiveSample[])=>({dom:stats(values.map(s=>s.domMs)),frame:stats(values.map(s=>s.frameMs)),http:stats(values.map(s=>s.httpMs)),clickToResponse:stats(values.map(s=>s.clickToResponseMs)),responseBytes:stats(values.map(s=>s.responseBytes))});
-  report={variant:process.env.KPLASMA_UI_BASELINE_FILE?'before':'after',mode:'real-http-postgresql',browser:page.context().browser()?.version(),viewport:{width:1440,height:1000},artificialDelayMs:0,registeredRuns:runs.length,conversationTurns:original.conversation.turns.length,cardsInMeasuredGroup:candidates.length,samplesPerAction:20,warmupPerAction:5,writes,mutationErrors,pageErrors:errors.length,conversationSnapshotsUnchanged:true,stats:{card:aggregate(samples.card),graph:aggregate(samples.graph)},samples};
+  report={variant:(process.env.KPLASMA_UI_BASELINE_FILE||process.env.KPLASMA_UI_BASELINE_REF)?'before':'after',mode:'real-http-postgresql',browser:page.context().browser()?.version(),viewport:{width:1440,height:1000},artificialDelayMs:0,registeredRuns:runs.length,conversationTurns:original.conversation.turns.length,cardsInMeasuredGroup:candidates.length,samplesPerAction:20,warmupPerAction:5,writes,mutationErrors,pageErrors:errors.length,conversationSnapshotsUnchanged:true,stats:{card:aggregate(samples.card),graph:aggregate(samples.graph)},samples};
   expect(writes).toBe(50);expect(errors).toEqual([]);
  }finally{
   const live=await load();expect(live.stateToken.workspaceEpoch).toBe(original.stateToken.workspaceEpoch);expect(live.stateToken.conversationEpoch).toBe(original.stateToken.conversationEpoch);expect(fingerprint(live)).toBe(fingerprint(original));

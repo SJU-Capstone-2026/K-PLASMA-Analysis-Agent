@@ -2,6 +2,7 @@ import type {RunSummary,Snapshot,TurnSnapshot} from 'agent';
 import {numberText,searchGroups,searchMetricNames,snapshotResult,type SearchResult} from './agent-contract';
 
 const legacyOperators:Record<string,string>={between:'RANGE',gte:'MIN',lte:'MAX',eq:'EQUAL',gt:'>',lt:'<'};
+type SearchPresentationInput=Pick<TurnSnapshot,'answerSnapshot'|'question'>;
 const finite=(value:unknown):value is number=>typeof value==='number'&&Number.isFinite(value);
 const display=(value:unknown,digits=2)=>finite(value)?numberText(value,digits):'N/A';
 const signed=(value:unknown,digits=2,suffix='')=>finite(value)?`${value<0?'−':''}${numberText(Math.abs(value),digits,value>0)}${suffix}`:'비교 불가';
@@ -15,7 +16,7 @@ function groupNotice(id:string){
 /** Presentation only: saved Python order, evaluations and versions are authoritative.
  * Never execute the JS fallback, re-filter candidates or recompute a score here.
  */
-export function v1SearchModel(turn:TurnSnapshot):Record<string,unknown>{
+export function v1SearchModel(turn:SearchPresentationInput):Record<string,unknown>{
  const result=snapshotResult<SearchResult>(turn.answerSnapshot);
  if(result.kind==='forward_lookup')return {
   intent:'FORWARD_LOOKUP',status:result.resultStatus,runSummary:result.selectedRun??result.candidates?.[0]??null,
@@ -66,7 +67,7 @@ export function v1SearchModel(turn:TurnSnapshot):Record<string,unknown>{
  };
 }
 
-function originalConditions(turn:TurnSnapshot,result:SearchResult){
+function originalConditions(turn:SearchPresentationInput,result:SearchResult){
  const interpretation=turn.answerSnapshot.interpretation as {operations?:{inputs?:{conditions?:Record<string,{value:number;unit?:string}>}}[]}|undefined;
  const selection=turn.answerSnapshot.toolSelection as {arguments?:{conditions?:Record<string,{value:number;unit?:string}>}}|undefined;
  const pressure=selection?.arguments?.conditions?.pressure??interpretation?.operations?.[0]?.inputs?.conditions?.pressure;
