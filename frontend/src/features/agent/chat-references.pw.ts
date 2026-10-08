@@ -49,6 +49,11 @@ for(const width of [390,800,1008,1440])test(`answer chrome and multiple chat ref
  await page.reload();await expect(composer.locator('.reference-tray-label')).toHaveText('후보 집합 · 6개');
  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth)).toBe(true);
  expect(await composer.evaluate(node=>node.scrollWidth<=node.clientWidth+1)).toBe(true);
+ const chips=composer.locator('.run-context-chip');
+ for(const chip of await chips.all()){
+  expect(await chip.locator('strong').evaluate(node=>node.scrollWidth<=node.clientWidth+1)).toBe(true);
+  expect(await chip.getByRole('button').evaluate(node=>node.getBoundingClientRect().width)).toBeLessThanOrEqual(32);
+ }
  await composer.screenshot({path:info.outputPath(`synthetic-chat-references-${width}.png`)});
  holdReference=true;await add.nth(0).click();await expect.poll(()=>!!releaseReference).toBe(true);
  await add.nth(7).click();

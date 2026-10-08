@@ -2779,6 +2779,17 @@ p.manual-limit { margin-bottom: 0; color: #826947; font-size: 9px; line-height: 
   box-sizing: border-box;
 }
 .reference-tray.is-single:has(.reference-tray-clear) .reference-tray-runs { padding-right: 36px; }
+.agent-composer .reference-tray-runs,
+.agent-composer .reference-tray-more-grid {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
+}
+.agent-composer .run-context-chip button {
+  flex: 0 0 28px;
+  width: 28px;
+  min-width: 28px;
+  height: 28px;
+  min-height: 28px;
+}
 .reference-tray .run-context-chip,
 .agent-composer > .reference-tray .run-context-chip,
 .agent-user-message .reference-tray .run-context-chip {

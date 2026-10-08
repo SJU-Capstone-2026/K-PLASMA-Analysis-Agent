@@ -1,6 +1,6 @@
 import type {RunRef} from 'agent';
 import {buildReferenceDisplayModel} from '../prototype/view-models';
-export function RunChip({runId,onRemove}:{runId:string;onRemove?:()=>void}){return <span className="run-context-chip"><i aria-hidden="true"/><strong>{runId}</strong>{onRemove&&<button type="button" onClick={onRemove} aria-label={`${runId} 채팅에서 제거`}>×</button>}</span>;}
+export function RunChip({runId,onRemove}:{runId:string;onRemove?:()=>void}){return <span className="run-context-chip"><i aria-hidden="true"/><strong title={runId}>{runId}</strong>{onRemove&&<button type="button" onClick={onRemove} aria-label={`${runId} 채팅에서 제거`}>×</button>}</span>;}
 export function ReferenceTray({references,onRemove,onRemoveRun}:{references:RunRef[];onRemove?:()=>void;onRemoveRun?:(ref:RunRef)=>void}){
  const model=buildReferenceDisplayModel({ids:references.map(ref=>ref.runId)});if(!model)return null;
  const chip=(item:{runId:string})=><RunChip key={item.runId} runId={item.runId} onRemove={onRemoveRun?()=>onRemoveRun(references.find(ref=>ref.runId===item.runId)!):undefined}/>;
