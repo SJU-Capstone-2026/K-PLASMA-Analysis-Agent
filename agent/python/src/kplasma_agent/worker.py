@@ -127,7 +127,7 @@ def _fail_graph(backend, graph, config, error):
     if state.get("verified") and state.get("operation", {}).get("kind") in ("explain_change", "compare_runs"):
         partial = {**state["result"], "explanationComplete": False}
         if state["operation"]["kind"] == "compare_runs":
-            partial["schemaVersion"] = 3 if "featurePolicyVersion" in partial else 2
+            partial["schemaVersion"] = 2
     backend.fail(code, partial)
     LOG.warning("request failed: %s", code)
 

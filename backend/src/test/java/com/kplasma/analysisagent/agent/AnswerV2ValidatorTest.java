@@ -21,15 +21,6 @@ class AnswerV2ValidatorTest {
         var inventory=refs.stream().map(r->mapper.convertValue(r,RunRef.class)).toList();
         return new AgentResponse(Map.of("compare_runs","RUN_COMPARISON","generate_answer","GENERAL_ANSWER","forward_lookup","FORWARD_LOOKUP","reverse_search","REVERSE_SEARCH").get(snapshot.get("kind")),String.valueOf(result.get("resultStatus")),List.of(),null,snapshot,inventory);
     }
-    @Test void extendedFixtureIsStrictAndDoesNotWeakenHistoricalSchema()throws Exception{
-        @SuppressWarnings("unchecked") var root=(Map<String,Object>)mapper.readValue(Files.readString(Path.of("../agent/tests/support/answer-v3-wire.json")),Map.class);
-        @SuppressWarnings("unchecked") var snapshot=(Map<String,Object>)root.get("comparison");
-        var extended=new AnswerV2Validator(new SnapshotValidator(null,null),true);
-        extended.answer(response(snapshot),"인공 파형 비교");
-        assertThatThrownBy(()->validator.answer(response(snapshot),"인공 파형 비교")).hasMessageContaining("Unknown answer version");
-        @SuppressWarnings("unchecked") var result=(Map<String,Object>)snapshot.get("result");result.put("unexpected",true);
-        assertThatThrownBy(()->extended.answer(response(snapshot),"인공 파형 비교")).hasMessageContaining("fields mismatch");
-    }
     @Test void sharedFixturePreservesZeroNullAndCompletePartial()throws Exception{
         var comparison=wire("comparison");validator.answer(response(comparison),"인공 질문");
         var general=wire("general");validator.answer(response(general),(String)general.get("originalQuestion"));

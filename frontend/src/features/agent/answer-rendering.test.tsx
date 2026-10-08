@@ -16,7 +16,7 @@ function turn(id:string,candidate=run):TurnSnapshot{
   answerSnapshot:JSON.parse(JSON.stringify({implementationId:'v1',schemaVersion:1,kind:'reverse_search',result:{kind:'reverse_search',resultStatus:'MATCH',commonCandidates:[{run:candidate,evaluations:[]}],objectiveResults:[{objective:{id:'energy',metric:'meanIonEnergy',operator:'MIN',value:30,unit:'eV'},candidates:[{run:other,evaluations:[]},{run:third,evaluations:[]}]}],goalResults:[],nearMisses:[]}})),ui:structuredClone(initialTurnUi)};
 }
 function props(turns:TurnSnapshot[]):AgentPageProps{
- return {conversation:{state:{...emptyWorkspace,conversation:{version:1,activeRun:null,turns}},ready:true,error:'',pending:false,provisionalMessage:null,activeRequest:null,sending:false,submit:async()=>{},resume:async()=>{},cancel:async()=>{},updateTurnUi:async()=>{},setReference:async()=>{},refresh:async()=>{},newConversation:async()=>{},reset:async()=>{}},records:[],notify:()=>{},onDetail:()=>{},onRecord:()=>{},onEvidence:()=>{},onDemo:async()=>{}};
+ return {conversation:{state:{...emptyWorkspace,conversation:{version:1,activeRun:null,turns}},ready:true,error:'',pending:false,activeRequest:null,sending:false,submit:async()=>{},resume:async()=>{},cancel:async()=>{},updateTurnUi:async()=>{},setReference:async()=>{},refresh:async()=>{},newConversation:async()=>{},reset:async()=>{}},records:[],notify:()=>{},onDetail:()=>{},onRecord:()=>{},onEvidence:()=>{},onDemo:async()=>{}};
 }
 afterEach(()=>vi.restoreAllMocks());
 

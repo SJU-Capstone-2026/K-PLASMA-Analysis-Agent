@@ -17,11 +17,9 @@ public final class WorkspaceDto {
             RunRef context, List<RunRef> answerRunRefs, Map<String, Object> answerSnapshot, TurnUiSnapshot ui) {}
     public record ReferenceState(String kind, List<RunRef> runs) {}
     public record Conversation(int version, RunRef activeRun, List<TurnSnapshot> turns) {}
-    public record AgentMessage(String requestId,String clientMessageId,String createdAt,String question,List<RunRef> submittedRunRefs,String status,String turnId) {}
     public record WorkspaceView(StateToken stateToken, Conversation conversation, ReferenceState candidateReference,
-            Map<String,Object> activeAgentRequest,Map<String,Object> failedAgentRequest,List<AgentMessage> agentMessages) {
-        public WorkspaceView(StateToken token,Conversation conversation,ReferenceState reference,Map<String,Object> active,Map<String,Object> failed){this(token,conversation,reference,active,failed,List.of());}
-        public WorkspaceView(StateToken stateToken,Conversation conversation,ReferenceState candidateReference){this(stateToken,conversation,candidateReference,null,null,List.of());}
+            Map<String,Object> activeAgentRequest,Map<String,Object> failedAgentRequest) {
+        public WorkspaceView(StateToken stateToken,Conversation conversation,ReferenceState candidateReference){this(stateToken,conversation,candidateReference,null,null);}
     }
     public record TurnWrite(@JsonProperty(required=true) StateToken stateToken, @JsonProperty(required=true) TurnSnapshot turn) {}
     public record UiWrite(@JsonProperty(required=true) StateToken stateToken, @JsonProperty(required=true) Map<String,Object> ui) {}

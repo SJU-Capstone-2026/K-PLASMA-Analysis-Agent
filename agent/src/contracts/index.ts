@@ -66,8 +66,7 @@ export interface TurnSnapshot { id: string; askedAt: string; question: string; i
 export type ReferenceState = { kind: '단일 Run' | '후보 집합'; runs: RunRef[] } | null;
 export interface ReferenceWrite { stateToken: StateToken; candidateReference: ReferenceState; activeRun: RunRef | null }
 export interface Conversation { version: 1; activeRun: RunRef | null; turns: TurnSnapshot[] }
-export interface AgentMessage {requestId:string;clientMessageId:string|null;createdAt:string;question:string;submittedRunRefs:RunRef[];status:AgentRequestStatus|'SENDING'|'SEND_UNCERTAIN';turnId:string|null}
-export interface WorkspaceView {agentMessages?:AgentMessage[]; stateToken: StateToken; conversation: Conversation; candidateReference: ReferenceState; activeAgentRequest?:AgentRequestView|null; failedAgentRequest?:AgentRequestView|null }
+export interface WorkspaceView { stateToken: StateToken; conversation: Conversation; candidateReference: ReferenceState; activeAgentRequest?:AgentRequestView|null; failedAgentRequest?:AgentRequestView|null }
 export type Decision = 'ADOPT' | 'HOLD' | 'REJECT';
 export type ExperimentDecision = Decision | 'ALTERNATIVE' | 'COMPARISON';
 export interface RunSnapshot extends RunRef { conditions: Conditions; metrics: Metrics; supportingMetrics: { electronDensity: number; electronTemperature: number } }
@@ -106,6 +105,6 @@ export interface AgentRequestView {
 }
 export interface AgentSubmission {text:string;stateToken:StateToken;selectedRunRef?:RunRef;baseline?:RunRef;candidateReferences?:RunRef[];attachedRunRefs?:RunRef[];referenceOrigins?:import('./answers.js').ReferenceOrigin[]}
 export interface AgentResume {expectedRequestRevision:number;pendingInputId:string;input:Snapshot}
-export function isV1AnswerSnapshot(snapshot:Snapshot):boolean {return snapshot.implementationId==='v1'&&(snapshot.schemaVersion===1||snapshot.schemaVersion===2||snapshot.schemaVersion===3);}
+export function isV1AnswerSnapshot(snapshot:Snapshot):boolean {return snapshot.implementationId==='v1'&&(snapshot.schemaVersion===1||snapshot.schemaVersion===2);}
 export type * from './answers.js';
 export {queryDefaultUnits} from './answers.js';

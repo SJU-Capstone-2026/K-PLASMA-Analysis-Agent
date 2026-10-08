@@ -41,8 +41,6 @@ def _anchors(text):
     matches = []
     for metric, aliases in _ALIASES.items():
         for found in re.finditer(r"(?<![A-Za-z])(?:" + aliases + r")(?![A-Za-z])", text, re.IGNORECASE):
-            if metric == "iedWidth" and found.group() == "폭" and found.start() > 0 and text[found.start()-1] == "진":
-                continue
             matches.append((found.start(), found.end(), metric))
     accepted: list[tuple[int, int, str]] = []
     for start, end, metric in sorted(matches, key=lambda m: (m[0], -(m[1] - m[0]))):
@@ -545,6 +543,6 @@ def validate_native_comparison_metrics(inputs, question, history):
     ):
         return True
     mentioned = {metric for _, _, metric in _anchors(text)} & {"meanIonEnergy", "ionFlux", "iedWidth"}
-    if mentioned and set(inputs.get("comparison_fields") or inputs.get("metrics") or []) & {"meanIonEnergy", "ionFlux", "iedWidth"} != mentioned:
+    if mentioned and set(inputs.get("metrics") or []) != mentioned:
         raise DomainError("UNGROUNDED_METRICS")
     return True

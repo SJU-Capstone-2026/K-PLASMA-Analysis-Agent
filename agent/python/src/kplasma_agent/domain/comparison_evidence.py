@@ -1,7 +1,5 @@
 """Observation sentences are computed by code, never supplied by the model."""
 
-from ..comparison_catalog import FIELD_META
-
 from ..metric_registry import LABELS, format_value
 
 
@@ -31,12 +29,12 @@ def observations(result):
                 "run",
                 row["key"],
                 metric,
-                f"{row['key']} ({row['ref']['runId']})의 {FIELD_META[metric]["label"]}: {display(value)}.",
+                f"{row['key']} ({row['ref']['runId']})의 {LABELS[metric]}: {display(value)}.",
             )
     for row in result["comparisons"]:
         metric = row["metric"]
         absolute = row["kind"] == "absolute_difference"
-        text = f"{row['leftKey']} → {row['rightKey']}의 {FIELD_META[metric]["label"]} {'절대 차이' if absolute else '변화량'}: {display(row['difference'])}."
+        text = f"{row['leftKey']} → {row['rightKey']}의 {LABELS[metric]} {'절대 차이' if absolute else '변화량'}: {display(row['difference'])}."
         if row["percentChange"] is not None:
             text += f" 기준 대비 변화율: {display(row['percentChange'])}."
         add("comparison", row["id"], metric, text)
@@ -45,7 +43,7 @@ def observations(result):
             "summary",
             row["id"],
             row["metric"],
-            f"선택한 Run의 {FIELD_META[row['metric']]['label']} 최솟값: {display(row['minimum'])}, "
+            f"선택한 Run의 {LABELS[row['metric']]} 최솟값: {display(row['minimum'])}, "
             f"최댓값: {display(row['maximum'])}, 범위 폭: {display(row['range'])}. "
             f"가용 Run {row['availableCount']}개.",
         )
@@ -63,6 +61,6 @@ def observations(result):
             row["id"],
             row["metric"],
             f"다른 공정 조건이 같은 집합({', '.join(row['orderedKeys'])})의 {LABELS[row['axis']]} 순 "
-            f"{FIELD_META[row['metric']]['label']} 경향: {direction_labels[row['direction']]}. 관찰된 지점만 설명하며 인과를 확정하지 않습니다.",
+            f"{LABELS[row['metric']]} 경향: {direction_labels[row['direction']]}. 관찰된 지점만 설명하며 인과를 확정하지 않습니다.",
         )
     return output

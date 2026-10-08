@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: K-PLASMA Agent Graph v1
-  version: 3.0.0
+  version: 2.0.0
   description: |
     Python LangGraph worker; Spring owns durable request acceptance and final turns.
     Existing fallback is preserved as source but is not invoked by v1.
@@ -15,7 +15,7 @@ info:
     Reverse goals order common matches and no longer generate independent global
     goal tabs. New reverse snapshots keep goalResults as an empty compatibility
     array; objectiveResults retain independent condition matches.
-    Search presentation stays compatible. Search/general answers retain schemaVersion 2. Extended comparisons use schemaVersion 3.
+    Search presentation stays compatible. New completed answers use schemaVersion 2.
     One native tool call selects forward_lookup, reverse_search, compare_runs or generate_answer.
     Old completed schema-1 answers remain readable; old pending jobs fail the build fingerprint fence.
     All worker endpoints require X-Agent-Token configured by AGENT_WORKER_TOKEN.
@@ -36,49 +36,6 @@ info:
     operations such as concept explanation may continue. New conversation/reset
     always cancel immediately. No model call holds a DB transaction.
 paths:
-  /api/run-versions/outputs:
-    post:
-      summary: Batch-load exact-version original outputs for charts
-      description: Maximum 50 unique Run references and 7 output IDs. One manifest SQL per batch, bounded source cache. Individual unavailable outputs retain a reason; no fabricated curves. Never overwrites saved answer scalars.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: '#/components/schemas/OutputQuery' }
-      responses:
-        '200':
-          description: Native axes and units, full-source extrema, bounded original display samples. Display payload is browser-only.
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/OutputResponse' }
-        '400': { description: Invalid batch bounds, duplicate refs or unknown output ID }
-  /internal/agent/requests/{id}/comparison-outputs:
-    post:
-      summary: Load compact full-source features for the fixed comparison selection
-      security: [{ WorkerToken: [] }]
-      parameters:
-        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
-      description: claimGeneration and requestRevision fence before/after I/O; runRefs must be a subset of captured comparisonReference. Worker batches 25 (API max 50). No raw display arrays are returned. No new batch resume protocol.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              allOf:
-                - { $ref: '#/components/schemas/OutputQuery' }
-                - type: object
-                  required: [claimGeneration, requestRevision]
-                  properties:
-                    claimGeneration: { type: integer }
-                    requestRevision: { type: integer }
-      responses:
-        '200':
-          description: Compact outputs array with metadata, typed scalar features and display=null.
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/OutputResponse' }
-        '400': { description: Unknown output or selection outside the fixed inventory }
-        '409': { description: Stale worker claim }
   /api/agent/requests:
     post:
       operationId: submitAgentRequest
@@ -349,58 +306,6 @@ components:
               catalogRunRefs: { type: array, items: { $ref: '#/components/schemas/RunRef' }, description: Immutable latest-version inventory for scoped reverse queries. }
               reverseQuery: { $ref: '#/components/schemas/ReverseQuery' }
   schemas:
-    OutputResponse:
-      type: object
-      additionalProperties: false
-      required: [outputs]
-      properties:
-        outputs:
-          type: array
-          maxItems: 350
-          items:
-            type: object
-            additionalProperties: false
-            required: [metadata, features, display]
-            properties:
-              metadata: { $ref: './agent-answer-v3.schemas.yaml#/$defs/OutputMetadata' }
-              features:
-                type: object
-                additionalProperties: { $ref: './agent-answer-v2.schemas.yaml#/components/schemas/ScalarDatum' }
-              display:
-                anyOf:
-                  - type: 'null'
-                  - type: object
-                    additionalProperties: false
-                    required: [kind, samples, rows]
-                    properties:
-                      kind: { enum: [line, grid] }
-                      samples:
-                        type: array
-                        maxItems: 164
-                        items:
-                          type: object
-                          additionalProperties: false
-                          required: [x, y]
-                          properties:
-                            x: { type: number }
-                            y: { type: number }
-                      rows:
-                        type: array
-                        maxItems: 41
-                        items:
-                          type: object
-                          additionalProperties: false
-                          required: [x, coordinates, values]
-                          properties:
-                            x: { type: number }
-                            coordinates: { type: array, maxItems: 61, items: { type: number } }
-                            values: { type: array, maxItems: 61, items: { type: number } }
-    OutputQuery:
-      type: object
-      required: [runRefs, plotIds]
-      properties:
-        runRefs: { type: array, minItems: 1, maxItems: 50, uniqueItems: true, items: { $ref: '#/components/schemas/RunRef' } }
-        plotIds: { type: array, minItems: 1, maxItems: 7, uniqueItems: true, items: { enum: [ied, iad, iead, current, potential, density, residual] } }
     RunRef:
       type: object
       required: [runId, runVersionId]
@@ -482,12 +387,11 @@ components:
         error: { type: [object, 'null'] }
         partialResult:
           type: [object, 'null']
-          description: Failed compare_runs retains every field of ComparisonResultV2 or extended ComparisonResultV3 plus schemaVersion=2/3 and explanationComplete=false; no answerSnapshot, LLM draft or new turn.
+          description: Failed compare_runs retains every field of ComparisonResultV2 plus schemaVersion=2 and explanationComplete=false; no answerSnapshot, LLM draft or new turn.
         turnId: { type: [string, 'null'] }
         answerSnapshot:
           oneOf:
             - { $ref: './agent-answer-v2.schemas.yaml#/components/schemas/AnswerSnapshotV2' }
-            - { $ref: './agent-answer-v3.schemas.yaml' }
             - { type: object, properties: { schemaVersion: { const: 1 } }, description: Immutable historical schema-1 snapshot. }
             - { type: 'null' }
         intent: { type: [string, 'null'] }

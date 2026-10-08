@@ -16,7 +16,7 @@ public class WorkspaceRepository {
     private final AgentRequestRepository agents;
     public WorkspaceRepository(JdbcTemplate jdbc,ObjectMapper mapper,AgentRequestRepository agents) {this.jdbc=jdbc;this.mapper=mapper;this.agents=agents;}
     public WorkspaceView lock() {
-        return jdbc.queryForObject("select * from workspace where id=1 for update",(rs,n)->new WorkspaceView(new StateToken(rs.getLong("workspace_epoch"),rs.getLong("conversation_epoch"),rs.getLong("revision")),new Conversation(1,read(rs.getString("active_run"),RunRef.class),turns()),read(rs.getString("candidate_reference"),ReferenceState.class),agents.latest(rs.getLong("workspace_epoch"),rs.getLong("conversation_epoch"),false),agents.latest(rs.getLong("workspace_epoch"),rs.getLong("conversation_epoch"),true),agents.messages(rs.getLong("workspace_epoch"),rs.getLong("conversation_epoch"))));
+        return jdbc.queryForObject("select * from workspace where id=1 for update",(rs,n)->new WorkspaceView(new StateToken(rs.getLong("workspace_epoch"),rs.getLong("conversation_epoch"),rs.getLong("revision")),new Conversation(1,read(rs.getString("active_run"),RunRef.class),turns()),read(rs.getString("candidate_reference"),ReferenceState.class),agents.latest(rs.getLong("workspace_epoch"),rs.getLong("conversation_epoch"),false),agents.latest(rs.getLong("workspace_epoch"),rs.getLong("conversation_epoch"),true)));
     }
     private <T> T read(String json,Class<T> type) {return json==null?null:mapper.readValue(json,type);}
     private List<TurnSnapshot> turns() {

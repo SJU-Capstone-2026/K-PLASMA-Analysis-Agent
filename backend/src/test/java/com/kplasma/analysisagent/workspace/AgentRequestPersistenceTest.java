@@ -36,17 +36,6 @@ class AgentRequestPersistenceTest extends WorkspaceTestSupport {
         assertThat(runReads).hasSize(2);assertThat(manifest.get("referencedRuns").size()).isEqualTo(size);assertThat(manifest.get("catalogRunRefs").size()).isZero();
         clearInvocations(observedJdbc);internal(path+"/context",input);
         assertThat(mockingDetails(observedJdbc).getInvocations().stream().filter(call->call.getArguments().length==3&&call.getArguments()[1] instanceof org.springframework.jdbc.core.RowMapper<?> &&call.getArguments()[0] instanceof String sql&&sql.startsWith("select")&&sql.contains("from run_version"))).hasSize(1);
-        clearInvocations(observedJdbc);
-        for(int offset=0;offset<size;offset+=25){
-            var batch=chosen.subList(offset,Math.min(offset+25,size));var outputInput=new HashMap<>(fence(claimed));
-            outputInput.put("runRefs",batch);outputInput.put("plotIds",List.of("current","residual"));
-            var response=internal(path+"/comparison-outputs",outputInput);
-            assertThat(response.get("outputs").size()).isEqualTo(batch.size()*2);
-            response.get("outputs").forEach(output->assertThat(output.get("display").isNull()).isTrue());
-        }
-        long outputSql=mockingDetails(observedJdbc).getInvocations().stream().filter(call->call.getMethod().getParameterCount()==3&&call.getMethod().getParameterTypes()[1]==org.springframework.jdbc.core.RowCallbackHandler.class&&call.getArguments()[0] instanceof String sql&&sql.contains("join source_set s")&&sql.contains("source_file")).count();
-        assertThat(outputSql).isEqualTo((size+24)/25);
-        System.out.printf("Comparison output manifest SQL: runs=%d batches=%d statements=%d%n",size,(size+24)/25,outputSql);
     }
     @Test void runPickerFreezesAliasesAndResumePinsOnlySelectedVersions() throws Exception {
         var job=accepted();var claimed=claim();String path="/requests/"+job.get("requestId").stringValue();
@@ -57,7 +46,6 @@ class AgentRequestPersistenceTest extends WorkspaceTestSupport {
         var input=Map.of("expectedRequestRevision",0,"pendingInputId","pick","input",Map.of("type","run_selection","runKeys",List.of("R1","R3")));
         var resumed=ok("POST","/api/agent"+path+"/resume",input,"pick-input");
         assertThat(resumed.get("status").stringValue()).isEqualTo("QUEUED");
-        assertThat(state().get("agentMessages").get(0).get("submittedRunRefs").size()).isZero();
         var next=claim();assertThat(next.get("context").get("comparisonReference").get("entries").size()).isEqualTo(2);
         var only=new HashMap<>(fence(next));only.put("referencesOnly",true);only.put("requiredRunRefs",List.of(options.get("options").get(0).get("ref"),options.get("options").get(2).get("ref")));
         var manifest=internal(path+"/context",only);
@@ -111,11 +99,6 @@ class AgentRequestPersistenceTest extends WorkspaceTestSupport {
         assertThat(accepted.get("status").stringValue()).isEqualTo("QUEUED");
         assertThat(ok("POST","/api/agent/requests",body,"request-a").get("requestId")).isEqualTo(accepted.get("requestId"));
         assertThat(state().get("activeAgentRequest").get("requestId")).isEqualTo(accepted.get("requestId"));
-        var message=state().get("agentMessages").get(0);
-        assertThat(message.get("clientMessageId").stringValue()).isEqualTo("request-a");
-        assertThat(message.get("question").stringValue()).isEqualTo("이온 플럭스를 설명해줘");
-        assertThat(message.get("requestId")).isEqualTo(accepted.get("requestId"));
-        assertThat(state().get("agentMessages").size()).isEqualTo(1);
         var claim=internal("/claim",Map.of("workerId","test-worker","leaseSeconds",60));
         assertThat(claim.get("request").get("requestId")).isEqualTo(accepted.get("requestId"));
         assertThat(claim.get("claimGeneration").longValue()).isEqualTo(1);

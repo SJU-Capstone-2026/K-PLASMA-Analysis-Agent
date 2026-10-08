@@ -1052,17 +1052,6 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/TurnSnapshot'
-    AgentMessage:
-      type: object
-      required: [requestId, clientMessageId, createdAt, question, submittedRunRefs, status, turnId]
-      properties:
-        requestId: { type: string }
-        clientMessageId: { type: [string, 'null'], description: Original AGENT idempotency key; legacy rows may be null. }
-        createdAt: { type: string, format: date-time }
-        question: { type: string }
-        submittedRunRefs: { type: array, items: { $ref: '#/components/schemas/RunRef' }, description: Immutable original submitted tags; independent of later HITL selection. }
-        status: { enum: [QUEUED, RUNNING, NEEDS_INPUT, COMPLETED, FAILED, CANCELLED] }
-        turnId: { type: [string, 'null'] }
     WorkspaceView:
       type: object
       additionalProperties: false
@@ -1071,7 +1060,6 @@ components:
       - conversation
       - candidateReference
       properties:
-        agentMessages: { type: array, items: { $ref: '#/components/schemas/AgentMessage' }, description: Single compact projection for the current workspace/conversation epochs. }
         stateToken:
           $ref: '#/components/schemas/StateToken'
         conversation:

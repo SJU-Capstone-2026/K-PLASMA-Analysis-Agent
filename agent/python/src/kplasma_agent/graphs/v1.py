@@ -8,15 +8,14 @@ from pydantic import ValidationError
 from langgraph.graph import StateGraph, START, END
 from langgraph.types import interrupt
 from .. import tracing
-from ..comparison_catalog import comparison_plan
 from ..tools import TOOL_MODELS, SELECTION_PROMPT, GENERAL_PROMPT
 from ..model_client import ModelError
-from ..answer_contracts import AnswerSnapshotV2, AnswerSnapshotV3, GeneralAnswerResult
+from ..answer_contracts import AnswerSnapshotV2, GeneralAnswerResult
 from ..domain import lookup_forward, search_reverse, validate_result
 from ..domain.compare import compare_selected
 from ..domain.common import DomainError
 from ..domain.grounding import validate_grounding, validate_native_comparison_metrics
-from ..explanations.answers import COMPARISON_PROMPT, validate_answer, comparison_draft_model, answer_evidence
+from ..explanations.answers import COMPARISON_PROMPT, validate_answer, comparison_draft_model
 from ..metric_registry import CONDITION_KEYS, LABELS, UNITS, NumericError, normalize_value
 
 # Import compatibility for evaluation clients; production selection uses native tools.
@@ -39,7 +38,6 @@ class GraphState(TypedDict, total=False):
     reply: dict
     manifest: dict
     source: list
-    comparison_outputs: list
     inputs: dict
     result: dict
     verified: bool
@@ -236,14 +234,6 @@ def build_graph(model, backend, settings, checkpointer):
         if kind == "generate_answer":
             return {"inputs": {}, "context_provenance": {}, "route": "answer"}
         if kind == "compare_runs":
-            scope_text = state["question"]
-            if state.get("pending", {}).get("reason") in ("UNSUPPORTED_COMPARISON_FEATURE", "COMPARISON_ANSWER_BUDGET"):
-                scope_text = next((item["text"] for item in reversed(state.get("input_history", [])) if item.get("text")), scope_text)
-            if re.search(r"(?<![A-Za-z0-9_])RMS(?![A-Za-z0-9_])|실효값|절댓?값\s*(?:피크|최대)|위상\s*차|고조파|상호\s*상관", scope_text, re.IGNORECASE):
-                return _request_input(
-                    state, "현재는 최댓값·최솟값·첨두간 값·반첨두간 진폭과 원본 극값 위치를 비교합니다. RMS·절댓값 피크·위상차는 아직 지원하지 않습니다. 비교할 지원 항목을 알려 주세요.",
-                    "UNSUPPORTED_COMPARISON_FEATURE",
-                )
             snapshot = (
                 state.get("comparison_reference")
                 or state.get("context", {}).get("comparisonReference")
@@ -276,12 +266,6 @@ def build_graph(model, backend, settings, checkpointer):
             entries = [e for e in all_entries if requested is None or e["key"] in requested]
             if len(entries) < 2:
                 return _picker(state, baseline_required)
-            if len(entries) * len(comparison_plan(inputs)[0]) > 80 and re.search(r"(?:모든|전체|각|every|each).*?(?:개별|하나씩|각각|설명)|(?:개별|하나씩|각각).*?설명", scope_text, re.IGNORECASE):
-                return _request_input(
-                    state, "전체 실험을 하나씩 설명하기에는 범위가 큽니다. 전체 수치·그래프를 유지한 요약을 받거나 비교할 실험을 줄여 주세요.",
-                    "COMPARISON_ANSWER_BUDGET",
-                    options=[{"label": "전체 수치와 그래프를 유지하고 요약", "input": {"text": "전체 수치와 그래프를 유지하고 요약해줘"}}],
-                )
             try:
                 validate_native_comparison_metrics(inputs, state["question"], state.get("input_history", []))
             except DomainError:
@@ -513,7 +497,6 @@ def build_graph(model, backend, settings, checkpointer):
             return {
                 "manifest": manifest,
                 "source": source,
-                "comparison_outputs": [],
                 "inputs": inputs,
                 "context_provenance": state["comparison_reference"],
                 "route": "calculate",
@@ -570,16 +553,6 @@ def build_graph(model, backend, settings, checkpointer):
             "route": "calculate",
         }
 
-    def load_comparison_outputs(state):
-        from ..comparison_catalog import comparison_plan
-        _, _, plots = comparison_plan(state["inputs"])
-        backend.stage("load_comparison_outputs")
-        outputs = []
-        refs = [entry["ref"] for entry in state["source"]]
-        for start in range(0, len(refs), 25):
-            outputs.extend(backend.comparison_outputs(refs[start:start + 25], plots)["outputs"])
-        return {"comparison_outputs": outputs}
-
     def calculate(state):
         kind = state["operation"]["kind"]
         backend.stage("calculate")
@@ -590,12 +563,12 @@ def build_graph(model, backend, settings, checkpointer):
             if kind == "reverse_search"
             else compare_selected
         )
-        return {"result": fn(state["inputs"], state["source"], state.get("comparison_outputs", [])) if kind == "compare_runs" else fn(state["inputs"], state["source"]), "verified": False}
+        return {"result": fn(state["inputs"], state["source"]), "verified": False}
 
     def verify(state):
         backend.stage("validate_result")
         if state["operation"]["kind"] == "compare_runs":
-            if state["result"] != compare_selected(state["inputs"], state["source"], state.get("comparison_outputs", [])):
+            if state["result"] != compare_selected(state["inputs"], state["source"]):
                 raise DomainError("RESULT_SOURCE_MISMATCH")
             return {"verified": True, "evidence": state["result"], "route": "answer"}
         if not validate_result(state["inputs"], state["result"], state["source"])["valid"]:
@@ -613,21 +586,19 @@ def build_graph(model, backend, settings, checkpointer):
             "repair_error": state.get("repair_error"),
         }
         if not general:
-            from ..comparison_catalog import FIELD_META
-            payload["evidence"] = answer_evidence(state["evidence"])
-            payload["fieldDefinitions"] = {m:FIELD_META[m] for m in state["result"]["metricIds"]}
+            payload["evidence"] = state["evidence"]
         tool_context = {
             "input": state["selection_payload"],
             "responseItems": state["native_items"],
             "call_id": state["tool_selection"]["call_id"],
-            "output": {} if general else payload["evidence"],
+            "output": {} if general else state["result"],
         }
         draft, metadata = call_model(
             "explain",
             model.answer if general else model.generate,
             GENERAL_PROMPT if general else COMPARISON_PROMPT,
             payload,
-            *([] if general else [comparison_draft_model(payload["evidence"])]),
+            *([] if general else [comparison_draft_model(state["result"])]),
             tool_context=tool_context,
         )
         return {
@@ -689,7 +660,7 @@ def build_graph(model, backend, settings, checkpointer):
         snapshot = {
             "implementationId": "v1",
             "graphVersion": "v1",
-            "schemaVersion": 3 if "featurePolicyVersion" in result else 2,
+            "schemaVersion": 2,
             "kind": kind,
             "summary": summary,
             "originalQuestion": state["question"],
@@ -703,7 +674,7 @@ def build_graph(model, backend, settings, checkpointer):
             "usedRunRefs": refs,
             "versions": settings.versions(),
         }
-        snapshot = (AnswerSnapshotV3 if snapshot["schemaVersion"] == 3 else AnswerSnapshotV2).model_validate(snapshot).model_dump()
+        snapshot = AnswerSnapshotV2.model_validate(snapshot).model_dump()
         return {
             "answer": {
                 "intent": {
@@ -730,7 +701,6 @@ def build_graph(model, backend, settings, checkpointer):
         ("guard", guard),
         ("wait_input", wait_input),
         ("gather", gather),
-        ("load_comparison_outputs", load_comparison_outputs),
         ("calculate", calculate),
         ("validate_result", verify),
         ("generate_answer", generate_answer),
@@ -747,9 +717,8 @@ def build_graph(model, backend, settings, checkpointer):
         "wait_input", lambda s: s["route"], {"select": "select_tool", "guard": "guard", "wait": "wait_input"}
     )
     builder.add_conditional_edges(
-        "gather", lambda s: "outputs" if s["route"] == "calculate" and s["operation"]["kind"] == "compare_runs" and comparison_plan(s["inputs"])[2] else s["route"], {"wait": "wait_input", "calculate": "calculate", "outputs": "load_comparison_outputs"}
+        "gather", lambda s: s["route"], {"wait": "wait_input", "calculate": "calculate"}
     )
-    builder.add_edge("load_comparison_outputs", "calculate")
     builder.add_edge("calculate", "validate_result")
     builder.add_conditional_edges(
         "validate_result", lambda s: s["route"], {"present": "present", "answer": "generate_answer"}

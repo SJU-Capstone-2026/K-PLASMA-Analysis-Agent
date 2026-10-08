@@ -13,14 +13,7 @@ import org.springframework.web.bind.annotation.*;
 public class AgentWorkerController {
     private final AgentRequestService service;
     private final String token;
-    private final com.kplasma.analysisagent.run.RunOutputService outputs;
-    public AgentWorkerController(AgentRequestService service,@Value("${kplasma.agent.worker-token:}") String token,com.kplasma.analysisagent.run.RunOutputService outputs){this.service=service;this.token=token;this.outputs=outputs;}
-    public record OutputQuery(long claimGeneration,long requestRevision,java.util.List<com.kplasma.analysisagent.contract.RunDto.RunRef> runRefs,java.util.List<String> plotIds) {}
-    @PostMapping("/requests/{id}/comparison-outputs") public com.kplasma.analysisagent.contract.RunOutputDto.Response outputs(@RequestHeader(name="X-Agent-Token",required=false) String token,@PathVariable String id,@RequestBody OutputQuery body){
-        authorize(token);var requestId=AgentRequestController.id(id);service.authorizeOutputs(requestId,body.claimGeneration(),body.requestRevision(),body.runRefs());
-        var result=outputs.outputs(new com.kplasma.analysisagent.contract.RunOutputDto.Request(body.runRefs(),body.plotIds()),false);
-        service.authorizeOutputs(requestId,body.claimGeneration(),body.requestRevision(),body.runRefs());return result;
-    }
+    public AgentWorkerController(AgentRequestService service,@Value("${kplasma.agent.worker-token:}") String token){this.service=service;this.token=token;}
     private void authorize(String submitted){if(token.isBlank())throw new IntakeException("WORKER_NOT_CONFIGURED",503,"Agent worker authentication is not configured");if(submitted==null||!MessageDigest.isEqual(token.getBytes(StandardCharsets.UTF_8),submitted.getBytes(StandardCharsets.UTF_8)))throw new IntakeException("UNAUTHORIZED",401,"Worker authentication required");}
     @PostMapping("/claim") public Map<String,Object> claim(@RequestHeader(name="X-Agent-Token",required=false) String token,@RequestBody Claim body){authorize(token);return service.claim(body);}
     @PostMapping("/requests/{id}/heartbeat") public Map<String,Object> heartbeat(@RequestHeader(name="X-Agent-Token",required=false) String token,@PathVariable String id,@RequestBody Mutation body){authorize(token);return service.heartbeat(AgentRequestController.id(id),body);}

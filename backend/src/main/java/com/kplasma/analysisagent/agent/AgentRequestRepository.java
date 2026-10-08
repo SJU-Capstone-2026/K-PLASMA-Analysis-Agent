@@ -30,9 +30,6 @@ public class AgentRequestRepository {
     }
     public Map<String,Object> read(String value){return value==null?null:mapper.readValue(value,MAP);}
     public String json(Object value){return mapper.writeValueAsString(value);}
-    public List<com.kplasma.analysisagent.contract.WorkspaceDto.AgentMessage> messages(long workspace,long conversation){
-        return jdbc.query("select r.id,r.created_at,r.question,r.submission->'attachedRunRefs' refs,r.status,r.turn_id,i.idempotency_key from agent_request r left join workspace_idempotency i on i.workspace_epoch=r.workspace_epoch and i.conversation_epoch=r.conversation_epoch and i.scope='AGENT' and i.result_id=r.id::text where r.workspace_epoch=? and r.conversation_epoch=? order by r.created_at,r.id",(rs,n)->new com.kplasma.analysisagent.contract.WorkspaceDto.AgentMessage(rs.getString("id"),rs.getString("idempotency_key"),rs.getTimestamp("created_at").toInstant().toString(),rs.getString("question"),rs.getString("refs")==null?List.of():mapper.readValue(rs.getString("refs"),new TypeReference<List<com.kplasma.analysisagent.contract.RunDto.RunRef>>(){}),rs.getString("status"),rs.getString("turn_id")),workspace,conversation);
-    }
     public Row get(UUID id,boolean lock){var rows=jdbc.query("select * from agent_request where id=?"+(lock?" for update":""),this::row,id);if(rows.isEmpty())throw new IntakeException("NOT_FOUND",404,"Agent request not found");return rows.getFirst();}
     public Map<String,Object> view(Row row) {
         Map<String,Object> value=new LinkedHashMap<>();value.put("requestId",row.id().toString());value.put("requestRevision",row.revision());
