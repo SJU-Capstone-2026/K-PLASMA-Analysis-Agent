@@ -54,8 +54,12 @@ export function useConversation(){
  },[activeRequest?.requestId,activeRequest?.status,subscriptionRevision]);
  async function submit(text:string,_clarification?:Snapshot,requestContext?:{candidateReference:ReferenceState;activeRun:RunRef|null}):Promise<void>{
   if(!text.trim()||!ready)return;if(busy.current||inProgress(active.current))throw new Error('진행 중인 요청을 완료하거나 취소해 주세요.');
-  busy.current=true;setSending(true);setError('');const c=controller();const epoch=generation.current;const token={...current.current.stateToken};const intendedSelection=selectedCandidate(displayedWorkspace());
-  try{await queue.current;await initialization.current;if(c.signal.aborted||epoch!==generation.current||!sameEpoch(token,current.current.stateToken))return;
+  const token={...current.current.stateToken};const intendedSelection=selectedCandidate(displayedWorkspace());
+  // Reference writes invalidate old subscriptions; start this request only after those writes finish.
+  await queue.current;await initialization.current;if(!mounted.current||!sameEpoch(token,current.current.stateToken))return;
+  if(busy.current||inProgress(active.current))throw new Error('진행 중인 요청을 완료하거나 취소해 주세요.');
+  busy.current=true;setSending(true);setError('');const c=controller();const epoch=generation.current;
+  try{
    const recoveringDifferentText=!!submission.current&&submission.current.body.text!==text;
    if(submission.current){if(!await reconcile(c,epoch))return;if(inProgress(active.current))throw new Error('진행 중인 요청을 복원했습니다. 완료하거나 취소한 뒤 새 질문을 입력해 주세요.');}
    const selected=selectedCandidate(current.current);
@@ -84,7 +88,8 @@ export function useConversation(){
    }
   });
  };
- const setReference=(reference:ReferenceState,activeRun?:RunRef|null)=>serialize(async()=>{invalidate(true);const c=controller();const epoch=generation.current;try{if(!await reconcile(c,epoch))return;const target=activeRun===undefined?(reference?.runs.length===1?reference.runs[0]:null):activeRun;const next=await writeReference(current.current.stateToken,reference?{kind:reference.kind,runs:reference.runs.map(asRef)}:null,target?asRef(target):null,c.signal);if(!c.signal.aborted&&epoch===generation.current)apply(next);}catch(e){if(!c.signal.aborted&&epoch===generation.current){try{await reconcile(c,epoch);}catch{/* The last restored request stays visible while offline. */}throw e;}}finally{controllers.current.delete(c);}});
+ // Resolve additions/removals inside the queue, after reconciling the latest saved references.
+ const setReference=(reference:ReferenceState|((state:WorkspaceView)=>ReferenceState),activeRun?:RunRef|null)=>serialize(async()=>{invalidate(true);const c=controller();const epoch=generation.current;try{if(!await reconcile(c,epoch))return;const resolved=typeof reference==='function'?reference(current.current):reference;const target=activeRun===undefined?(resolved?.runs.length===1?resolved.runs[0]:null):activeRun;const next=await writeReference(current.current.stateToken,resolved?{kind:resolved.kind,runs:resolved.runs.map(asRef)}:null,target?asRef(target):null,c.signal);if(!c.signal.aborted&&epoch===generation.current)apply(next);}catch(e){if(!c.signal.aborted&&epoch===generation.current){try{await reconcile(c,epoch);}catch{/* The last restored request stays visible while offline. */}throw e;}}finally{controllers.current.delete(c);}});
  async function refresh(){invalidate();await serialize(async()=>{const c=controller();try{const next=await fetchWorkspace(c.signal);if(!c.signal.aborted){apply(next);setError('');}}finally{controllers.current.delete(c);}});}
  async function replace(reset:boolean){if(ready)invalidate();await serialize(async()=>{
   if(!ready)invalidate();const c=controller();const epoch=generation.current;

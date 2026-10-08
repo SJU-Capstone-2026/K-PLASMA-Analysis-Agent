@@ -11,6 +11,11 @@ export function v1CandidateRefs(turn:TurnSnapshot):RunRef[]{
  return [...new Map(refs.map(ref=>[JSON.stringify(ref),ref])).values()];
 }
 const asRef=(run:RunRef):RunRef=>({runId:run.runId,runVersionId:run.runVersionId});
+const composerRefs=(state:WorkspaceView)=>state.candidateReference?.runs??(state.conversation.activeRun?[state.conversation.activeRun]:[]);
+const referenceFromRuns=(runs:RunRef[]):WorkspaceView['candidateReference']=>runs.length?{kind:runs.length===1?'단일 Run':'후보 집합',runs}:null;
+/** One tag per Run; an explicit click keeps the exact displayed version. */
+export function appendRunReferences(state:WorkspaceView,refs:RunRef[]){return referenceFromRuns([...new Map([...composerRefs(state),...refs].map(run=>[run.runId,asRef(run)])).values()]);}
+export function removeRunReference(state:WorkspaceView,ref:RunRef){return referenceFromRuns(composerRefs(state).filter(run=>run.runId!==ref.runId||run.runVersionId!==ref.runVersionId).map(asRef));}
 /** Only references selected in the UI qualify. Merely present historical candidates do not. */
 export function explicitReferences(state:WorkspaceView,override?:{candidateReference:WorkspaceView['candidateReference'];activeRun:RunRef|null}):{refs:RunRef[];origins:ReferenceOrigin[]}{
  const reference=override?.candidateReference??state.candidateReference;

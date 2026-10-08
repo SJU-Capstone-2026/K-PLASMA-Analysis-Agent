@@ -36,8 +36,19 @@ test('trend comparisons keep adjacent signed changes without a global baseline',
 
 test('failed partial renders numeric evidence without a generated explanation',()=>{
  render(<RunComparisonCard result={wire.partial as ComparisonResultV2}/>);
- expect(screen.queryByText('가능한 해석 · LLM 일반 지식 기반')).not.toBeInTheDocument();
+ expect(screen.queryByText('가능한 해석')).not.toBeInTheDocument();
  expect(screen.getByText('선택한 실험 비교 · 2개')).toBeInTheDocument();
+});
+
+test.each([wire.general,wire.comparison])('saved general and comparison answers omit fixed introductions and interpretation details',async snapshot=>{
+ const summary=snapshot.kind==='generate_answer'?'일반 지식에 따른 답변입니다.':'선택한 실제 실험을 비교했습니다.';
+ const turn={question:'인공 질문',answerSnapshot:{...snapshot,summary},ui:{}} as unknown as TurnSnapshot;
+ const {container}=render(<V1AnswerView turn={turn} onAction={()=>{}}/>);
+ if(snapshot.kind==='generate_answer')await screen.findByText('평균 이온 에너지',{selector:'strong'});
+ expect(screen.queryByText(summary)).not.toBeInTheDocument();
+ expect(screen.queryByText('LLM 일반 지식 기반',{exact:true})).not.toBeInTheDocument();
+ expect(screen.queryByText('질문 해석·추가 입력')).not.toBeInTheDocument();
+ expect(container.querySelector('.v1-summary,.v1-interpretation')).toBeNull();
 });
 
 test('reopening a saved search displays its applied defaults and older answers do not gain a notice',()=>{

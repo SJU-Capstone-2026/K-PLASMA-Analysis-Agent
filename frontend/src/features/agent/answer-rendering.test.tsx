@@ -3,7 +3,7 @@ import {afterEach,expect,test,vi} from 'vitest';
 import type {TurnSnapshot} from 'agent';
 import {syntheticRun} from '../../test/runs';
 import {AgentPage,type AgentPageProps} from './AgentPage';
-import {emptyWorkspace,initialTurnUi} from './useConversation';
+import {emptyWorkspace,initialTurnUi,type ConversationController} from './useConversation';
 import * as searchModel from './v1-search-model';
 import * as answerMarkup from './answer-markup';
 
@@ -42,7 +42,7 @@ test('typing and UI-only selections reuse saved search presentation without losi
 test('memoized answers use the latest handlers and current group when referencing experiments',()=>{
  const first=turn('first');const initial=props([first]);const obsolete=vi.fn();initial.onDetail=obsolete;
  const {rerender,container}=render(<AgentPage {...initial}/>);
- const onDetail=vi.fn();const setReference=vi.fn(async()=>{});const updateTurnUi=vi.fn(async()=>{});
+ const onDetail=vi.fn();const setReference=vi.fn<ConversationController['setReference']>(async()=>{});const updateTurnUi=vi.fn(async()=>{});
  const current={...initial,onDetail,conversation:{...initial.conversation,setReference,updateTurnUi}};
  rerender(<AgentPage {...current}/>);
  fireEvent.click(screen.getByRole('button',{name:'실험 자세히 보기'}));
@@ -57,8 +57,8 @@ test('memoized answers use the latest handlers and current group when referencin
  rerender(<AgentPage {...current} conversation={{...current.conversation,state:{...current.conversation.state,conversation:{version:1,activeRun:null,turns:[grouped]}}}}/>);
  const article=within(container.querySelector('[data-turn-id="first"]') as HTMLElement);
  expect(article.getByText(other.runId)).toBeInTheDocument();
- fireEvent.click(article.getByRole('button',{name:'전체 후보 기준 질문'}));
- expect(setReference).toHaveBeenCalledWith({kind:'후보 집합',runs:[ref(other),ref(third)]});
+ fireEvent.click(article.getByRole('button',{name:'전체 후보 채팅에 추가'}));
+ const update=setReference.mock.calls[0][0];expect(typeof update==='function'?update(emptyWorkspace):update).toEqual({kind:'후보 집합',runs:[ref(other),ref(third)]});
 });
 
 test('a new answer snapshot rebuilds presentation and routes detail to its exact version',()=>{
