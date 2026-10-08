@@ -39,10 +39,22 @@ for(const width of [390,800,1008,1440])test(`answer chrome and multiple chat ref
  await add.nth(0).click();await expect.poll(()=>workspace.stateToken.revision).toBe(5);
  expect(workspace.candidateReference?.runs).toEqual(runs.map(ref));
  const composer=page.locator('#agent-query-form');
+ const expectCompactTags=async()=>{
+  for(const chip of await composer.locator('.run-context-chip:visible').all()){
+   const bounds=await chip.boundingBox();
+   expect(bounds!.height).toBeLessThanOrEqual(36);
+   expect(bounds!.width).toBeLessThan(300);
+   expect(await chip.locator('strong').evaluate(node=>node.scrollWidth<=node.clientWidth+1)).toBe(true);
+  }
+ };
  await expect(composer.locator('.reference-tray-label')).toHaveText('후보 집합 · 8개');
  await composer.locator('.reference-tray-more summary').click();
+ await expectCompactTags();
+ await composer.locator('.reference-tray').screenshot({path:info.outputPath(`synthetic-chat-references-expanded-${width}.png`)});
  await composer.getByRole('button',{name:`${runs[7].runId} 채팅에서 제거`}).click();
  await expect.poll(()=>workspace.candidateReference?.runs.length).toBe(7);
+ await expectCompactTags();
+ await composer.locator('.reference-tray').screenshot({path:info.outputPath(`synthetic-chat-references-seven-${width}.png`)});
  await composer.getByRole('button',{name:`${runs[0].runId} 채팅에서 제거`}).click();
  await expect.poll(()=>workspace.candidateReference?.runs.length).toBe(6);
  expect(submissions).toHaveLength(0);expect(workspace.conversation.turns).toEqual(frozen);
