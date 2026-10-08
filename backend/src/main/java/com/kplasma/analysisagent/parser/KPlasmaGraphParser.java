@@ -26,7 +26,9 @@ public class KPlasmaGraphParser {
     private static final String BIAS_OFF = "Bias-off Run에는 해당 쉬스 분포 출력이 저장되지 않았습니다.";
     private record Header(String value, int line) {}
     private record Row(double x, double y) {}
-    private record Spec(String type, String gtype, String x, String y, int columns, boolean residual) {}
+    record Spec(String type, String gtype, String x, String y, int columns, boolean residual) {}
+    static Spec spec(String id) { return switch(id) {case "ied"->IED_SPEC;case "iad"->IAD_SPEC;case "iead"->IEAD_SPEC;case "current"->CURRENT_SPEC;case "potential"->POTENTIAL_SPEC;case "density"->DENSITY_SPEC;case "residual"->RESIDUAL_SPEC;default->throw new IllegalArgumentException("Unknown output");}; }
+    public static String path(String id) { return switch(id) {case "ied"->IED;case "iad"->IAD;case "iead"->IEAD;case "current"->CURRENT;case "potential"->POTENTIAL;case "density"->DENSITY;case "residual"->KPlasmaScalarParser.RESIDUAL;default->throw new IllegalArgumentException("Unknown output");}; }
     private static final Spec IED_SPEC = new Spec("IEDs", "1D", "energy (eV)", "IED (a.u.)", 2, false);
     private static final Spec IAD_SPEC = new Spec("IADs", "1D", "angle (degrees)", "IAD (a.u.)", 2, false);
     private static final Spec CURRENT_SPEC = new Spec("Current_density", "1D", "time (rf cycle)", "J0h_h (statampere/cm^2)", 2, false);
@@ -129,8 +131,8 @@ public class KPlasmaGraphParser {
         }
         var sink = new GridSink(); read(source, path, spec, sink); return sink.result();
     }
-    private interface Sink { void start(int nx, int ny); void row(int ordinal, double[] columns, int line); }
-    private static void read(StoredSource source, String path, Spec spec, Sink sink) {
+    interface Sink { void start(int nx, int ny); void row(int ordinal, double[] columns, int line); }
+    static void read(StoredSource source, String path, Spec spec, Sink sink) {
         Map<String, Header> metadata = new HashMap<>();
         int count = 0, nx = 0, ny = 1;
         boolean started = false;

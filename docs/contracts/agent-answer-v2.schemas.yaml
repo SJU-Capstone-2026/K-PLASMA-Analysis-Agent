@@ -1,3 +1,4 @@
+# Compatibility: this schema remains strict and immutable; extended waveform comparisons use agent-answer-v3.schemas.yaml.
 # Generated from Python public contracts; artificial wire examples: agent/tests/support/answer-v2-wire.json
 components:
   schemas:

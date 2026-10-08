@@ -28,6 +28,8 @@ class ImportPipelineTest {
     @Autowired ImportWorker worker;
     @Autowired ImportRecovery recovery;
     @Autowired RunQueryService query;
+    @Autowired com.kplasma.analysisagent.run.RunOutputService outputs;
+    @Autowired com.kplasma.analysisagent.run.RunDeletionService deletion;
     @Autowired JdbcTemplate jdbc;
     @Autowired ObjectMapper mapper;
     @DynamicPropertySource static void properties(DynamicPropertyRegistry r) {
@@ -164,6 +166,18 @@ class ImportPipelineTest {
             assertThat(finalView.jobs().getFirst().reason()).isNotBlank();assertThat(finalView.jobs().getFirst().errors()).hasSize(1);
             assertThat(finalView.jobs().getFirst().errors().getFirst().details()).containsEntry("path","0d_result/log/output.log");
         }
+    }
+    @Test void originalOutputBatchKeepsCompactWorkerDataAndDeletedVersionsDoNotHitCache()throws Exception{
+        var imported=process(accept("comparison-outputs"));var job=imported.jobs().getFirst();
+        var ref=new com.kplasma.analysisagent.contract.RunDto.RunRef(job.runId(),job.runVersionId());
+        var request=new com.kplasma.analysisagent.contract.RunOutputDto.Request(List.of(ref),List.of("residual","current"));
+        var response=outputs.outputs(request,true);assertThat(response.outputs()).hasSize(2);
+        var residual=response.outputs().getFirst();assertThat(residual.metadata().sourceCount()).isPositive();assertThat(residual.display().samples()).isNotEmpty();
+        assertThat(response.outputs().get(1).metadata().reason()).isEqualTo("BIAS_OFF");
+        assertThat(outputs.outputs(request,false).outputs()).allSatisfy(output->assertThat(output.display()).isNull());
+        assertThatThrownBy(()->outputs.outputs(new com.kplasma.analysisagent.contract.RunOutputDto.Request(List.of(ref),List.of("invented")),true)).isInstanceOf(IntakeException.class);
+        deletion.delete(new com.kplasma.analysisagent.contract.RunDeletionDto.Request(List.of(ref.runId())));
+        assertThat(outputs.outputs(request,true).outputs()).allSatisfy(output->assertThat(output.metadata().reason()).isEqualTo("VERSION_UNAVAILABLE"));
     }
     static Path temp() { try { return Files.createTempDirectory("pipeline-"); } catch(Exception e) { throw new ExceptionInInitializerError(e); } }
     @AfterAll static void cleanup() { SourceStore.cleanup(ROOT); }

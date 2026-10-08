@@ -17,7 +17,7 @@ function SearchAnswer({turn,onAction}:{turn:TurnSnapshot;onAction:AnswerAction})
 function answerBody(turn:TurnSnapshot,onAction:AnswerAction){
  const snapshot=turn.answerSnapshot;
  switch(String(snapshot.kind)){
-  case 'compare_runs': return <RunComparisonCard result={snapshotResult<ComparisonResult|ComparisonResultV2>(snapshot)} answer={snapshot.answer as unknown as ComparisonAnswer|null} onAction={onAction}/>;
+  case 'compare_runs': return <RunComparisonCard storageId={turn.id} result={snapshotResult<ComparisonResult|ComparisonResultV2>(snapshot)} answer={snapshot.answer as unknown as ComparisonAnswer|null} onAction={onAction}/>;
   case 'generate_answer': return <Suspense fallback={<p role="status">답변을 표시하고 있습니다.</p>}><GeneralAnswerCard result={snapshotResult<GeneralAnswerResult>(snapshot)}/></Suspense>;
   case 'explain_change':
   case 'explain_concept': return <ExplanationCard result={snapshotResult<ExplanationResult>(snapshot)} onAction={onAction}/>;

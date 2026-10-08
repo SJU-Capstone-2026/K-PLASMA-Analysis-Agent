@@ -51,7 +51,9 @@ for(const width of [390,800,1008,1440])test(`answer chrome and multiple chat ref
  await expect(composer.locator('.reference-tray-label')).toHaveText('후보 집합 · 8개');
  await composer.locator('.reference-tray-more summary').click();
  const assignedColors=await tagColors();
- expect(assignedColors.slice(0,5)).toEqual(['rgb(65, 104, 232)','rgb(10, 142, 155)','rgb(138, 91, 215)','rgb(224, 132, 42)','rgb(210, 80, 145)']);
+ // Historical comparison Runs already reserve the first two colors in this conversation.
+ expect(assignedColors.slice(0,3)).toEqual(['rgb(138, 91, 215)','rgb(224, 132, 42)','rgb(210, 80, 145)']);
+ expect(await comparison.locator('.comparison-color').first().evaluate(node=>getComputedStyle(node).backgroundColor)).toBe('rgb(65, 104, 232)');
  expect(new Set(assignedColors).size).toBe(8);
  await expectCompactTags();
  await composer.locator('.reference-tray').screenshot({path:info.outputPath(`synthetic-chat-references-expanded-${width}.png`)});

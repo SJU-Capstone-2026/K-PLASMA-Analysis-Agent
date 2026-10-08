@@ -1,0 +1,587 @@
+{
+  "comparison": {
+    "implementationId": "v1",
+    "graphVersion": "v1",
+    "schemaVersion": 3,
+    "kind": "compare_runs",
+    "summary": "인공 비교",
+    "originalQuestion": "인공 파형 비교",
+    "toolSelection": {
+      "call_id": "artificial-call",
+      "name": "compare_runs",
+      "arguments": {
+        "comparison_fields": [
+          "current.maximum",
+          "current.halfPeakToPeak"
+        ],
+        "plot_ids": [
+          "current"
+        ]
+      }
+    },
+    "resolvedInputs": {
+      "comparison_fields": [
+        "current.maximum",
+        "current.halfPeakToPeak"
+      ],
+      "plot_ids": [
+        "current"
+      ]
+    },
+    "result": {
+      "kind": "compare_runs",
+      "resultStatus": "COMPARISON_READY",
+      "mode": "pair",
+      "metricIds": [
+        "current.maximum",
+        "current.halfPeakToPeak"
+      ],
+      "baselineKey": null,
+      "trendAxis": null,
+      "runs": [
+        {
+          "key": "R1",
+          "ref": {
+            "runId": "SYNTHETIC-A",
+            "runVersionId": "00000000-0000-0000-0000-000000000001"
+          },
+          "conditions": {
+            "pressure": {
+              "value": 10.0,
+              "unit": "mTorr",
+              "status": "AVAILABLE",
+              "reason": null,
+              "sourceValue": {
+                "value": 10.0,
+                "unit": "mTorr"
+              }
+            },
+            "sourcePower": {
+              "value": 300.0,
+              "unit": "W",
+              "status": "AVAILABLE",
+              "reason": null,
+              "sourceValue": {
+                "value": 300.0,
+                "unit": "W"
+              }
+            },
+            "biasPower": {
+              "value": 100.0,
+              "unit": "W",
+              "status": "AVAILABLE",
+              "reason": null,
+              "sourceValue": {
+                "value": 100.0,
+                "unit": "W"
+              }
+            }
+          },
+          "metrics": {
+            "current.maximum": {
+              "value": 4.0,
+              "unit": "statampere/cm²",
+              "status": "AVAILABLE",
+              "reason": null,
+              "sourceValue": null
+            },
+            "current.halfPeakToPeak": {
+              "value": 3.0,
+              "unit": "statampere/cm²",
+              "status": "AVAILABLE",
+              "reason": null,
+              "sourceValue": null
+            }
+          },
+          "quality": {
+            "convergenceStatus": "CONVERGED",
+            "qualityStatus": "VERIFIED",
+            "catalogStatus": "READY"
+          }
+        },
+        {
+          "key": "R2",
+          "ref": {
+            "runId": "SYNTHETIC-B",
+            "runVersionId": "00000000-0000-0000-0000-000000000002"
+          },
+          "conditions": {
+            "pressure": {
+              "value": 10.0,
+              "unit": "mTorr",
+              "status": "AVAILABLE",
+              "reason": null,
+              "sourceValue": {
+                "value": 10.0,
+                "unit": "mTorr"
+              }
+            },
+            "sourcePower": {
+              "value": 300.0,
+              "unit": "W",
+              "status": "AVAILABLE",
+              "reason": null,
+              "sourceValue": {
+                "value": 300.0,
+                "unit": "W"
+              }
+            },
+            "biasPower": {
+              "value": 100.0,
+              "unit": "W",
+              "status": "AVAILABLE",
+              "reason": null,
+              "sourceValue": {
+                "value": 100.0,
+                "unit": "W"
+              }
+            }
+          },
+          "metrics": {
+            "current.maximum": {
+              "value": 5.0,
+              "unit": "statampere/cm²",
+              "status": "AVAILABLE",
+              "reason": null,
+              "sourceValue": null
+            },
+            "current.halfPeakToPeak": {
+              "value": 4.0,
+              "unit": "statampere/cm²",
+              "status": "AVAILABLE",
+              "reason": null,
+              "sourceValue": null
+            }
+          },
+          "quality": {
+            "convergenceStatus": "CONVERGED",
+            "qualityStatus": "VERIFIED",
+            "catalogStatus": "READY"
+          }
+        }
+      ],
+      "comparisons": [
+        {
+          "id": "absolute_difference:R1:R2:current.maximum",
+          "kind": "absolute_difference",
+          "leftKey": "R1",
+          "rightKey": "R2",
+          "metric": "current.maximum",
+          "difference": {
+            "value": 1.0,
+            "unit": "statampere/cm²",
+            "status": "AVAILABLE",
+            "reason": null,
+            "sourceValue": null
+          },
+          "percentChange": null,
+          "direction": "not_applicable"
+        },
+        {
+          "id": "absolute_difference:R1:R2:current.halfPeakToPeak",
+          "kind": "absolute_difference",
+          "leftKey": "R1",
+          "rightKey": "R2",
+          "metric": "current.halfPeakToPeak",
+          "difference": {
+            "value": 1.0,
+            "unit": "statampere/cm²",
+            "status": "AVAILABLE",
+            "reason": null,
+            "sourceValue": null
+          },
+          "percentChange": null,
+          "direction": "not_applicable"
+        }
+      ],
+      "summaries": [
+        {
+          "id": "summary:current.maximum",
+          "metric": "current.maximum",
+          "availableCount": 2,
+          "minimum": {
+            "value": 4.0,
+            "unit": "statampere/cm²",
+            "status": "AVAILABLE",
+            "reason": null,
+            "sourceValue": null
+          },
+          "minimumKeys": [
+            "R1"
+          ],
+          "maximum": {
+            "value": 5.0,
+            "unit": "statampere/cm²",
+            "status": "AVAILABLE",
+            "reason": null,
+            "sourceValue": null
+          },
+          "maximumKeys": [
+            "R2"
+          ],
+          "range": {
+            "value": 1.0,
+            "unit": "statampere/cm²",
+            "status": "AVAILABLE",
+            "reason": null,
+            "sourceValue": null
+          }
+        },
+        {
+          "id": "summary:current.halfPeakToPeak",
+          "metric": "current.halfPeakToPeak",
+          "availableCount": 2,
+          "minimum": {
+            "value": 3.0,
+            "unit": "statampere/cm²",
+            "status": "AVAILABLE",
+            "reason": null,
+            "sourceValue": null
+          },
+          "minimumKeys": [
+            "R1"
+          ],
+          "maximum": {
+            "value": 4.0,
+            "unit": "statampere/cm²",
+            "status": "AVAILABLE",
+            "reason": null,
+            "sourceValue": null
+          },
+          "maximumKeys": [
+            "R2"
+          ],
+          "range": {
+            "value": 1.0,
+            "unit": "statampere/cm²",
+            "status": "AVAILABLE",
+            "reason": null,
+            "sourceValue": null
+          }
+        }
+      ],
+      "trends": [],
+      "observations": [
+        {
+          "id": "O1",
+          "source": {
+            "kind": "run",
+            "key": "R1",
+            "metric": "current.maximum"
+          },
+          "text": "R1 (SYNTHETIC-A)의 RF 전류 밀도 최댓값: 4 statampere/cm²."
+        },
+        {
+          "id": "O2",
+          "source": {
+            "kind": "run",
+            "key": "R1",
+            "metric": "current.halfPeakToPeak"
+          },
+          "text": "R1 (SYNTHETIC-A)의 RF 전류 밀도 반첨두간 진폭: 3 statampere/cm²."
+        },
+        {
+          "id": "O3",
+          "source": {
+            "kind": "run",
+            "key": "R2",
+            "metric": "current.maximum"
+          },
+          "text": "R2 (SYNTHETIC-B)의 RF 전류 밀도 최댓값: 5 statampere/cm²."
+        },
+        {
+          "id": "O4",
+          "source": {
+            "kind": "run",
+            "key": "R2",
+            "metric": "current.halfPeakToPeak"
+          },
+          "text": "R2 (SYNTHETIC-B)의 RF 전류 밀도 반첨두간 진폭: 4 statampere/cm²."
+        },
+        {
+          "id": "O5",
+          "source": {
+            "kind": "comparison",
+            "key": "absolute_difference:R1:R2:current.maximum",
+            "metric": "current.maximum"
+          },
+          "text": "R1 → R2의 RF 전류 밀도 최댓값 절대 차이: 1 statampere/cm²."
+        },
+        {
+          "id": "O6",
+          "source": {
+            "kind": "comparison",
+            "key": "absolute_difference:R1:R2:current.halfPeakToPeak",
+            "metric": "current.halfPeakToPeak"
+          },
+          "text": "R1 → R2의 RF 전류 밀도 반첨두간 진폭 절대 차이: 1 statampere/cm²."
+        },
+        {
+          "id": "O7",
+          "source": {
+            "kind": "summary",
+            "key": "summary:current.maximum",
+            "metric": "current.maximum"
+          },
+          "text": "선택한 Run의 RF 전류 밀도 최댓값 최솟값: 4 statampere/cm², 최댓값: 5 statampere/cm², 범위 폭: 1 statampere/cm². 가용 Run 2개."
+        },
+        {
+          "id": "O8",
+          "source": {
+            "kind": "summary",
+            "key": "summary:current.halfPeakToPeak",
+            "metric": "current.halfPeakToPeak"
+          },
+          "text": "선택한 Run의 RF 전류 밀도 반첨두간 진폭 최솟값: 3 statampere/cm², 최댓값: 4 statampere/cm², 범위 폭: 1 statampere/cm². 가용 Run 2개."
+        }
+      ],
+      "usedRunRefs": [
+        {
+          "runId": "SYNTHETIC-A",
+          "runVersionId": "00000000-0000-0000-0000-000000000001"
+        },
+        {
+          "runId": "SYNTHETIC-B",
+          "runVersionId": "00000000-0000-0000-0000-000000000002"
+        }
+      ],
+      "numericPolicyVersion": "v1",
+      "aggregationPolicyVersion": "multi-run-1",
+      "plotIds": [
+        "current"
+      ],
+      "outputs": [
+        {
+          "ref": {
+            "runId": "SYNTHETIC-A",
+            "runVersionId": "00000000-0000-0000-0000-000000000001"
+          },
+          "outputId": "current",
+          "status": "AVAILABLE",
+          "reason": null,
+          "sourceIntegrity": "artificial-source-0",
+          "featurePolicyVersion": "source-features-1",
+          "xUnit": "RF cycle",
+          "yUnit": "",
+          "valueUnit": "statampere/cm²",
+          "sourceCount": 5,
+          "extrema": {
+            "maximum": {
+              "value": 4.0,
+              "x": 0.25,
+              "y": null,
+              "count": 1
+            },
+            "minimum": {
+              "value": -2.0,
+              "x": 0.75,
+              "y": null,
+              "count": 1
+            }
+          }
+        },
+        {
+          "ref": {
+            "runId": "SYNTHETIC-B",
+            "runVersionId": "00000000-0000-0000-0000-000000000002"
+          },
+          "outputId": "current",
+          "status": "AVAILABLE",
+          "reason": null,
+          "sourceIntegrity": "artificial-source-1",
+          "featurePolicyVersion": "source-features-1",
+          "xUnit": "RF cycle",
+          "yUnit": "",
+          "valueUnit": "statampere/cm²",
+          "sourceCount": 5,
+          "extrema": {
+            "maximum": {
+              "value": 5.0,
+              "x": 0.25,
+              "y": null,
+              "count": 1
+            },
+            "minimum": {
+              "value": -3.0,
+              "x": 0.75,
+              "y": null,
+              "count": 1
+            }
+          }
+        }
+      ],
+      "featurePolicyVersion": "source-features-1"
+    },
+    "answer": {
+      "kind": "comparison_answer",
+      "status": "COMPLETE",
+      "knowledgeBasis": "VERIFIED_RUNS_AND_LLM_GENERAL_KNOWLEDGE",
+      "observationIds": [
+        "O1"
+      ],
+      "interpretations": [],
+      "limitations": []
+    },
+    "contextProvenance": {},
+    "inputHistory": [],
+    "usedRunRefs": [
+      {
+        "runId": "SYNTHETIC-A",
+        "runVersionId": "00000000-0000-0000-0000-000000000001"
+      },
+      {
+        "runId": "SYNTHETIC-B",
+        "runVersionId": "00000000-0000-0000-0000-000000000002"
+      }
+    ],
+    "versions": {}
+  },
+  "outputs": [
+    {
+      "metadata": {
+        "ref": {
+          "runId": "SYNTHETIC-A",
+          "runVersionId": "00000000-0000-0000-0000-000000000001"
+        },
+        "outputId": "current",
+        "status": "AVAILABLE",
+        "reason": null,
+        "sourceIntegrity": "artificial-source-0",
+        "featurePolicyVersion": "source-features-1",
+        "xUnit": "RF cycle",
+        "yUnit": "",
+        "valueUnit": "statampere/cm²",
+        "sourceCount": 5,
+        "extrema": {
+          "maximum": {
+            "value": 4,
+            "x": 0.25,
+            "y": null,
+            "count": 1
+          },
+          "minimum": {
+            "value": -2,
+            "x": 0.75,
+            "y": null,
+            "count": 1
+          }
+        }
+      },
+      "features": {
+        "current.maximum": {
+          "value": 4,
+          "unit": "statampere/cm²",
+          "status": "AVAILABLE",
+          "reason": null,
+          "sourceValue": null
+        },
+        "current.halfPeakToPeak": {
+          "value": 3,
+          "unit": "statampere/cm²",
+          "status": "AVAILABLE",
+          "reason": null,
+          "sourceValue": null
+        }
+      },
+      "display": {
+        "kind": "line",
+        "samples": [
+          {
+            "x": 0,
+            "y": 0
+          },
+          {
+            "x": 0.25,
+            "y": 4
+          },
+          {
+            "x": 0.5,
+            "y": 0
+          },
+          {
+            "x": 0.75,
+            "y": -2
+          },
+          {
+            "x": 1,
+            "y": 0
+          }
+        ],
+        "rows": []
+      }
+    },
+    {
+      "metadata": {
+        "ref": {
+          "runId": "SYNTHETIC-B",
+          "runVersionId": "00000000-0000-0000-0000-000000000002"
+        },
+        "outputId": "current",
+        "status": "AVAILABLE",
+        "reason": null,
+        "sourceIntegrity": "artificial-source-1",
+        "featurePolicyVersion": "source-features-1",
+        "xUnit": "RF cycle",
+        "yUnit": "",
+        "valueUnit": "statampere/cm²",
+        "sourceCount": 5,
+        "extrema": {
+          "maximum": {
+            "value": 5,
+            "x": 0.25,
+            "y": null,
+            "count": 1
+          },
+          "minimum": {
+            "value": -3,
+            "x": 0.75,
+            "y": null,
+            "count": 1
+          }
+        }
+      },
+      "features": {
+        "current.maximum": {
+          "value": 5,
+          "unit": "statampere/cm²",
+          "status": "AVAILABLE",
+          "reason": null,
+          "sourceValue": null
+        },
+        "current.halfPeakToPeak": {
+          "value": 4,
+          "unit": "statampere/cm²",
+          "status": "AVAILABLE",
+          "reason": null,
+          "sourceValue": null
+        }
+      },
+      "display": {
+        "kind": "line",
+        "samples": [
+          {
+            "x": 0,
+            "y": 0
+          },
+          {
+            "x": 0.25,
+            "y": 5
+          },
+          {
+            "x": 0.5,
+            "y": 0
+          },
+          {
+            "x": 0.75,
+            "y": -3
+          },
+          {
+            "x": 1,
+            "y": 0
+          }
+        ],
+        "rows": []
+      }
+    }
+  ]
+}

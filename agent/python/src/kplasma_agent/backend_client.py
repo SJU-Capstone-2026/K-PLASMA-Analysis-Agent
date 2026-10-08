@@ -73,6 +73,9 @@ class RequestBackend:
             fields["referencesOnly"] = True
         return self.post("context", **fields)
 
+    def comparison_outputs(self, refs, plots):
+        return self.post("comparison-outputs", runRefs=refs, plotIds=plots)
+
     def checkpoint(self):
         with tracing.span("backend.checkpoint.load", inputs=self.fence) as observation:
             result = self.client.call("GET", self.prefix + "checkpoint", params=self.fence)["payload"]

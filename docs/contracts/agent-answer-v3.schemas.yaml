@@ -1,0 +1,910 @@
+$defs:
+  AnswerInterpretation:
+    additionalProperties: false
+    properties:
+      text:
+        title: Text
+        type: string
+      observationIds:
+        items:
+          type: string
+        title: Observationids
+        type: array
+      assumptions:
+        items:
+          type: string
+        title: Assumptions
+        type: array
+    required:
+    - text
+    - observationIds
+    - assumptions
+    title: AnswerInterpretation
+    type: object
+  ComparisonAnswer:
+    additionalProperties: false
+    properties:
+      observationIds:
+        items:
+          type: string
+        title: Observationids
+        type: array
+      interpretations:
+        items:
+          $ref: '#/$defs/AnswerInterpretation'
+        title: Interpretations
+        type: array
+      limitations:
+        items:
+          type: string
+        title: Limitations
+        type: array
+      kind:
+        const: comparison_answer
+        title: Kind
+        type: string
+      status:
+        const: COMPLETE
+        title: Status
+        type: string
+      knowledgeBasis:
+        const: VERIFIED_RUNS_AND_LLM_GENERAL_KNOWLEDGE
+        title: Knowledgebasis
+        type: string
+    required:
+    - observationIds
+    - interpretations
+    - limitations
+    - kind
+    - status
+    - knowledgeBasis
+    title: ComparisonAnswer
+    type: object
+  RunRef:
+    additionalProperties: false
+    properties:
+      runId:
+        title: Runid
+        type: string
+      runVersionId:
+        title: Runversionid
+        type: string
+    required:
+    - runId
+    - runVersionId
+    title: RunRef
+    type: object
+  ToolSelection:
+    additionalProperties: false
+    properties:
+      call_id:
+        title: Call Id
+        type: string
+      name:
+        enum:
+        - forward_lookup
+        - reverse_search
+        - compare_runs
+        - generate_answer
+        title: Name
+        type: string
+      arguments:
+        additionalProperties: true
+        title: Arguments
+        type: object
+    required:
+    - call_id
+    - name
+    - arguments
+    title: ToolSelection
+    type: object
+  UnitAssumption:
+    additionalProperties: false
+    properties:
+      metric:
+        enum:
+        - pressure
+        - sourcePower
+        - biasPower
+        - meanIonEnergy
+        - ionFlux
+        - iedWidth
+        title: Metric
+        type: string
+      unit:
+        title: Unit
+        type: string
+    required:
+    - metric
+    - unit
+    title: UnitAssumption
+    type: object
+  ComparisonDifferenceV3:
+    additionalProperties: false
+    properties:
+      id:
+        title: Id
+        type: string
+      kind:
+        enum:
+        - absolute_difference
+        - baseline_delta
+        - adjacent_delta
+        title: Kind
+        type: string
+      leftKey:
+        title: Leftkey
+        type: string
+      rightKey:
+        title: Rightkey
+        type: string
+      metric:
+        enum:
+        - ionFlux
+        - meanIonEnergy
+        - iedWidth
+        - pressure
+        - sourcePower
+        - biasPower
+        - current.maximum
+        - current.minimum
+        - current.peakToPeak
+        - current.halfPeakToPeak
+        - current.maximumPhase
+        - current.minimumPhase
+        - potential.maximum
+        - potential.minimum
+        - potential.peakToPeak
+        - potential.halfPeakToPeak
+        - potential.maximumPhase
+        - potential.minimumPhase
+        - ied.maximum
+        - ied.peakEnergy
+        - iad.maximum
+        - iad.peakAngle
+        - iead.maximum
+        - iead.peakEnergy
+        - iead.peakAngle
+        - density.maximum
+        - density.maximumPhase
+        - density.maximumDistance
+        - residual.maximum
+        - residual.maximumIteration
+        - residual.final
+        - residual.finalIteration
+        title: Metric
+        type: string
+      difference:
+        $ref: '#/$defs/ScalarDatum'
+      percentChange:
+        anyOf:
+        - $ref: '#/$defs/ScalarDatum'
+        - type: 'null'
+      direction:
+        enum:
+        - increase
+        - decrease
+        - unchanged
+        - not_applicable
+        - unavailable
+        title: Direction
+        type: string
+    required:
+    - id
+    - kind
+    - leftKey
+    - rightKey
+    - metric
+    - difference
+    - percentChange
+    - direction
+    title: ComparisonDifferenceV3
+    type: object
+  ComparisonRunV3:
+    additionalProperties: false
+    properties:
+      key:
+        title: Key
+        type: string
+      ref:
+        $ref: '#/$defs/RunRef'
+      conditions:
+        additionalProperties:
+          $ref: '#/$defs/ScalarDatum'
+        propertyNames:
+          enum:
+          - pressure
+          - sourcePower
+          - biasPower
+        title: Conditions
+        type: object
+      metrics:
+        additionalProperties:
+          $ref: '#/$defs/ScalarDatum'
+        propertyNames:
+          enum:
+          - ionFlux
+          - meanIonEnergy
+          - iedWidth
+          - pressure
+          - sourcePower
+          - biasPower
+          - current.maximum
+          - current.minimum
+          - current.peakToPeak
+          - current.halfPeakToPeak
+          - current.maximumPhase
+          - current.minimumPhase
+          - potential.maximum
+          - potential.minimum
+          - potential.peakToPeak
+          - potential.halfPeakToPeak
+          - potential.maximumPhase
+          - potential.minimumPhase
+          - ied.maximum
+          - ied.peakEnergy
+          - iad.maximum
+          - iad.peakAngle
+          - iead.maximum
+          - iead.peakEnergy
+          - iead.peakAngle
+          - density.maximum
+          - density.maximumPhase
+          - density.maximumDistance
+          - residual.maximum
+          - residual.maximumIteration
+          - residual.final
+          - residual.finalIteration
+        title: Metrics
+        type: object
+      quality:
+        $ref: '#/$defs/Quality'
+    required:
+    - key
+    - ref
+    - conditions
+    - metrics
+    - quality
+    title: ComparisonRunV3
+    type: object
+  MetricSummaryV3:
+    additionalProperties: false
+    properties:
+      id:
+        title: Id
+        type: string
+      metric:
+        enum:
+        - ionFlux
+        - meanIonEnergy
+        - iedWidth
+        - pressure
+        - sourcePower
+        - biasPower
+        - current.maximum
+        - current.minimum
+        - current.peakToPeak
+        - current.halfPeakToPeak
+        - current.maximumPhase
+        - current.minimumPhase
+        - potential.maximum
+        - potential.minimum
+        - potential.peakToPeak
+        - potential.halfPeakToPeak
+        - potential.maximumPhase
+        - potential.minimumPhase
+        - ied.maximum
+        - ied.peakEnergy
+        - iad.maximum
+        - iad.peakAngle
+        - iead.maximum
+        - iead.peakEnergy
+        - iead.peakAngle
+        - density.maximum
+        - density.maximumPhase
+        - density.maximumDistance
+        - residual.maximum
+        - residual.maximumIteration
+        - residual.final
+        - residual.finalIteration
+        title: Metric
+        type: string
+      availableCount:
+        title: Availablecount
+        type: integer
+      minimum:
+        $ref: '#/$defs/ScalarDatum'
+      minimumKeys:
+        items:
+          type: string
+        title: Minimumkeys
+        type: array
+      maximum:
+        $ref: '#/$defs/ScalarDatum'
+      maximumKeys:
+        items:
+          type: string
+        title: Maximumkeys
+        type: array
+      range:
+        $ref: '#/$defs/ScalarDatum'
+    required:
+    - id
+    - metric
+    - availableCount
+    - minimum
+    - minimumKeys
+    - maximum
+    - maximumKeys
+    - range
+    title: MetricSummaryV3
+    type: object
+  ObservationSourceV3:
+    additionalProperties: false
+    properties:
+      kind:
+        enum:
+        - run
+        - comparison
+        - summary
+        - trend
+        title: Kind
+        type: string
+      key:
+        title: Key
+        type: string
+      metric:
+        enum:
+        - ionFlux
+        - meanIonEnergy
+        - iedWidth
+        - pressure
+        - sourcePower
+        - biasPower
+        - current.maximum
+        - current.minimum
+        - current.peakToPeak
+        - current.halfPeakToPeak
+        - current.maximumPhase
+        - current.minimumPhase
+        - potential.maximum
+        - potential.minimum
+        - potential.peakToPeak
+        - potential.halfPeakToPeak
+        - potential.maximumPhase
+        - potential.minimumPhase
+        - ied.maximum
+        - ied.peakEnergy
+        - iad.maximum
+        - iad.peakAngle
+        - iead.maximum
+        - iead.peakEnergy
+        - iead.peakAngle
+        - density.maximum
+        - density.maximumPhase
+        - density.maximumDistance
+        - residual.maximum
+        - residual.maximumIteration
+        - residual.final
+        - residual.finalIteration
+        title: Metric
+        type: string
+    required:
+    - kind
+    - key
+    - metric
+    title: ObservationSourceV3
+    type: object
+  ObservationV3:
+    additionalProperties: false
+    properties:
+      id:
+        title: Id
+        type: string
+      source:
+        $ref: '#/$defs/ObservationSourceV3'
+      text:
+        title: Text
+        type: string
+    required:
+    - id
+    - source
+    - text
+    title: ObservationV3
+    type: object
+  OutputExtremum:
+    additionalProperties: false
+    properties:
+      value:
+        title: Value
+        type: number
+      x:
+        title: X
+        type: number
+      y:
+        anyOf:
+        - type: number
+        - type: 'null'
+        title: Y
+      count:
+        minimum: 1
+        title: Count
+        type: integer
+    required:
+    - value
+    - x
+    - y
+    - count
+    title: OutputExtremum
+    type: object
+  OutputMetadata:
+    additionalProperties: false
+    properties:
+      ref:
+        $ref: '#/$defs/RunRef'
+      outputId:
+        enum:
+        - ied
+        - iad
+        - iead
+        - current
+        - potential
+        - density
+        - residual
+        title: Outputid
+        type: string
+      status:
+        enum:
+        - AVAILABLE
+        - UNAVAILABLE
+        title: Status
+        type: string
+      reason:
+        anyOf:
+        - type: string
+        - type: 'null'
+        title: Reason
+      sourceIntegrity:
+        anyOf:
+        - type: string
+        - type: 'null'
+        title: Sourceintegrity
+      featurePolicyVersion:
+        const: source-features-1
+        title: Featurepolicyversion
+        type: string
+      xUnit:
+        title: Xunit
+        type: string
+      yUnit:
+        title: Yunit
+        type: string
+      valueUnit:
+        title: Valueunit
+        type: string
+      sourceCount:
+        minimum: 0
+        title: Sourcecount
+        type: integer
+      extrema:
+        additionalProperties:
+          $ref: '#/$defs/OutputExtremum'
+        propertyNames:
+          enum:
+          - maximum
+          - minimum
+        title: Extrema
+        type: object
+    required:
+    - ref
+    - outputId
+    - status
+    - reason
+    - sourceIntegrity
+    - featurePolicyVersion
+    - xUnit
+    - yUnit
+    - valueUnit
+    - sourceCount
+    - extrema
+    title: OutputMetadata
+    type: object
+  Quality:
+    additionalProperties: false
+    properties:
+      convergenceStatus:
+        title: Convergencestatus
+        type: string
+      qualityStatus:
+        title: Qualitystatus
+        type: string
+      catalogStatus:
+        title: Catalogstatus
+        type: string
+    required:
+    - convergenceStatus
+    - qualityStatus
+    - catalogStatus
+    title: Quality
+    type: object
+  ScalarDatum:
+    additionalProperties: false
+    properties:
+      value:
+        anyOf:
+        - type: number
+        - type: 'null'
+        title: Value
+      unit:
+        title: Unit
+        type: string
+      status:
+        enum:
+        - AVAILABLE
+        - UNAVAILABLE
+        title: Status
+        type: string
+      reason:
+        anyOf:
+        - enum:
+          - MISSING_VALUE
+          - MISSING_BASELINE
+          - MISSING_TARGET
+          - MISSING_BOTH
+          - ZERO_BASELINE
+          - INVALID_VALUE
+          - UNIT_NOT_COMPARABLE
+          - NUMERIC_OVERFLOW
+          - INSUFFICIENT_DATA
+          type: string
+        - type: 'null'
+        title: Reason
+      sourceValue:
+        anyOf:
+        - $ref: '#/$defs/SourceValue'
+        - type: 'null'
+    required:
+    - value
+    - unit
+    - status
+    - reason
+    - sourceValue
+    title: ScalarDatum
+    type: object
+  SourceValue:
+    additionalProperties: false
+    properties:
+      value:
+        anyOf:
+        - type: number
+        - type: 'null'
+        title: Value
+      unit:
+        title: Unit
+        type: string
+    required:
+    - value
+    - unit
+    title: SourceValue
+    type: object
+  TrendGroupV3:
+    additionalProperties: false
+    properties:
+      id:
+        title: Id
+        type: string
+      metric:
+        enum:
+        - ionFlux
+        - meanIonEnergy
+        - iedWidth
+        - pressure
+        - sourcePower
+        - biasPower
+        - current.maximum
+        - current.minimum
+        - current.peakToPeak
+        - current.halfPeakToPeak
+        - current.maximumPhase
+        - current.minimumPhase
+        - potential.maximum
+        - potential.minimum
+        - potential.peakToPeak
+        - potential.halfPeakToPeak
+        - potential.maximumPhase
+        - potential.minimumPhase
+        - ied.maximum
+        - ied.peakEnergy
+        - iad.maximum
+        - iad.peakAngle
+        - iead.maximum
+        - iead.peakEnergy
+        - iead.peakAngle
+        - density.maximum
+        - density.maximumPhase
+        - density.maximumDistance
+        - residual.maximum
+        - residual.maximumIteration
+        - residual.final
+        - residual.finalIteration
+        title: Metric
+        type: string
+      axis:
+        enum:
+        - pressure
+        - sourcePower
+        - biasPower
+        title: Axis
+        type: string
+      fixedConditions:
+        additionalProperties:
+          $ref: '#/$defs/ScalarDatum'
+        propertyNames:
+          enum:
+          - pressure
+          - sourcePower
+          - biasPower
+        title: Fixedconditions
+        type: object
+      orderedKeys:
+        items:
+          type: string
+        title: Orderedkeys
+        type: array
+      comparisonIds:
+        items:
+          type: string
+        title: Comparisonids
+        type: array
+      direction:
+        enum:
+        - increasing
+        - decreasing
+        - constant
+        - non_monotonic
+        - insufficient_data
+        - unavailable
+        title: Direction
+        type: string
+    required:
+    - id
+    - metric
+    - axis
+    - fixedConditions
+    - orderedKeys
+    - comparisonIds
+    - direction
+    title: TrendGroupV3
+    type: object
+  ComparisonResultV3:
+    additionalProperties: false
+    properties:
+      kind:
+        const: compare_runs
+        title: Kind
+        type: string
+      resultStatus:
+        enum:
+        - COMPARISON_READY
+        - COMPARISON_PARTIAL
+        - NO_COMPARABLE_DATA
+        title: Resultstatus
+        type: string
+      mode:
+        enum:
+        - values
+        - pair
+        - overview
+        - baseline
+        - trend
+        title: Mode
+        type: string
+      metricIds:
+        items:
+          enum:
+          - ionFlux
+          - meanIonEnergy
+          - iedWidth
+          - pressure
+          - sourcePower
+          - biasPower
+          - current.maximum
+          - current.minimum
+          - current.peakToPeak
+          - current.halfPeakToPeak
+          - current.maximumPhase
+          - current.minimumPhase
+          - potential.maximum
+          - potential.minimum
+          - potential.peakToPeak
+          - potential.halfPeakToPeak
+          - potential.maximumPhase
+          - potential.minimumPhase
+          - ied.maximum
+          - ied.peakEnergy
+          - iad.maximum
+          - iad.peakAngle
+          - iead.maximum
+          - iead.peakEnergy
+          - iead.peakAngle
+          - density.maximum
+          - density.maximumPhase
+          - density.maximumDistance
+          - residual.maximum
+          - residual.maximumIteration
+          - residual.final
+          - residual.finalIteration
+          type: string
+        title: Metricids
+        type: array
+      baselineKey:
+        anyOf:
+        - type: string
+        - type: 'null'
+        title: Baselinekey
+      trendAxis:
+        anyOf:
+        - enum:
+          - pressure
+          - sourcePower
+          - biasPower
+          type: string
+        - type: 'null'
+        title: Trendaxis
+      runs:
+        items:
+          $ref: '#/$defs/ComparisonRunV3'
+        title: Runs
+        type: array
+      comparisons:
+        items:
+          $ref: '#/$defs/ComparisonDifferenceV3'
+        title: Comparisons
+        type: array
+      summaries:
+        items:
+          $ref: '#/$defs/MetricSummaryV3'
+        title: Summaries
+        type: array
+      trends:
+        items:
+          $ref: '#/$defs/TrendGroupV3'
+        title: Trends
+        type: array
+      observations:
+        items:
+          $ref: '#/$defs/ObservationV3'
+        title: Observations
+        type: array
+      usedRunRefs:
+        items:
+          $ref: '#/$defs/RunRef'
+        title: Usedrunrefs
+        type: array
+      numericPolicyVersion:
+        const: v1
+        title: Numericpolicyversion
+        type: string
+      aggregationPolicyVersion:
+        const: multi-run-1
+        title: Aggregationpolicyversion
+        type: string
+      plotIds:
+        items:
+          enum:
+          - ied
+          - iad
+          - iead
+          - current
+          - potential
+          - density
+          - residual
+          type: string
+        title: Plotids
+        type: array
+      outputs:
+        items:
+          $ref: '#/$defs/OutputMetadata'
+        title: Outputs
+        type: array
+      featurePolicyVersion:
+        const: source-features-1
+        title: Featurepolicyversion
+        type: string
+    required:
+    - kind
+    - resultStatus
+    - mode
+    - metricIds
+    - baselineKey
+    - trendAxis
+    - runs
+    - comparisons
+    - summaries
+    - trends
+    - observations
+    - usedRunRefs
+    - numericPolicyVersion
+    - aggregationPolicyVersion
+    - plotIds
+    - outputs
+    - featurePolicyVersion
+    title: ComparisonResultV3
+    type: object
+additionalProperties: false
+properties:
+  implementationId:
+    const: v1
+    title: Implementationid
+    type: string
+  graphVersion:
+    const: v1
+    title: Graphversion
+    type: string
+  schemaVersion:
+    const: 3
+    title: Schemaversion
+    type: integer
+  kind:
+    const: compare_runs
+    type: string
+  summary:
+    title: Summary
+    type: string
+  originalQuestion:
+    title: Originalquestion
+    type: string
+  toolSelection:
+    $ref: '#/$defs/ToolSelection'
+  resolvedInputs:
+    additionalProperties: true
+    title: Resolvedinputs
+    type: object
+  result:
+    $ref: '#/$defs/ComparisonResultV3'
+  answer:
+    anyOf:
+    - $ref: '#/$defs/ComparisonAnswer'
+    - type: 'null'
+  contextProvenance:
+    additionalProperties: true
+    title: Contextprovenance
+    type: object
+  inputHistory:
+    items:
+      additionalProperties: true
+      type: object
+    title: Inputhistory
+    type: array
+  usedRunRefs:
+    items:
+      $ref: '#/$defs/RunRef'
+    title: Usedrunrefs
+    type: array
+  versions:
+    additionalProperties: true
+    title: Versions
+    type: object
+  unitAssumptions:
+    items:
+      $ref: '#/$defs/UnitAssumption'
+    title: Unitassumptions
+    type: array
+required:
+- implementationId
+- graphVersion
+- schemaVersion
+- kind
+- summary
+- originalQuestion
+- toolSelection
+- resolvedInputs
+- result
+- answer
+- contextProvenance
+- inputHistory
+- usedRunRefs
+- versions
+title: AnswerSnapshotV3
+type: object
+$schema: https://json-schema.org/draft/2020-12/schema
