@@ -19,3 +19,6 @@ export function searchGroups(result:SearchResult){
 }
 export function snapshotResult<T>(snapshot:Snapshot):T{return snapshot.result as unknown as T;}
 export function numberText(value:number|null|undefined,digits=2,signed=false){if(typeof value!=='number'||!Number.isFinite(value))return '—';const rounded=Number(value.toFixed(digits));return `${signed&&rounded>0?'+':''}${rounded.toLocaleString('ko-KR',{maximumFractionDigits:digits})}`;}
+
+for(const [plot,name] of Object.entries({current:'RF 전류 밀도',potential:'전극 전위'}))for(const [suffix,label] of Object.entries({maximum:'최댓값',minimum:'최솟값',peakToPeak:'첨두간 값',halfPeakToPeak:'반첨두간 진폭',maximumPhase:'첫 최대 RF 위상',minimumPhase:'첫 최소 RF 위상'}))metricNames[`${plot}.${suffix}`]=`${name} ${label}`;
+Object.assign(metricNames,{'ied.maximum':'IED 최대 강도','ied.peakEnergy':'IED 첫 최대 에너지','iad.maximum':'IAD 최대 강도','iad.peakAngle':'IAD 첫 최대 입사각','iead.maximum':'IEAD 최대 강도','iead.peakEnergy':'IEAD 첫 최대 에너지','iead.peakAngle':'IEAD 첫 최대 입사각','density.maximum':'쉬스 이온 밀도 최댓값','density.maximumPhase':'밀도 첫 최대 RF 위상','density.maximumDistance':'밀도 첫 최대 거리','residual.maximum':'최대 잔차','residual.maximumIteration':'첫 최대 잔차 반복','residual.final':'마지막 잔차','residual.finalIteration':'마지막 반복'});

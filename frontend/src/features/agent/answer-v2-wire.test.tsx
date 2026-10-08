@@ -9,7 +9,7 @@ test('shared comparison contract keeps every exact version, zero and unavailable
  render(<RunComparisonCard result={wire.comparison.result as ComparisonResultV2} answer={wire.comparison.answer as ComparisonAnswer}/>);
  expect(screen.getByText('선택한 실험 비교 · 2개')).toBeInTheDocument();
  expect(screen.getByText('버전 00000000-0000-0000-0000-000000000001')).not.toBeVisible();
- fireEvent.click(screen.getAllByText('버전·데이터 상태')[0]);
+ fireEvent.click(screen.getAllByText('공정 조건·버전')[0]);
  expect(screen.getByText('버전 00000000-0000-0000-0000-000000000001')).toBeInTheDocument();
  expect(screen.getByText('버전 00000000-0000-0000-0000-000000000002')).toBeInTheDocument();
  expect(screen.getAllByText(/기준값이 0이므로 변화율 계산 불가/).length).toBeGreaterThan(0);

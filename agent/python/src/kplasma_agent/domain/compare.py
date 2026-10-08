@@ -122,9 +122,10 @@ def run_datum(run, metric):
     return datum(value, UNITS[metric], error, source)
 
 
-def compare_selected(inputs, entries):
+def compare_selected(inputs, entries, outputs=None):
     """Deterministic selected-version comparison. No implicit catalog or baseline."""
-    from ..answer_contracts import ComparisonResultV2
+    from ..answer_contracts import ComparisonResultV2, ComparisonResultV3
+    from ..comparison_catalog import comparison_plan, FIELD_META, COORDINATE_FIELDS, FEATURE_POLICY
     from ..tools import CompareToolInputs
     from .comparison_evidence import observations
 
@@ -137,13 +138,34 @@ def compare_selected(inputs, entries):
         raise DomainError("RESULT_SOURCE_MISMATCH")
     if query.baseline_key is not None and query.baseline_key not in keys:
         raise DomainError("INVALID_BASELINE_KEY")
-    metrics = query.metrics or DEFAULT_METRICS
+    extended = query.comparison_fields is not None or query.plot_ids is not None
+    metrics, plots, needed = comparison_plan(inputs)
+    units = {m: FIELD_META[m]["unit"] for m in metrics}
+    by_ref = {}
+    for output in outputs or []:
+        meta = output["metadata"]
+        if meta["ref"] not in refs or meta["outputId"] not in needed:
+            raise DomainError("RESULT_SOURCE_MISMATCH")
+        identity = (meta["ref"]["runId"], meta["ref"]["runVersionId"], meta["outputId"])
+        if identity in by_ref:
+            raise DomainError("RESULT_SOURCE_MISMATCH")
+        by_ref[identity] = output
+    def feature(entry, metric):
+        if "." not in metric:
+            return run_datum(entry["run"], metric)
+        output = by_ref.get((entry["ref"]["runId"], entry["ref"]["runVersionId"], FIELD_META[metric]["plotId"]), {})
+        value = output.get("features", {}).get(metric)
+        if value is None:
+            return datum(None, units[metric], "INSUFFICIENT_DATA")
+        if value["unit"] != units[metric]:
+            return datum(None, units[metric], "UNIT_NOT_COMPARABLE")
+        return value
     rows = [
         {
             "key": e["key"],
             "ref": e["ref"],
             "conditions": {m: run_datum(e["run"], m) for m in CONDITION_KEYS},
-            "metrics": {m: run_datum(e["run"], m) for m in metrics},
+            "metrics": {m: feature(e, m) for m in metrics},
             "quality": {
                 k: e["run"].get(k, "UNKNOWN") for k in ("convergenceStatus", "qualityStatus", "catalogStatus")
             },
@@ -173,9 +195,9 @@ def compare_selected(inputs, entries):
         delta = None if error else b["value"] - a["value"]
         if error is None and not is_finite(delta):
             error = "NUMERIC_OVERFLOW"
-        diff = datum(delta if signed or delta is None else abs(delta), UNITS[metric], error)
+        diff = datum(delta if signed or delta is None else abs(delta), units[metric], error)
         percent = None
-        if signed:
+        if signed and metric not in COORDINATE_FIELDS:
             if error:
                 percent = datum(None, "%", error)
             elif a["value"] == 0:
@@ -230,13 +252,13 @@ def compare_selected(inputs, entries):
                 "id": f"summary:{metric}",
                 "metric": metric,
                 "availableCount": len(values),
-                "minimum": datum(minimum, UNITS[metric], None if values else "INSUFFICIENT_DATA"),
+                "minimum": datum(minimum, units[metric], None if values else "INSUFFICIENT_DATA"),
                 "minimumKeys": [r["key"] for r in available if r["metrics"][metric]["value"] == minimum],
-                "maximum": datum(maximum, UNITS[metric], None if values else "INSUFFICIENT_DATA"),
+                "maximum": datum(maximum, units[metric], None if values else "INSUFFICIENT_DATA"),
                 "maximumKeys": [r["key"] for r in available if r["metrics"][metric]["value"] == maximum],
                 "range": datum(
                     span,
-                    UNITS[metric],
+                    units[metric],
                     "INSUFFICIENT_DATA"
                     if span is None
                     else ("NUMERIC_OVERFLOW" if not is_finite(span) else None),
@@ -332,5 +354,7 @@ def compare_selected(inputs, entries):
         "numericPolicyVersion": "v1",
         "aggregationPolicyVersion": "multi-run-1",
     }
+    if extended:
+        result.update(plotIds=plots, outputs=[o["metadata"] for o in outputs or []], featurePolicyVersion=FEATURE_POLICY)
     result["observations"] = observations(result)
-    return ComparisonResultV2.model_validate(result).model_dump()
+    return (ComparisonResultV3 if extended else ComparisonResultV2).model_validate(result).model_dump()

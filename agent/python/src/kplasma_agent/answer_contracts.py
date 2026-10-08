@@ -2,6 +2,7 @@
 
 from typing import Literal
 from .contracts import StrictModel, FiniteNumber, ConditionId, OutputMetric
+from .comparison_catalog import ComparisonField, PlotId
 from pydantic import Field, model_validator
 
 Reason = Literal[
@@ -232,7 +233,7 @@ class AnswerSnapshotV2(StrictModel):
                     raise ValueError("unit assumption does not match resolved input")
                 seen.add(assumption.metric)
         if self.kind == "compare_runs":
-            value = ComparisonResultV2.model_validate(self.result)
+            value = (ComparisonResultV3 if self.schemaVersion == 3 else ComparisonResultV2).model_validate(self.result)
             if self.answer is None or value.usedRunRefs != self.usedRunRefs:
                 raise ValueError("comparison answer/inventory mismatch")
         elif self.answer is not None:
@@ -241,4 +242,98 @@ class AnswerSnapshotV2(StrictModel):
             GeneralAnswerResult.model_validate(self.result)
             if self.resolvedInputs or self.contextProvenance or self.usedRunRefs:
                 raise ValueError("general cannot acquire Run dependencies")
+        return self
+
+
+class OutputExtremum(StrictModel):
+    value: FiniteNumber
+    x: FiniteNumber
+    y: FiniteNumber | None
+    count: int = Field(ge=1)
+
+
+class OutputMetadata(StrictModel):
+    ref: RunRef
+    outputId: PlotId
+    status: Literal["AVAILABLE", "UNAVAILABLE"]
+    reason: str | None
+    sourceIntegrity: str | None
+    featurePolicyVersion: Literal["source-features-1"]
+    xUnit: str
+    yUnit: str
+    valueUnit: str
+    sourceCount: int = Field(ge=0)
+    extrema: dict[Literal["maximum", "minimum"], OutputExtremum]
+
+    @model_validator(mode="after")
+    def availability(self):
+        if self.status == "AVAILABLE" and (self.reason is not None or not self.sourceIntegrity or self.sourceCount < 1 or not self.extrema):
+            raise ValueError("available output requires source, samples and extrema")
+        if self.status == "UNAVAILABLE" and not self.reason:
+            raise ValueError("unavailable output requires reason")
+        return self
+
+
+# These immutable wire models widen a historical schema; Pydantic validates each version.
+class ComparisonRunV3(ComparisonRun):
+    metrics: dict[ComparisonField, ScalarDatum]  # type: ignore[assignment]
+
+
+class ComparisonDifferenceV3(ComparisonDifference):
+    metric: ComparisonField  # type: ignore[assignment]
+
+
+class MetricSummaryV3(MetricSummary):
+    metric: ComparisonField  # type: ignore[assignment]
+
+
+class TrendGroupV3(TrendGroup):
+    metric: ComparisonField  # type: ignore[assignment]
+
+
+class ObservationSourceV3(ObservationSource):
+    metric: ComparisonField  # type: ignore[assignment]
+
+
+class ObservationV3(Observation):
+    source: ObservationSourceV3
+
+
+class ComparisonResultV3(ComparisonResultV2):
+    metricIds: list[ComparisonField]  # type: ignore[assignment]
+    runs: list[ComparisonRunV3]  # type: ignore[assignment]
+    comparisons: list[ComparisonDifferenceV3]  # type: ignore[assignment]
+    summaries: list[MetricSummaryV3]  # type: ignore[assignment]
+    trends: list[TrendGroupV3]  # type: ignore[assignment]
+    observations: list[ObservationV3]  # type: ignore[assignment]
+    plotIds: list[PlotId]
+    outputs: list[OutputMetadata]
+    featurePolicyVersion: Literal["source-features-1"]
+
+    @model_validator(mode="after")
+    def output_inventory(self):
+        from .comparison_catalog import FIELD_META
+        seen = set()
+        for output in self.outputs:
+            identity = (output.ref.runId, output.ref.runVersionId, output.outputId)
+            if output.ref not in self.usedRunRefs or identity in seen:
+                raise ValueError("output inventory mismatch")
+            seen.add(identity)
+        if len(set(self.plotIds)) != len(self.plotIds):
+            raise ValueError("duplicate plot")
+        needed = set(self.plotIds) | {FIELD_META[m]["plotId"] for m in self.metricIds if FIELD_META[m]["plotId"]}
+        expected = {(ref.runId, ref.runVersionId, plot) for ref in self.usedRunRefs for plot in needed}
+        if seen != expected:
+            raise ValueError("incomplete output inventory")
+        return self
+
+
+class AnswerSnapshotV3(AnswerSnapshotV2):
+    schemaVersion: Literal[3]  # type: ignore[assignment]
+
+    @model_validator(mode="after")
+    def extended_comparison(self):
+        if self.kind != "compare_runs":
+            raise ValueError("schema 3 is for extended comparisons")
+        ComparisonResultV3.model_validate(self.result)
         return self
