@@ -44,3 +44,5 @@
 변경은 입력창 내부 CSS에 한정한다. 과거 질문의 참조 표시, 추가·제거·전체 해제·접기 정책, 저장과 정확한 Run 버전 전송은 유지한다. 브라우저 검증에는 8개 펼침→7개로 제거했을 때 마지막 태그가 늘어나지 않는지와 이름 잘림 여부를 추가했다.
 
 최종 `npx playwright test --config frontend/src/features/agent/agent-v1.playwright.config.ts`는 **12 통과 / 외부 프로토타입 전용 8 생략**이었다. 390 / 800 / 1008 / 1440px 스크린샷도 직접 확인했다. `npm run typecheck`, `npm run lint`, `npm run build`, `npm run verify:public-files`, `git diff --check`를 통과했다. 순수 표시 변경이므로 LLM·DB·성능 측정은 재실행하지 않았다.
+
+후속 중앙 정렬 보완: 태그 삭제 및 전체 해제의 `×` 문자를 대칭 SVG로 교체하고 블록으로 표시했다. 폰트 기준선에 따른 시각적 처짐을 제거하며 버튼 크기·이름·삭제 동작은 유지한다. 네 폭의 `chat-references.pw.ts` **4/4** 및 관련 `modal.test.tsx`, `chat-references.test.tsx` **8/8**, typecheck·lint·build·공개 파일 guard·diff 검사를 통과했다. 작은 표시 수정으로 별도 리뷰 도구 대신 변경한 두 제품 파일을 직접 검토했다.

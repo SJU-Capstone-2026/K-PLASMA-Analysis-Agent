@@ -2868,6 +2868,7 @@ p.manual-limit { margin-bottom: 0; color: #826947; font-size: 9px; line-height: 
   line-height: 1;
 }
 .reference-tray-clear:hover { color: #294777; background: transparent; }
+.reference-tray button svg { display: block; }
 
 .agent-composer .reference-tray-runs,
 .agent-composer .reference-tray-more-grid {
