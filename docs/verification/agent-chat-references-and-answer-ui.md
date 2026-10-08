@@ -46,3 +46,23 @@
 최종 `npx playwright test --config frontend/src/features/agent/agent-v1.playwright.config.ts`는 **12 통과 / 외부 프로토타입 전용 8 생략**이었다. 390 / 800 / 1008 / 1440px 스크린샷도 직접 확인했다. `npm run typecheck`, `npm run lint`, `npm run build`, `npm run verify:public-files`, `git diff --check`를 통과했다. 순수 표시 변경이므로 LLM·DB·성능 측정은 재실행하지 않았다.
 
 후속 중앙 정렬 보완: 태그 삭제 및 전체 해제의 `×` 문자를 대칭 SVG로 교체하고 블록으로 표시했다. 폰트 기준선에 따른 시각적 처짐을 제거하며 버튼 크기·이름·삭제 동작은 유지한다. 네 폭의 `chat-references.pw.ts` **4/4** 및 관련 `modal.test.tsx`, `chat-references.test.tsx` **8/8**, typecheck·lint·build·공개 파일 guard·diff 검사를 통과했다. 작은 표시 수정으로 별도 리뷰 도구 대신 변경한 두 제품 파일을 직접 검토했다.
+
+## 후속: 실험별 태그 색상
+
+2026-10-09, 사용자 요청으로 대화 안에서 처음 태그한 서로 다른 Run 순서에 따라 파랑 `#4168e8`, 청록 `#0a8e9b`, 보라 `#8a5bd7`, 오렌지 `#e0842a`, 핑크 `#d25091`을 배정했다. 여섯 번째부터는 무작위 후보 32개 중 기존 색과 RGB 거리가 큰 색을 고른다. 난수가 반복되더라도 중복색이나 무한 재시도가 발생하지 않도록 제한된 대체 경로를 둔다. 많은 실험을 동시에 표시할 때 모든 색의 지각적 구별을 보장하지는 않는다.
+
+색상은 Run ID에 연결하므로 버전 변경·태그 삭제·재추가·순서 변경에도 유지된다. 입력창과 과거 질문의 같은 Run이 동일한 색을 사용한다. 작업 공간·대화 epoch로 범위를 구분하며 새 대화에서는 팔레트를 새로 시작한다. 브라우저의 단일 `kplasma.agent-run-colors.v1` 키에 표시 설정을 저장해 새로고침 후 복원한다. 초기 서버 상태를 불러오기 전에는 색을 배정하거나 저장하지 않아 기존 설정을 덮어쓰지 않는다. 저장된 색은 6자리 hex만 허용한다. 브라우저 저장소가 차단된 경우 현재 페이지 안에서 유지되며, 기기 간 동기화는 하지 않는다.
+
+태그의 원과 옅은 외곽 링에 같은 색을 적용했다. `useRunColors`를 공유 진입점으로 두어 후속 그래프·범례가 같은 매핑을 사용할 수 있게 했으며 이번 변경으로 그래프를 추가하지는 않았다. 서버 호출·API·실험 수치·질문 스냅샷·참조 저장 정책은 변경하지 않는다.
+
+색상 검증을 먼저 추가한 브라우저 테스트에서 기존 첫 다섯 태그가 모두 파란색으로 나오는 실패를 확인했다. 구현 후 다음 검증을 수행했다.
+
+| 명령 | 결과 |
+| --- | --- |
+| `npm exec --workspace frontend -- vitest run src/components/run-colors.test.tsx src/features/agent/chat-references.test.tsx` | 9 통과: 색 배정·삭제·버전/순서 변경·reload·대화 초기화·초기 로딩·저장소 장애·반복 난수 확인 |
+| `DEBUG_PRINT_LIMIT=300 npm test` | 프론트엔드 199 통과, TypeScript Agent 33 통과/외부 기준 4 생략, 참조 검증 스크립트 34 통과 |
+| `npm run typecheck`, `npm run lint`, `npm run build` | 통과 |
+| `npx playwright test --config frontend/src/features/agent/agent-v1.playwright.config.ts` | 12 통과 / 외부 프로토타입 환경 전용 8 생략 |
+| `git diff --check` | 통과 |
+
+390 / 800 / 1008 / 1440px에서 첫 다섯 고정색, 8개 서로 다른 색, 삭제·reload·재추가 후 색 유지, 입력창의 넘침과 삭제 버튼 정렬을 확인하고 인공 데이터 스크린샷을 직접 검토했다. 제품 변경을 단독 검토했으며 독립 리뷰 또는 팀원 승인을 대신하지 않는다. 실제 LLM/Phoenix 호출·실험 데이터 검증·부하 측정은 수행하지 않았다. 성능 개선율은 산출하지 않는다.

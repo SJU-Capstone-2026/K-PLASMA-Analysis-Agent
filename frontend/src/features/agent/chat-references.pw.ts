@@ -39,6 +39,7 @@ for(const width of [390,800,1008,1440])test(`answer chrome and multiple chat ref
  await add.nth(0).click();await expect.poll(()=>workspace.stateToken.revision).toBe(5);
  expect(workspace.candidateReference?.runs).toEqual(runs.map(ref));
  const composer=page.locator('#agent-query-form');
+ const tagColors=()=>composer.locator('.run-context-chip > i').evaluateAll(nodes=>nodes.map(node=>getComputedStyle(node).backgroundColor));
  const expectCompactTags=async()=>{
   for(const chip of await composer.locator('.run-context-chip:visible').all()){
    const bounds=await chip.boundingBox();
@@ -49,6 +50,9 @@ for(const width of [390,800,1008,1440])test(`answer chrome and multiple chat ref
  };
  await expect(composer.locator('.reference-tray-label')).toHaveText('후보 집합 · 8개');
  await composer.locator('.reference-tray-more summary').click();
+ const assignedColors=await tagColors();
+ expect(assignedColors.slice(0,5)).toEqual(['rgb(65, 104, 232)','rgb(10, 142, 155)','rgb(138, 91, 215)','rgb(224, 132, 42)','rgb(210, 80, 145)']);
+ expect(new Set(assignedColors).size).toBe(8);
  await expectCompactTags();
  await composer.locator('.reference-tray').screenshot({path:info.outputPath(`synthetic-chat-references-expanded-${width}.png`)});
  await composer.getByRole('button',{name:`${runs[7].runId} 채팅에서 제거`}).click();
@@ -59,6 +63,7 @@ for(const width of [390,800,1008,1440])test(`answer chrome and multiple chat ref
  await expect.poll(()=>workspace.candidateReference?.runs.length).toBe(6);
  expect(submissions).toHaveLength(0);expect(workspace.conversation.turns).toEqual(frozen);
  await page.reload();await expect(composer.locator('.reference-tray-label')).toHaveText('후보 집합 · 6개');
+ expect(await tagColors()).toEqual(assignedColors.slice(1,7));
  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth)).toBe(true);
  expect(await composer.evaluate(node=>node.scrollWidth<=node.clientWidth+1)).toBe(true);
  const chips=composer.locator('.run-context-chip');
@@ -72,6 +77,8 @@ for(const width of [390,800,1008,1440])test(`answer chrome and multiple chat ref
  await composer.getByRole('textbox').fill('첨부한 실험들을 비교해줘');await composer.getByRole('button',{name:'분석',exact:true}).click();
  expect(submissions).toHaveLength(0);releaseReference!();
  await expect.poll(()=>submissions.length).toBe(1);
+ await composer.locator('.reference-tray-more summary').click();
+ expect(await tagColors()).toEqual([...assignedColors.slice(1,7),assignedColors[0],assignedColors[7]]);
  expect(submissions[0].attachedRunRefs).toEqual([...runs.slice(1,7),runs[0],runs[7]].map(ref));
  expect(submissions[0].baseline).toBeUndefined();expect(errors).toEqual([]);
 });
