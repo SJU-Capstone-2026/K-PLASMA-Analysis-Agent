@@ -16,7 +16,7 @@ from ..domain import lookup_forward, search_reverse, validate_result
 from ..domain.compare import compare_selected
 from ..domain.common import DomainError
 from ..domain.grounding import validate_grounding, validate_native_comparison_metrics
-from ..explanations.answers import COMPARISON_PROMPT, validate_answer, comparison_draft_model, answer_evidence
+from ..explanations.answers import COMPARISON_PROMPT, validate_answer, comparison_draft_model, answer_evidence, comparison_repair_feedback
 from ..metric_registry import CONDITION_KEYS, LABELS, UNITS, NumericError, normalize_value
 
 # Import compatibility for evaluation clients; production selection uses native tools.
@@ -46,6 +46,7 @@ class GraphState(TypedDict, total=False):
     evidence: dict
     draft: dict
     repair_error: str
+    repair_feedback: dict
     explanation_repairs: int
     model_metadata: dict
     context_provenance: dict
@@ -611,6 +612,7 @@ def build_graph(model, backend, settings, checkpointer):
             "recentContext": state.get("context", {}).get("recentContext", {}),
             "inputHistory": state.get("input_history", []),
             "repair_error": state.get("repair_error"),
+            "repair_feedback": state.get("repair_feedback"),
         }
         if not general:
             from ..comparison_catalog import FIELD_META
@@ -654,8 +656,10 @@ def build_graph(model, backend, settings, checkpointer):
         except (DomainError, ValidationError) as error:
             if state.get("explanation_repairs", 0) >= 1:
                 raise
+            code = getattr(error, "code", "ANSWER_SCHEMA_INVALID")
             return {
-                "repair_error": getattr(error, "code", "ANSWER_SCHEMA_INVALID"),
+                "repair_error": code,
+                "repair_feedback": comparison_repair_feedback(state["draft"], state["result"]) if isinstance(error, DomainError) else {},
                 "explanation_repairs": 1,
                 "route": "repair",
             }

@@ -61,6 +61,6 @@
 
 R1–R2/R13은 요청 메시지 투영·전송 예약·outbox와 채팅 검증, R3–R9는 비교 UI·공유 색상·7종 출력 탭과 네 폭 검증, R10–R12는 원본 특징값·단위·비가용·근거 검증, R14는 compact 경계·batch·캐시·모델 예산 및 SQL 계측으로 확인했다. 계획의 테스트 파일 제안은 기존 통합 테스트와 새 `ComparisonFeatureExtractorTest`, `test_comparison_fields.py`, `comparison-visualization.pw.ts` 등에 합쳐 중복 테스트 파일을 만들지 않았다.
 
-새 backend·worker·frontend를 재시작해야 적용된다. graph build는 `v1-2026-10-09.comparison-3`, tool prompt는 `tool-selection-3`, explanation prompt는 `comparison-answer-2`다. DB 마이그레이션은 없다. 이전 미완료 요청은 기존 build fence 정책에 따라 새 질문으로 제출한다. 새 batch 복구·서버 장애 복구 체계는 추가하지 않았으며 단일 Run 후속 라우팅과 RAG는 후속 범위다.
+새 backend·worker·frontend를 재시작해야 적용된다. 최초 그래프 검증의 build는 `v1-2026-10-09.comparison-3`, tool prompt는 `tool-selection-3`, explanation prompt는 `comparison-answer-2`였다. 이후 [비교 설명 근거 오류·재시도 수정](agent-comparison-explanation-evidence.md)으로 build `comparison-4`, explanation prompt `comparison-answer-3`, 근거 정책 `observations-2`를 적용했다. DB 마이그레이션은 없다. 이전 미완료 요청은 기존 build fence 정책에 따라 새 질문으로 제출한다. 새 batch 복구·서버 장애 복구 체계는 추가하지 않았으며 단일 Run 후속 라우팅과 RAG는 후속 범위다.
 
 반영 후 담당자는 첫 30분 동안 스칼라·파형·2D 비교, 3개 이상 태그 전송, 표시 전환/reload를 확인한다. 정상 신호는 정확 버전·단위, 질문/완료 답변 각 한 건, 스칼라의 원본 조회 0회, 표시 전환의 LLM 호출 0회다. `SOURCE_MISMATCH`, `SOURCE_INTEGRITY_MISMATCH`, 지속적인 `ANSWER_*` 실패나 중복 요청이 발생하면 해당 출력과 claim/revision·원본 메타데이터를 확인하고 이번 backend·worker·frontend 배포를 함께 되돌린다. fallback 자동 전환은 하지 않는다.

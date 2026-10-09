@@ -95,7 +95,7 @@ class TrendGroup(StrictModel):
 class ObservationSource(StrictModel):
     kind: Literal["run", "comparison", "summary", "trend"]
     key: str
-    metric: OutputMetric
+    metric: OutputMetric | ConditionId
 
 
 class Observation(StrictModel):
@@ -139,6 +139,11 @@ class ComparisonResultV2(StrictModel):
         for trend in self.trends:
             if set(trend.fixedConditions) != {"pressure", "sourcePower", "biasPower"} - {trend.axis}:
                 raise ValueError("fixed conditions mismatch")
+        for observation in self.observations:
+            source = observation.source
+            condition = source.kind == "run" and source.key in keys and source.metric in ("pressure", "sourcePower", "biasPower")
+            if source.metric not in self.metricIds and not condition:
+                raise ValueError("observation metric mismatch")
         return self
 
 

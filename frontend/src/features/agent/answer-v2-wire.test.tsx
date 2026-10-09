@@ -25,6 +25,17 @@ test('calculation observations start collapsed and stay available on demand',()=
  expect(fact).toBeVisible();
 });
 
+test('condition citations appear as evidence without adding a requested metric column',()=>{
+ const result=structuredClone(wire.comparison.result) as ComparisonResultV2;
+ const answer=structuredClone(wire.comparison.answer) as ComparisonAnswer;
+ result.observations.push({id:'condition-R1',source:{kind:'run',key:'R1',metric:'pressure'},text:'인공 실험의 압력 조건: 4 mTorr.'});
+ answer.observationIds.push('condition-R1');
+ render(<RunComparisonCard result={result} answer={answer}/>);
+ fireEvent.click(screen.getByText('계산 근거'));
+ expect(screen.getByText('인공 실험의 압력 조건: 4 mTorr.')).toBeVisible();
+ expect(screen.queryByRole('columnheader',{name:/압력/})).not.toBeInTheDocument();
+});
+
 test('trend comparisons keep adjacent signed changes without a global baseline',()=>{
  const result=structuredClone(wire.comparison.result) as ComparisonResultV2;
  result.mode='trend';result.baselineKey=null;result.comparisons.forEach(row=>row.kind='adjacent_delta');

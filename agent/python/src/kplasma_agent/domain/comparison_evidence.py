@@ -65,4 +65,10 @@ def observations(result):
             f"다른 공정 조건이 같은 집합({', '.join(row['orderedKeys'])})의 {LABELS[row['axis']]} 순 "
             f"{FIELD_META[row['metric']]['label']} 경향: {direction_labels[row['direction']]}. 관찰된 지점만 설명하며 인과를 확정하지 않습니다.",
         )
+    # Append to preserve existing metric IDs. Conditions are evidence, not extra requested metrics.
+    for row in result["runs"]:
+        for condition, value in row["conditions"].items():
+            if condition not in row["metrics"]:
+                add("run", row["key"], condition,
+                    f"{row['key']} ({row['ref']['runId']})의 {LABELS[condition]}: {display(value)}.")
     return output
