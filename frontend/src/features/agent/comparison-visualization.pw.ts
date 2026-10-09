@@ -1,11 +1,12 @@
 import {expect,test} from '@playwright/test';
 import type {AgentSubmission,ComparisonResultV3,RunOutput,TurnSnapshot,WorkspaceView} from 'agent';
 import wire from '../../../../agent/tests/support/answer-v3-wire.json' with {type:'json'};
+import {syntheticRun} from '../../test/runs';
 import {emptyWorkspace,initialTurnUi} from './useConversation';
 for(const width of [390,800,1008,1440])test(`comparison charts and independent tagged message at ${width}px`,async({page},info)=>{
  await page.setViewportSize({width,height:1000});const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));
  const result=structuredClone(wire.comparison.result) as ComparisonResultV3;
- const first=result.runs[0];result.runs=Array.from({length:5},(_,i)=>({...structuredClone(first),key:`R${i+1}`,ref:{runId:`SYNTHETIC-${i+1}`,runVersionId:`00000000-0000-0000-0000-${String(i+1).padStart(12,'0')}`}}));
+ const first=result.runs[0];result.runs=Array.from({length:5},(_,i)=>({...structuredClone(first),key:`R${i+1}`,ref:{runId:`SYNTHETIC-${i+1}-P08-S200-B0400`,runVersionId:`00000000-0000-0000-0000-${String(i+1).padStart(12,'0')}`}}));
  result.usedRunRefs=result.runs.map(r=>r.ref);result.plotIds=['current','iead'];
  const outputs:RunOutput[]=result.runs.flatMap((r,i)=>{
   const current=structuredClone(wire.outputs[0]) as RunOutput;current.metadata={...current.metadata,ref:r.ref,sourceIntegrity:`artificial-${i}`};
@@ -14,11 +15,15 @@ for(const width of [390,800,1008,1440])test(`comparison charts and independent t
  result.outputs=outputs.map(o=>o.metadata);
  const turn={id:'artificial-compare',askedAt:'2026-10-09T00:00:00Z',question:'인공 파형 비교',intent:'RUN_COMPARISON',context:null,answerRunRefs:result.usedRunRefs,answerSnapshot:{...wire.comparison,result,usedRunRefs:result.usedRunRefs},ui:structuredClone(initialTurnUi)} as unknown as TurnSnapshot;
  let workspace:WorkspaceView={...structuredClone(emptyWorkspace),conversation:{version:1,activeRun:null,turns:[turn]},candidateReference:{kind:'후보 집합',runs:result.usedRunRefs},agentMessages:[{requestId:turn.id,clientMessageId:'saved-key',question:turn.question,submittedRunRefs:result.usedRunRefs,createdAt:turn.askedAt,status:'COMPLETED',turnId:turn.id}]};
- const posted:AgentSubmission[]=[];let release:(()=>void)|undefined;let graphCalls=0;
+ const posted:AgentSubmission[]=[];const detailVersions:string[]=[];let release:(()=>void)|undefined;let graphCalls=0;
  await page.route('**/api/**',async route=>{
   const req=route.request(),path=new URL(req.url()).pathname;if(!path.startsWith('/api/'))return route.continue();
   if(path==='/api/decisions')return route.fulfill({json:[]});
   if(path==='/api/run-versions/outputs'){graphCalls++;const body=req.postDataJSON();return route.fulfill({json:{outputs:outputs.filter(o=>body.plotIds.includes(o.metadata.outputId))}});}
+  if(path.startsWith('/api/run-versions/')){
+   const version=path.split('/').at(-1)!;detailVersions.push(version);const run=result.runs.find(r=>r.ref.runVersionId===version)!;
+   return route.fulfill({json:{...syntheticRun(),...run.ref}});
+  }
   if(path==='/api/agent/requests'){
    const body=req.postDataJSON();posted.push(body);await new Promise<void>(done=>release=done);
    const request={requestId:'new-request',requestRevision:0,status:'NEEDS_INPUT',stage:'wait_input',graphVersion:'v1',question:body.text,pendingInput:{id:'pick',message:'검증용 추가 입력'},error:null,partialResult:null,turnId:null,answerSnapshot:null,inputEvents:[]};
@@ -26,11 +31,24 @@ for(const width of [390,800,1008,1440])test(`comparison charts and independent t
   }
   return route.fulfill({json:workspace});
  });
- await page.goto('/');const card=page.locator('[data-turn-id="artificial-compare"]');await card.getByRole('region',{name:'비교 그래프'}).scrollIntoViewIfNeeded();
- for(const label of ['계산 정의·원본','계산 근거','가능한 해석','설명의 한계'])await expect(card.getByText(label,{exact:true})).toHaveCount(0);
+ await page.goto('/');const card=page.locator('[data-turn-id="artificial-compare"]');
+ const table=card.getByRole('table',{name:'선택한 실험 수치',exact:true});await expect(table).toBeVisible();
+ for(const label of ['계산 정의·원본','계산 근거','가능한 해석','설명의 한계','공정 조건·버전'])await expect(card.getByText(label,{exact:true})).toHaveCount(0);
+ await expect(table.getByRole('columnheader',{name:'번호'})).toBeVisible();await expect(table.getByRole('columnheader',{name:'상세'})).toBeVisible();
+ expect(await table.locator('tbody th').evaluateAll(cells=>cells.every(cell=>getComputedStyle(cell).whiteSpace==='nowrap'))).toBe(true);
+ expect(await table.locator('tbody tr').evaluateAll(rows=>rows.every(row=>row.getBoundingClientRect().height<=46))).toBe(true);
+ const numbers=await card.locator('.comparison-numbers').boundingBox(),graph=await card.locator('.comparison-charts').boundingBox();
+ expect(graph!.y).toBeGreaterThanOrEqual(numbers!.y+numbers!.height);
+ expect(Math.abs(graph!.width-numbers!.width)).toBeLessThanOrEqual(1);
+ const selected=result.runs[1];await table.getByRole('button',{name:`${selected.key} ${selected.ref.runId} 실험 상세 보기`}).click();
+ const detail=page.getByRole('dialog');await expect(detail.getByRole('heading',{name:selected.ref.runId})).toBeVisible();
+ expect(new Set(detailVersions)).toEqual(new Set([selected.ref.runVersionId]));expect(await detail.evaluate(node=>node.scrollWidth<=node.clientWidth+1)).toBe(true);
+ await page.keyboard.press('Escape');await expect(detail).toBeHidden();
+ await table.locator('..').evaluate(node=>node.scrollLeft=0);
+ await card.getByRole('region',{name:'비교 그래프'}).scrollIntoViewIfNeeded();
  await expect(card.locator('path[data-run-id]')).toHaveCount(5);
  const chart=card.getByRole('region',{name:'비교 그래프'});
- await chart.getByRole('button',{name:'R1 SYNTHETIC-1',exact:true}).click();await expect(card.locator('path[data-run-id]')).toHaveCount(4);
+ await chart.getByRole('button',{name:`R1 ${result.runs[0].ref.runId}`,exact:true}).click();await expect(card.locator('path[data-run-id]')).toHaveCount(4);
  await chart.getByRole('button',{name:'전체 숨기기'}).click();await expect(chart.getByText(/표시 중인 실험이 없습니다/)).toBeVisible();
  await chart.getByRole('button',{name:'전체 표시'}).click();
  await chart.getByRole('tab',{name:'RF 전류 밀도 최댓값',exact:true}).click();await expect(chart.locator('rect[data-run-key]')).toHaveCount(5);

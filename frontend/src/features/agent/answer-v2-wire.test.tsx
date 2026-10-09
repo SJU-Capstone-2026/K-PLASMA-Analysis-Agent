@@ -1,17 +1,24 @@
 import {fireEvent,render,screen} from '@testing-library/react';
-import {expect,test} from 'vitest';
+import {expect,test,vi} from 'vitest';
 import type {ComparisonResultV2,TurnSnapshot} from 'agent';
 import wire from '../../../../agent/tests/support/answer-v2-wire.json';
 import {RunComparisonCard} from './RunComparisonCard';
 import {V1AnswerView} from './V1AnswerView';
 
 test('shared comparison contract keeps every exact version, zero and unavailable reasons',()=>{
- render(<RunComparisonCard result={wire.comparison.result as ComparisonResultV2}/>);
+ const action=vi.fn();
+ render(<RunComparisonCard result={wire.comparison.result as ComparisonResultV2} onAction={action}/>);
  expect(screen.getByText('선택한 실험 비교 · 2개')).toBeInTheDocument();
- expect(screen.getByText('버전 00000000-0000-0000-0000-000000000001')).not.toBeVisible();
- fireEvent.click(screen.getAllByText('공정 조건·버전')[0]);
- expect(screen.getByText('버전 00000000-0000-0000-0000-000000000001')).toBeInTheDocument();
- expect(screen.getByText('버전 00000000-0000-0000-0000-000000000002')).toBeInTheDocument();
+ expect(screen.getByRole('columnheader',{name:'번호'})).toBeVisible();
+ expect(screen.getByRole('columnheader',{name:'상세'})).toBeVisible();
+ expect(screen.queryByText('공정 조건·버전')).not.toBeInTheDocument();
+ for(const run of wire.comparison.result.runs){
+  const button=screen.getByRole('button',{name:`${run.key} ${run.ref.runId} 실험 상세 보기`});
+  expect(button).toHaveTextContent('보기');
+  expect(button).toHaveAttribute('data-run-version-id',run.ref.runVersionId);
+  fireEvent.click(button);
+  expect(action).toHaveBeenLastCalledWith('open-run-detail',button);
+ }
  expect(screen.getAllByText(/기준값이 0이므로 변화율 계산 불가/).length).toBeGreaterThan(0);
  expect(screen.getAllByText(/측정값 없음/).length).toBeGreaterThan(0);
  expect(screen.getAllByText(/0 10¹⁸/).length).toBeGreaterThan(0);
