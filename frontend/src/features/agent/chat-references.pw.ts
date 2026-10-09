@@ -23,7 +23,13 @@ for(const width of [390,800,1008,1440])test(`answer chrome and multiple chat ref
   if(path==='/api/agent/requests'){submissions.push(request.postDataJSON());return route.fulfill({json:{requestId:'synthetic-request',requestRevision:0,status:'FAILED',stage:'interpret',graphVersion:'v1',question:'인공 비교 요청',pendingInput:null,error:{code:'TEST_STOP',message:'인공 요청 접수 검증'},partialResult:null,turnId:null,answerSnapshot:null,inputEvents:[]}});}
   return route.fulfill({json:workspace});
  });
- await page.goto('/');const general=page.locator('[data-turn-id="general"]');const comparison=page.locator('[data-turn-id="comparison"]');
+ await page.goto('/');
+ // Capture at the real click boundary, after the browser has brought its target into view.
+ await page.evaluate(()=>document.addEventListener('click',event=>{
+  const button=(event.target as Element).closest<HTMLButtonElement>('button[data-action]');
+  if(button&&['continue-with-run','reference-candidate-group'].includes(button.dataset.action!))button.dataset.testClickScroll=String(scrollY);
+ },true));
+ const general=page.locator('[data-turn-id="general"]');const comparison=page.locator('[data-turn-id="comparison"]');
  await expect(general.locator('.v1-markdown')).toContainText('평균 이온 에너지');
  for(const answer of [general,comparison]){
   await expect(answer.locator('.v1-summary,.v1-interpretation')).toHaveCount(0);
@@ -32,10 +38,17 @@ for(const width of [390,800,1008,1440])test(`answer chrome and multiple chat ref
  }
  const search=page.locator('[data-turn-id="search"]');const add=search.getByRole('button',{name:'채팅에 추가하기',exact:true});
  await expect(add).toHaveCount(8);
- await add.nth(0).click();await add.nth(1).click();await add.nth(2).click();
+ await add.nth(0).click();await expect.poll(()=>workspace.candidateReference?.runs.length).toBe(1);
+ await expect(add.nth(0)).toBeFocused();expect(await page.evaluate(()=>scrollY)).toBeCloseTo(Number(await add.nth(0).getAttribute('data-test-click-scroll')),0);
+ const toast=page.locator('#toast-region');await expect(toast).toContainText(`${runs[0].runId}을 채팅에 추가했습니다.`);
+ await add.nth(1).click();await add.nth(2).click();
  await expect.poll(()=>workspace.candidateReference?.runs.length).toBe(3);
- await search.getByRole('button',{name:'전체 후보 채팅에 추가'}).click();
+ const all=search.getByRole('button',{name:'전체 후보 채팅에 추가'});
+ await all.click();
  await expect.poll(()=>workspace.candidateReference?.runs.length).toBe(8);
+ await expect(all).toBeFocused();expect(await page.evaluate(()=>scrollY)).toBeCloseTo(Number(await all.getAttribute('data-test-click-scroll')),0);
+ await expect(toast).toContainText('8개 후보를 채팅에 추가했습니다.');
+ if(width===1440)await expect(toast.locator('.toast')).toHaveCount(0,{timeout:4500});
  await add.nth(0).click();await expect.poll(()=>workspace.stateToken.revision).toBe(5);
  expect(workspace.candidateReference?.runs).toEqual(runs.map(ref));
  const composer=page.locator('#agent-query-form');
@@ -51,7 +64,9 @@ for(const width of [390,800,1008,1440])test(`answer chrome and multiple chat ref
  await expect(composer.locator('.reference-tray-label')).toHaveText('후보 집합 · 8개');
  await composer.locator('.reference-tray-more summary').click();
  const assignedColors=await tagColors();
- expect(assignedColors.slice(0,5)).toEqual(['rgb(65, 104, 232)','rgb(10, 142, 155)','rgb(138, 91, 215)','rgb(224, 132, 42)','rgb(210, 80, 145)']);
+ // Historical comparison Runs already reserve the first two colors in this conversation.
+ expect(assignedColors.slice(0,3)).toEqual(['rgb(138, 91, 215)','rgb(224, 132, 42)','rgb(210, 80, 145)']);
+ expect(await comparison.locator('.comparison-color').first().evaluate(node=>getComputedStyle(node).backgroundColor)).toBe('rgb(65, 104, 232)');
  expect(new Set(assignedColors).size).toBe(8);
  await expectCompactTags();
  await composer.locator('.reference-tray').screenshot({path:info.outputPath(`synthetic-chat-references-expanded-${width}.png`)});

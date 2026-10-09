@@ -4,22 +4,27 @@ from pydantic import model_validator
 
 from .contracts import ConditionId, ForwardInputs, OutputMetric, ReverseInputs, StrictModel
 from typing import Literal
+from .comparison_catalog import ComparisonField, PlotId
 
 
 class CompareToolInputs(StrictModel):
     ref_keys: list[str] | None = None
     metrics: list[OutputMetric] | None = None
+    comparison_fields: list[ComparisonField] | None = None
+    plot_ids: list[PlotId] | None = None
     analysis: Literal["auto", "values", "differences", "trend", "interpretation"] | None = None
     baseline_key: str | None = None
     trend_axis: ConditionId | None = None
 
     @model_validator(mode="after")
     def unique_lists(self):
-        for values in (self.ref_keys, self.metrics):
+        for values in (self.ref_keys, self.metrics, self.comparison_fields, self.plot_ids):
             if values is not None and (
                 not values or len(set(values)) != len(values) or any(not v for v in values)
             ):
                 raise ValueError("supplied lists must be nonempty and unique")
+        if self.metrics is not None and self.comparison_fields is not None and self.metrics != self.comparison_fields:
+            raise ValueError("metrics and comparison_fields conflict")
         return self
 
 
@@ -45,7 +50,13 @@ TOOL_DESCRIPTIONS = {
     "실험 비교 의도가 있지만 참조가 없거나 '방금거/아까 실험'이 불명확해도 이 도구를 선택한다. "
     "ref_keys는 서버가 제공한 명시 참조 별칭만 사용한다. null이면 명시 참조 전체를 사용한다. "
     "대화 내용이나 조건으로 실험을 추정하지 않는다. 기준·축을 지정하지 않았다면 null. "
-    "values는 원값만, differences는 계산된 차이(차이 값만 포함), trend는 축 경향, interpretation은 이유 해석, 모호하면 auto.",
+    "values는 원값만, differences는 계산된 차이(차이 값만 포함), trend는 축 경향, interpretation은 이유 해석, 모호하면 auto. "
+    "comparison_fields는 요청한 스칼라·조건·파형 특징값을 질문 순서대로 선택한다. metrics는 과거 호환용으로 null을 사용한다. "
+    "plot_ids는 요청한 실제 그래프만 선택한다(ied/iad/iead/current/potential/density/residual). "
+    "RF 파형은 current,potential; 전체 상세 그래프는 7개 전부. 피크는 maximum, 진폭은 halfPeakToPeak이다. "
+    "피크·진폭 질문에는 해당 파형 plot_ids도 선택한다. 스칼라만 물으면 plot_ids=null. "
+    "모호한 일반 비교는 comparison_fields=null, plot_ids=null이며 코드가 기본 결과 지표를 선택한다. "
+    "RMS·위상차·절댓값 피크 등 등록되지 않은 특징값은 지원하는 값으로 대체하지 않는다.",
     "generate_answer": "실험의 실제 값을 비교·조회하지 않는 일반 개념·물리 원리·관계 질문에 원문 그대로 답한다. "
     "태그가 있어도 순수 정의 질문은 이 도구다. 개념 목록이나 개수 제한은 없다. "
     "실험 비교 요청을 참조 부족 때문에 이 도구로 우회하지 않는다. 인자는 빈 객체다.",

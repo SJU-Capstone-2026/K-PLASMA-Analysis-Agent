@@ -1,28 +1,27 @@
 import {fireEvent,render,screen} from '@testing-library/react';
-import {expect,test} from 'vitest';
-import type {ComparisonResultV2,ComparisonAnswer,TurnSnapshot} from 'agent';
+import {expect,test,vi} from 'vitest';
+import type {ComparisonResultV2,TurnSnapshot} from 'agent';
 import wire from '../../../../agent/tests/support/answer-v2-wire.json';
 import {RunComparisonCard} from './RunComparisonCard';
 import {V1AnswerView} from './V1AnswerView';
 
 test('shared comparison contract keeps every exact version, zero and unavailable reasons',()=>{
- render(<RunComparisonCard result={wire.comparison.result as ComparisonResultV2} answer={wire.comparison.answer as ComparisonAnswer}/>);
+ const action=vi.fn();
+ render(<RunComparisonCard result={wire.comparison.result as ComparisonResultV2} onAction={action}/>);
  expect(screen.getByText('선택한 실험 비교 · 2개')).toBeInTheDocument();
- expect(screen.getByText('버전 00000000-0000-0000-0000-000000000001')).not.toBeVisible();
- fireEvent.click(screen.getAllByText('버전·데이터 상태')[0]);
- expect(screen.getByText('버전 00000000-0000-0000-0000-000000000001')).toBeInTheDocument();
- expect(screen.getByText('버전 00000000-0000-0000-0000-000000000002')).toBeInTheDocument();
+ expect(screen.getByRole('columnheader',{name:'번호'})).toBeVisible();
+ expect(screen.getByRole('columnheader',{name:'상세'})).toBeVisible();
+ expect(screen.queryByText('공정 조건·버전')).not.toBeInTheDocument();
+ for(const run of wire.comparison.result.runs){
+  const button=screen.getByRole('button',{name:`${run.key} ${run.ref.runId} 실험 상세 보기`});
+  expect(button).toHaveTextContent('보기');
+  expect(button).toHaveAttribute('data-run-version-id',run.ref.runVersionId);
+  fireEvent.click(button);
+  expect(action).toHaveBeenLastCalledWith('open-run-detail',button);
+ }
  expect(screen.getAllByText(/기준값이 0이므로 변화율 계산 불가/).length).toBeGreaterThan(0);
  expect(screen.getAllByText(/측정값 없음/).length).toBeGreaterThan(0);
  expect(screen.getAllByText(/0 10¹⁸/).length).toBeGreaterThan(0);
-});
-
-test('calculation observations start collapsed and stay available on demand',()=>{
- render(<RunComparisonCard result={wire.comparison.result as ComparisonResultV2} answer={wire.comparison.answer as ComparisonAnswer}/>);
- const fact=screen.getByText(wire.comparison.result.observations[0].text);
- expect(fact).not.toBeVisible();
- fireEvent.click(screen.getByText('계산 근거'));
- expect(fact).toBeVisible();
 });
 
 test('trend comparisons keep adjacent signed changes without a global baseline',()=>{
@@ -49,6 +48,12 @@ test.each([wire.general,wire.comparison])('saved general and comparison answers 
  expect(screen.queryByText('LLM 일반 지식 기반',{exact:true})).not.toBeInTheDocument();
  expect(screen.queryByText('질문 해석·추가 입력')).not.toBeInTheDocument();
  expect(container.querySelector('.v1-summary,.v1-interpretation')).toBeNull();
+ if(snapshot.kind==='compare_runs'){
+  expect(screen.queryByText('계산 근거')).not.toBeInTheDocument();
+  expect(screen.queryByText('가능한 해석')).not.toBeInTheDocument();
+  expect(screen.queryByText('설명의 한계')).not.toBeInTheDocument();
+  expect(screen.getByRole('region',{name:'비교 그래프'})).toBeInTheDocument();
+ }
 });
 
 test('reopening a saved search displays its applied defaults and older answers do not gain a notice',()=>{
