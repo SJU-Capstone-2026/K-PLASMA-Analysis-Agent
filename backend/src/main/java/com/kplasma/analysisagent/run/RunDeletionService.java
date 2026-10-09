@@ -2,6 +2,7 @@ package com.kplasma.analysisagent.run;
 
 import com.kplasma.analysisagent.contract.RunDeletionDto.*;
 import com.kplasma.analysisagent.ingestion.*;
+import com.kplasma.analysisagent.agent.AgentRequestRepository;
 import java.util.*;
 import java.util.regex.Pattern;
 import org.slf4j.LoggerFactory;
@@ -24,15 +25,17 @@ public class RunDeletionService {
     private final StorageGarbageCollector garbage;
     private final ObjectMapper mapper;
     private final TransactionTemplate transactions;
+    private final AgentRequestRepository agents;
 
     public RunDeletionService(JdbcTemplate jdbc, ImportRepository imports, StorageGarbageCollector garbage,
-            ObjectMapper mapper, PlatformTransactionManager manager) {
+            ObjectMapper mapper, PlatformTransactionManager manager,AgentRequestRepository agents) {
         this.jdbc = jdbc;
         this.named = new NamedParameterJdbcTemplate(jdbc);
         this.imports = imports;
         this.garbage = garbage;
         this.mapper = mapper;
         this.transactions = new TransactionTemplate(manager);
+        this.agents=agents;
     }
 
     public Result delete(Request request) {
@@ -74,6 +77,7 @@ public class RunDeletionService {
         List<String> deleted = named.queryForList("select run_id from run where run_id in (:ids) order by run_id", parameters, String.class);
         if (deleted.isEmpty()) return List.of();
         rejectReferences(new HashSet<>(deleted));
+        agents.invalidateRuns(new HashSet<>(deleted));
         releaseCurrentReferences(new HashSet<>(deleted));
         var selected = Map.of("ids", deleted);
         List<UUID> sources = named.queryForList("select distinct source_id from run_version where run_id in (:ids)", selected, UUID.class);

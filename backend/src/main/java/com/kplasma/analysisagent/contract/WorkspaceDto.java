@@ -17,7 +17,10 @@ public final class WorkspaceDto {
             RunRef context, List<RunRef> answerRunRefs, Map<String, Object> answerSnapshot, TurnUiSnapshot ui) {}
     public record ReferenceState(String kind, List<RunRef> runs) {}
     public record Conversation(int version, RunRef activeRun, List<TurnSnapshot> turns) {}
-    public record WorkspaceView(StateToken stateToken, Conversation conversation, ReferenceState candidateReference) {}
+    public record WorkspaceView(StateToken stateToken, Conversation conversation, ReferenceState candidateReference,
+            Map<String,Object> activeAgentRequest,Map<String,Object> failedAgentRequest) {
+        public WorkspaceView(StateToken stateToken,Conversation conversation,ReferenceState candidateReference){this(stateToken,conversation,candidateReference,null,null);}
+    }
     public record TurnWrite(@JsonProperty(required=true) StateToken stateToken, @JsonProperty(required=true) TurnSnapshot turn) {}
     public record UiWrite(@JsonProperty(required=true) StateToken stateToken, @JsonProperty(required=true) Map<String,Object> ui) {}
     public record TokenWrite(@JsonProperty(required=true) StateToken stateToken) {}

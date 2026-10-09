@@ -1,0 +1,1593 @@
+{
+  "comparison": {
+    "implementationId": "v1",
+    "graphVersion": "v1",
+    "schemaVersion": 2,
+    "kind": "compare_runs",
+    "summary": "인공 계약 예시",
+    "originalQuestion": "인공 질문",
+    "toolSelection": {
+      "call_id": "call_synthetic",
+      "name": "compare_runs",
+      "arguments": {
+        "metrics": [
+          "ionFlux",
+          "iedWidth"
+        ],
+        "baseline_key": "R1"
+      }
+    },
+    "resolvedInputs": {
+      "metrics": [
+        "ionFlux",
+        "iedWidth"
+      ],
+      "baseline_key": "R1"
+    },
+    "result": {
+      "kind": "compare_runs",
+      "resultStatus": "COMPARISON_PARTIAL",
+      "mode": "baseline",
+      "metricIds": [
+        "ionFlux",
+        "iedWidth"
+      ],
+      "baselineKey": "R1",
+      "trendAxis": null,
+      "runs": [
+        {
+          "key": "R1",
+          "ref": {
+            "runId": "SYNTHETIC-0",
+            "runVersionId": "00000000-0000-0000-0000-000000000001"
+          },
+          "conditions": {
+            "pressure": {
+              "value": 10.0,
+              "unit": "mTorr",
+              "status": "AVAILABLE",
+              "reason": null,
+              "sourceValue": {
+                "value": 10.0,
+                "unit": "mTorr"
+              }
+            },
+            "sourcePower": {
+              "value": 300.0,
+              "unit": "W",
+              "status": "AVAILABLE",
+              "reason": null,
+              "sourceValue": {
+                "value": 300.0,
+                "unit": "W"
+              }
+            },
+            "biasPower": {
+              "value": 100.0,
+              "unit": "W",
+              "status": "AVAILABLE",
+              "reason": null,
+              "sourceValue": {
+                "value": 100.0,
+                "unit": "W"
+              }
+            }
+          },
+          "metrics": {
+            "ionFlux": {
+              "value": 0.0,
+              "unit": "10¹⁸ m⁻²s⁻¹",
+              "status": "AVAILABLE",
+              "reason": null,
+              "sourceValue": {
+                "value": 0.0,
+                "unit": "10¹⁸ m⁻²s⁻¹"
+              }
+            },
+            "iedWidth": {
+              "value": 5.0,
+              "unit": "eV",
+              "status": "AVAILABLE",
+              "reason": null,
+              "sourceValue": {
+                "value": 5.0,
+                "unit": "eV"
+              }
+            }
+          },
+          "quality": {
+            "convergenceStatus": "CONVERGED",
+            "qualityStatus": "VERIFIED",
+            "catalogStatus": "READY"
+          }
+        },
+        {
+          "key": "R2",
+          "ref": {
+            "runId": "SYNTHETIC-1",
+            "runVersionId": "00000000-0000-0000-0000-000000000002"
+          },
+          "conditions": {
+            "pressure": {
+              "value": 10.0,
+              "unit": "mTorr",
+              "status": "AVAILABLE",
+              "reason": null,
+              "sourceValue": {
+                "value": 10.0,
+                "unit": "mTorr"
+              }
+            },
+            "sourcePower": {
+              "value": 400.0,
+              "unit": "W",
+              "status": "AVAILABLE",
+              "reason": null,
+              "sourceValue": {
+                "value": 400.0,
+                "unit": "W"
+              }
+            },
+            "biasPower": {
+              "value": 100.0,
+              "unit": "W",
+              "status": "AVAILABLE",
+              "reason": null,
+              "sourceValue": {
+                "value": 100.0,
+                "unit": "W"
+              }
+            }
+          },
+          "metrics": {
+            "ionFlux": {
+              "value": 4.0,
+              "unit": "10¹⁸ m⁻²s⁻¹",
+              "status": "AVAILABLE",
+              "reason": null,
+              "sourceValue": {
+                "value": 4.0,
+                "unit": "10¹⁸ m⁻²s⁻¹"
+              }
+            },
+            "iedWidth": {
+              "value": null,
+              "unit": "eV",
+              "status": "UNAVAILABLE",
+              "reason": "MISSING_VALUE",
+              "sourceValue": {
+                "value": null,
+                "unit": "eV"
+              }
+            }
+          },
+          "quality": {
+            "convergenceStatus": "CONVERGED",
+            "qualityStatus": "VERIFIED",
+            "catalogStatus": "READY"
+          }
+        }
+      ],
+      "comparisons": [
+        {
+          "id": "baseline_delta:R1:R2:ionFlux",
+          "kind": "baseline_delta",
+          "leftKey": "R1",
+          "rightKey": "R2",
+          "metric": "ionFlux",
+          "difference": {
+            "value": 4.0,
+            "unit": "10¹⁸ m⁻²s⁻¹",
+            "status": "AVAILABLE",
+            "reason": null,
+            "sourceValue": null
+          },
+          "percentChange": {
+            "value": null,
+            "unit": "%",
+            "status": "UNAVAILABLE",
+            "reason": "ZERO_BASELINE",
+            "sourceValue": null
+          },
+          "direction": "increase"
+        },
+        {
+          "id": "baseline_delta:R1:R2:iedWidth",
+          "kind": "baseline_delta",
+          "leftKey": "R1",
+          "rightKey": "R2",
+          "metric": "iedWidth",
+          "difference": {
+            "value": null,
+            "unit": "eV",
+            "status": "UNAVAILABLE",
+            "reason": "MISSING_TARGET",
+            "sourceValue": null
+          },
+          "percentChange": {
+            "value": null,
+            "unit": "%",
+            "status": "UNAVAILABLE",
+            "reason": "MISSING_TARGET",
+            "sourceValue": null
+          },
+          "direction": "unavailable"
+        }
+      ],
+      "summaries": [
+        {
+          "id": "summary:ionFlux",
+          "metric": "ionFlux",
+          "availableCount": 2,
+          "minimum": {
+            "value": 0.0,
+            "unit": "10¹⁸ m⁻²s⁻¹",
+            "status": "AVAILABLE",
+            "reason": null,
+            "sourceValue": null
+          },
+          "minimumKeys": [
+            "R1"
+          ],
+          "maximum": {
+            "value": 4.0,
+            "unit": "10¹⁸ m⁻²s⁻¹",
+            "status": "AVAILABLE",
+            "reason": null,
+            "sourceValue": null
+          },
+          "maximumKeys": [
+            "R2"
+          ],
+          "range": {
+            "value": 4.0,
+            "unit": "10¹⁸ m⁻²s⁻¹",
+            "status": "AVAILABLE",
+            "reason": null,
+            "sourceValue": null
+          }
+        },
+        {
+          "id": "summary:iedWidth",
+          "metric": "iedWidth",
+          "availableCount": 1,
+          "minimum": {
+            "value": 5.0,
+            "unit": "eV",
+            "status": "AVAILABLE",
+            "reason": null,
+            "sourceValue": null
+          },
+          "minimumKeys": [
+            "R1"
+          ],
+          "maximum": {
+            "value": 5.0,
+            "unit": "eV",
+            "status": "AVAILABLE",
+            "reason": null,
+            "sourceValue": null
+          },
+          "maximumKeys": [
+            "R1"
+          ],
+          "range": {
+            "value": null,
+            "unit": "eV",
+            "status": "UNAVAILABLE",
+            "reason": "INSUFFICIENT_DATA",
+            "sourceValue": null
+          }
+        }
+      ],
+      "trends": [],
+      "observations": [
+        {
+          "id": "obs:run:R1:ionFlux",
+          "source": {
+            "kind": "run",
+            "key": "R1",
+            "metric": "ionFlux"
+          },
+          "text": "R1 (SYNTHETIC-0)의 이온 플럭스: 0 10¹⁸ m⁻²s⁻¹."
+        },
+        {
+          "id": "obs:run:R1:iedWidth",
+          "source": {
+            "kind": "run",
+            "key": "R1",
+            "metric": "iedWidth"
+          },
+          "text": "R1 (SYNTHETIC-0)의 IED 폭: 5 eV."
+        },
+        {
+          "id": "obs:run:R2:ionFlux",
+          "source": {
+            "kind": "run",
+            "key": "R2",
+            "metric": "ionFlux"
+          },
+          "text": "R2 (SYNTHETIC-1)의 이온 플럭스: 4 10¹⁸ m⁻²s⁻¹."
+        },
+        {
+          "id": "obs:run:R2:iedWidth",
+          "source": {
+            "kind": "run",
+            "key": "R2",
+            "metric": "iedWidth"
+          },
+          "text": "R2 (SYNTHETIC-1)의 IED 폭: 비가용 (MISSING_VALUE)."
+        },
+        {
+          "id": "obs:comparison:baseline_delta:R1:R2:ionFlux:ionFlux",
+          "source": {
+            "kind": "comparison",
+            "key": "baseline_delta:R1:R2:ionFlux",
+            "metric": "ionFlux"
+          },
+          "text": "R1 → R2의 이온 플럭스 변화량: 4 10¹⁸ m⁻²s⁻¹. 기준 대비 변화율: 비가용 (ZERO_BASELINE)."
+        },
+        {
+          "id": "obs:comparison:baseline_delta:R1:R2:iedWidth:iedWidth",
+          "source": {
+            "kind": "comparison",
+            "key": "baseline_delta:R1:R2:iedWidth",
+            "metric": "iedWidth"
+          },
+          "text": "R1 → R2의 IED 폭 변화량: 비가용 (MISSING_TARGET). 기준 대비 변화율: 비가용 (MISSING_TARGET)."
+        },
+        {
+          "id": "obs:summary:summary:ionFlux:ionFlux",
+          "source": {
+            "kind": "summary",
+            "key": "summary:ionFlux",
+            "metric": "ionFlux"
+          },
+          "text": "선택한 Run의 이온 플럭스 최솟값: 0 10¹⁸ m⁻²s⁻¹, 최댓값: 4 10¹⁸ m⁻²s⁻¹, 범위 폭: 4 10¹⁸ m⁻²s⁻¹. 가용 Run 2개."
+        },
+        {
+          "id": "obs:summary:summary:iedWidth:iedWidth",
+          "source": {
+            "kind": "summary",
+            "key": "summary:iedWidth",
+            "metric": "iedWidth"
+          },
+          "text": "선택한 Run의 IED 폭 최솟값: 5 eV, 최댓값: 5 eV, 범위 폭: 비가용 (INSUFFICIENT_DATA). 가용 Run 1개."
+        }
+      ],
+      "usedRunRefs": [
+        {
+          "runId": "SYNTHETIC-0",
+          "runVersionId": "00000000-0000-0000-0000-000000000001"
+        },
+        {
+          "runId": "SYNTHETIC-1",
+          "runVersionId": "00000000-0000-0000-0000-000000000002"
+        }
+      ],
+      "numericPolicyVersion": "v1",
+      "aggregationPolicyVersion": "multi-run-1"
+    },
+    "answer": {
+      "observationIds": [
+        "obs:run:R1:ionFlux"
+      ],
+      "interpretations": [],
+      "limitations": [
+        "기준값이 영인 변화율은 계산할 수 없습니다."
+      ],
+      "kind": "comparison_answer",
+      "status": "COMPLETE",
+      "knowledgeBasis": "VERIFIED_RUNS_AND_LLM_GENERAL_KNOWLEDGE"
+    },
+    "contextProvenance": {},
+    "inputHistory": [],
+    "usedRunRefs": [
+      {
+        "runId": "SYNTHETIC-0",
+        "runVersionId": "00000000-0000-0000-0000-000000000001"
+      },
+      {
+        "runId": "SYNTHETIC-1",
+        "runVersionId": "00000000-0000-0000-0000-000000000002"
+      }
+    ],
+    "versions": {
+      "graphBuildId": "synthetic-tool-1",
+      "schemaVersion": "2"
+    },
+    "unitAssumptions": []
+  },
+  "general": {
+    "implementationId": "v1",
+    "graphVersion": "v1",
+    "schemaVersion": 2,
+    "kind": "generate_answer",
+    "summary": "인공 계약 예시",
+    "originalQuestion": "인공 질문",
+    "toolSelection": {
+      "call_id": "call_synthetic",
+      "name": "generate_answer",
+      "arguments": {}
+    },
+    "resolvedInputs": {},
+    "result": {
+      "kind": "generate_answer",
+      "resultStatus": "ANSWER_READY",
+      "markdown": "**평균 이온 에너지**는 이온 에너지 분포의 평균입니다.",
+      "knowledgeBasis": "LLM_GENERAL_KNOWLEDGE",
+      "usedRunRefs": []
+    },
+    "answer": null,
+    "contextProvenance": {},
+    "inputHistory": [],
+    "usedRunRefs": [],
+    "versions": {
+      "graphBuildId": "synthetic-tool-1",
+      "schemaVersion": "2"
+    },
+    "unitAssumptions": []
+  },
+  "forward": {
+    "implementationId": "v1",
+    "graphVersion": "v1",
+    "schemaVersion": 2,
+    "kind": "forward_lookup",
+    "summary": "인공 계약 예시",
+    "originalQuestion": "인공 질문",
+    "toolSelection": {
+      "call_id": "call_synthetic",
+      "name": "forward_lookup",
+      "arguments": {
+        "conditions": {
+          "pressure": {
+            "value": 10
+          },
+          "sourcePower": {
+            "value": 300,
+            "unit": "W"
+          },
+          "biasPower": {
+            "value": 100,
+            "unit": "W"
+          }
+        }
+      }
+    },
+    "resolvedInputs": {
+      "conditions": {
+        "pressure": {
+          "value": 10,
+          "unit": "mTorr"
+        },
+        "sourcePower": {
+          "value": 300,
+          "unit": "W"
+        },
+        "biasPower": {
+          "value": 100,
+          "unit": "W"
+        }
+      }
+    },
+    "result": {
+      "kind": "forward_lookup",
+      "resultStatus": "EXACT",
+      "status": "EXACT",
+      "run": {
+        "runId": "SYNTHETIC-0",
+        "runVersionId": "00000000-0000-0000-0000-000000000001",
+        "pressure": 10.0,
+        "sourcePower": 300.0,
+        "biasPower": 100.0,
+        "metrics": {
+          "meanIonEnergy": 20.0,
+          "ionFlux": 0.0,
+          "iedWidth": 5.0
+        },
+        "units": {
+          "pressure": "mTorr",
+          "sourcePower": "W",
+          "biasPower": "W",
+          "meanIonEnergy": "eV",
+          "ionFlux": "10¹⁸ m⁻²s⁻¹",
+          "iedWidth": "eV"
+        },
+        "qualityStatus": "VERIFIED",
+        "convergenceStatus": "CONVERGED",
+        "catalogStatus": "READY",
+        "presentationScore": 100,
+        "analysis": {
+          "hasDistribution": true
+        },
+        "sourceFileCount": 2
+      },
+      "selectedRun": {
+        "runId": "SYNTHETIC-0",
+        "runVersionId": "00000000-0000-0000-0000-000000000001",
+        "pressure": 10.0,
+        "sourcePower": 300.0,
+        "biasPower": 100.0,
+        "metrics": {
+          "meanIonEnergy": 20.0,
+          "ionFlux": 0.0,
+          "iedWidth": 5.0
+        },
+        "units": {
+          "pressure": "mTorr",
+          "sourcePower": "W",
+          "biasPower": "W",
+          "meanIonEnergy": "eV",
+          "ionFlux": "10¹⁸ m⁻²s⁻¹",
+          "iedWidth": "eV"
+        },
+        "qualityStatus": "VERIFIED",
+        "convergenceStatus": "CONVERGED",
+        "catalogStatus": "READY",
+        "presentationScore": 100,
+        "analysis": {
+          "hasDistribution": true
+        },
+        "sourceFileCount": 2
+      },
+      "candidates": [
+        {
+          "runId": "SYNTHETIC-0",
+          "runVersionId": "00000000-0000-0000-0000-000000000001",
+          "pressure": 10.0,
+          "sourcePower": 300.0,
+          "biasPower": 100.0,
+          "metrics": {
+            "meanIonEnergy": 20.0,
+            "ionFlux": 0.0,
+            "iedWidth": 5.0
+          },
+          "units": {
+            "pressure": "mTorr",
+            "sourcePower": "W",
+            "biasPower": "W",
+            "meanIonEnergy": "eV",
+            "ionFlux": "10¹⁸ m⁻²s⁻¹",
+            "iedWidth": "eV"
+          },
+          "qualityStatus": "VERIFIED",
+          "convergenceStatus": "CONVERGED",
+          "catalogStatus": "READY",
+          "presentationScore": 100,
+          "analysis": {
+            "hasDistribution": true
+          },
+          "sourceFileCount": 2
+        }
+      ],
+      "deltas": {
+        "pressure": 0.0,
+        "sourcePower": 0.0,
+        "biasPower": 0.0
+      },
+      "requestedConditions": {
+        "pressure": 10.0,
+        "sourcePower": 300.0,
+        "biasPower": 100.0
+      },
+      "units": {
+        "pressure": "mTorr",
+        "sourcePower": "W",
+        "biasPower": "W",
+        "meanIonEnergy": "eV",
+        "ionFlux": "10¹⁸ m⁻²s⁻¹",
+        "iedWidth": "eV"
+      },
+      "usedRunRefs": [
+        {
+          "runId": "SYNTHETIC-0",
+          "runVersionId": "00000000-0000-0000-0000-000000000001"
+        }
+      ],
+      "excludedRuns": [],
+      "defaultedUnits": [],
+      "numericPolicyVersion": "v1"
+    },
+    "answer": null,
+    "contextProvenance": {},
+    "inputHistory": [],
+    "usedRunRefs": [
+      {
+        "runId": "SYNTHETIC-0",
+        "runVersionId": "00000000-0000-0000-0000-000000000001"
+      }
+    ],
+    "versions": {
+      "graphBuildId": "synthetic-tool-1",
+      "schemaVersion": "2"
+    },
+    "unitAssumptions": [
+      {
+        "metric": "pressure",
+        "unit": "mTorr"
+      }
+    ]
+  },
+  "reverse": {
+    "implementationId": "v1",
+    "graphVersion": "v1",
+    "schemaVersion": 2,
+    "kind": "reverse_search",
+    "summary": "인공 계약 예시",
+    "originalQuestion": "인공 질문",
+    "toolSelection": {
+      "call_id": "call_synthetic",
+      "name": "reverse_search",
+      "arguments": {
+        "constraints": [
+          {
+            "metric": "meanIonEnergy",
+            "operator": "between",
+            "min": 20,
+            "max": 40,
+            "unit": "eV"
+          }
+        ],
+        "goals": [
+          {
+            "metric": "ionFlux",
+            "direction": "maximize"
+          }
+        ]
+      }
+    },
+    "resolvedInputs": {
+      "constraints": [
+        {
+          "metric": "meanIonEnergy",
+          "operator": "between",
+          "min": 20,
+          "max": 40,
+          "unit": "eV"
+        }
+      ],
+      "goals": [
+        {
+          "metric": "ionFlux",
+          "direction": "maximize"
+        }
+      ]
+    },
+    "result": {
+      "kind": "reverse_search",
+      "resultStatus": "MATCH",
+      "status": "MATCH",
+      "processMode": "RUN_SEARCH",
+      "constraints": [
+        {
+          "metric": "meanIonEnergy",
+          "operator": "between",
+          "min": 20.0,
+          "max": 40.0,
+          "unit": "eV"
+        }
+      ],
+      "goals": [
+        {
+          "metric": "ionFlux",
+          "direction": "maximize",
+          "unit": "10¹⁸ m⁻²s⁻¹"
+        }
+      ],
+      "objectives": [
+        {
+          "metric": "meanIonEnergy",
+          "operator": "RANGE",
+          "min": 20.0,
+          "max": 40.0,
+          "unit": "eV",
+          "id": "objective-1",
+          "comparisonOperator": "between"
+        }
+      ],
+      "totalCount": 2,
+      "allMatches": [
+        {
+          "runId": "SYNTHETIC-1",
+          "runVersionId": "00000000-0000-0000-0000-000000000002",
+          "pressure": 10.0,
+          "sourcePower": 400.0,
+          "biasPower": 100.0,
+          "metrics": {
+            "meanIonEnergy": 30.0,
+            "ionFlux": 4.0,
+            "iedWidth": null
+          },
+          "units": {
+            "pressure": "mTorr",
+            "sourcePower": "W",
+            "biasPower": "W",
+            "meanIonEnergy": "eV",
+            "ionFlux": "10¹⁸ m⁻²s⁻¹",
+            "iedWidth": "eV"
+          },
+          "qualityStatus": "VERIFIED",
+          "convergenceStatus": "CONVERGED",
+          "catalogStatus": "READY",
+          "presentationScore": 100,
+          "analysis": {
+            "hasDistribution": false
+          },
+          "sourceFileCount": 2,
+          "metricAvailability": {
+            "iedWidth": "MISSING_VALUE"
+          }
+        },
+        {
+          "runId": "SYNTHETIC-0",
+          "runVersionId": "00000000-0000-0000-0000-000000000001",
+          "pressure": 10.0,
+          "sourcePower": 300.0,
+          "biasPower": 100.0,
+          "metrics": {
+            "meanIonEnergy": 20.0,
+            "ionFlux": 0.0,
+            "iedWidth": 5.0
+          },
+          "units": {
+            "pressure": "mTorr",
+            "sourcePower": "W",
+            "biasPower": "W",
+            "meanIonEnergy": "eV",
+            "ionFlux": "10¹⁸ m⁻²s⁻¹",
+            "iedWidth": "eV"
+          },
+          "qualityStatus": "VERIFIED",
+          "convergenceStatus": "CONVERGED",
+          "catalogStatus": "READY",
+          "presentationScore": 100,
+          "analysis": {
+            "hasDistribution": true
+          },
+          "sourceFileCount": 2
+        }
+      ],
+      "candidates": [
+        {
+          "runId": "SYNTHETIC-1",
+          "runVersionId": "00000000-0000-0000-0000-000000000002",
+          "pressure": 10.0,
+          "sourcePower": 400.0,
+          "biasPower": 100.0,
+          "metrics": {
+            "meanIonEnergy": 30.0,
+            "ionFlux": 4.0,
+            "iedWidth": null
+          },
+          "units": {
+            "pressure": "mTorr",
+            "sourcePower": "W",
+            "biasPower": "W",
+            "meanIonEnergy": "eV",
+            "ionFlux": "10¹⁸ m⁻²s⁻¹",
+            "iedWidth": "eV"
+          },
+          "qualityStatus": "VERIFIED",
+          "convergenceStatus": "CONVERGED",
+          "catalogStatus": "READY",
+          "presentationScore": 100,
+          "analysis": {
+            "hasDistribution": false
+          },
+          "sourceFileCount": 2,
+          "metricAvailability": {
+            "iedWidth": "MISSING_VALUE"
+          }
+        },
+        {
+          "runId": "SYNTHETIC-0",
+          "runVersionId": "00000000-0000-0000-0000-000000000001",
+          "pressure": 10.0,
+          "sourcePower": 300.0,
+          "biasPower": 100.0,
+          "metrics": {
+            "meanIonEnergy": 20.0,
+            "ionFlux": 0.0,
+            "iedWidth": 5.0
+          },
+          "units": {
+            "pressure": "mTorr",
+            "sourcePower": "W",
+            "biasPower": "W",
+            "meanIonEnergy": "eV",
+            "ionFlux": "10¹⁸ m⁻²s⁻¹",
+            "iedWidth": "eV"
+          },
+          "qualityStatus": "VERIFIED",
+          "convergenceStatus": "CONVERGED",
+          "catalogStatus": "READY",
+          "presentationScore": 100,
+          "analysis": {
+            "hasDistribution": true
+          },
+          "sourceFileCount": 2
+        }
+      ],
+      "representativeCandidates": [
+        {
+          "runId": "SYNTHETIC-1",
+          "runVersionId": "00000000-0000-0000-0000-000000000002",
+          "pressure": 10.0,
+          "sourcePower": 400.0,
+          "biasPower": 100.0,
+          "metrics": {
+            "meanIonEnergy": 30.0,
+            "ionFlux": 4.0,
+            "iedWidth": null
+          },
+          "units": {
+            "pressure": "mTorr",
+            "sourcePower": "W",
+            "biasPower": "W",
+            "meanIonEnergy": "eV",
+            "ionFlux": "10¹⁸ m⁻²s⁻¹",
+            "iedWidth": "eV"
+          },
+          "qualityStatus": "VERIFIED",
+          "convergenceStatus": "CONVERGED",
+          "catalogStatus": "READY",
+          "presentationScore": 100,
+          "analysis": {
+            "hasDistribution": false
+          },
+          "sourceFileCount": 2,
+          "metricAvailability": {
+            "iedWidth": "MISSING_VALUE"
+          }
+        },
+        {
+          "runId": "SYNTHETIC-0",
+          "runVersionId": "00000000-0000-0000-0000-000000000001",
+          "pressure": 10.0,
+          "sourcePower": 300.0,
+          "biasPower": 100.0,
+          "metrics": {
+            "meanIonEnergy": 20.0,
+            "ionFlux": 0.0,
+            "iedWidth": 5.0
+          },
+          "units": {
+            "pressure": "mTorr",
+            "sourcePower": "W",
+            "biasPower": "W",
+            "meanIonEnergy": "eV",
+            "ionFlux": "10¹⁸ m⁻²s⁻¹",
+            "iedWidth": "eV"
+          },
+          "qualityStatus": "VERIFIED",
+          "convergenceStatus": "CONVERGED",
+          "catalogStatus": "READY",
+          "presentationScore": 100,
+          "analysis": {
+            "hasDistribution": true
+          },
+          "sourceFileCount": 2
+        }
+      ],
+      "commonCandidates": [
+        {
+          "run": {
+            "runId": "SYNTHETIC-1",
+            "runVersionId": "00000000-0000-0000-0000-000000000002",
+            "pressure": 10.0,
+            "sourcePower": 400.0,
+            "biasPower": 100.0,
+            "metrics": {
+              "meanIonEnergy": 30.0,
+              "ionFlux": 4.0,
+              "iedWidth": null
+            },
+            "units": {
+              "pressure": "mTorr",
+              "sourcePower": "W",
+              "biasPower": "W",
+              "meanIonEnergy": "eV",
+              "ionFlux": "10¹⁸ m⁻²s⁻¹",
+              "iedWidth": "eV"
+            },
+            "qualityStatus": "VERIFIED",
+            "convergenceStatus": "CONVERGED",
+            "catalogStatus": "READY",
+            "presentationScore": 100,
+            "analysis": {
+              "hasDistribution": false
+            },
+            "sourceFileCount": 2,
+            "metricAvailability": {
+              "iedWidth": "MISSING_VALUE"
+            }
+          },
+          "evaluations": [
+            {
+              "objectiveId": "objective-1",
+              "metric": "meanIonEnergy",
+              "operator": "RANGE",
+              "comparisonOperator": "between",
+              "unit": "eV",
+              "actual": 30.0,
+              "satisfied": true,
+              "targetLabel": "20–40",
+              "boundaryDelta": null,
+              "percentDelta": null,
+              "rangeStatus": "IN_RANGE",
+              "baselineDelta": null,
+              "baselinePercentDelta": null,
+              "unavailableReason": null,
+              "referenceValue": 30.0,
+              "matchPercent": 100
+            }
+          ],
+          "matchPercent": 100,
+          "closeness": 100.0
+        },
+        {
+          "run": {
+            "runId": "SYNTHETIC-0",
+            "runVersionId": "00000000-0000-0000-0000-000000000001",
+            "pressure": 10.0,
+            "sourcePower": 300.0,
+            "biasPower": 100.0,
+            "metrics": {
+              "meanIonEnergy": 20.0,
+              "ionFlux": 0.0,
+              "iedWidth": 5.0
+            },
+            "units": {
+              "pressure": "mTorr",
+              "sourcePower": "W",
+              "biasPower": "W",
+              "meanIonEnergy": "eV",
+              "ionFlux": "10¹⁸ m⁻²s⁻¹",
+              "iedWidth": "eV"
+            },
+            "qualityStatus": "VERIFIED",
+            "convergenceStatus": "CONVERGED",
+            "catalogStatus": "READY",
+            "presentationScore": 100,
+            "analysis": {
+              "hasDistribution": true
+            },
+            "sourceFileCount": 2
+          },
+          "evaluations": [
+            {
+              "objectiveId": "objective-1",
+              "metric": "meanIonEnergy",
+              "operator": "RANGE",
+              "comparisonOperator": "between",
+              "unit": "eV",
+              "actual": 20.0,
+              "satisfied": true,
+              "targetLabel": "20–40",
+              "boundaryDelta": null,
+              "percentDelta": null,
+              "rangeStatus": "IN_RANGE",
+              "baselineDelta": null,
+              "baselinePercentDelta": null,
+              "unavailableReason": null,
+              "referenceValue": 30.0,
+              "matchPercent": 67
+            }
+          ],
+          "matchPercent": 67,
+          "closeness": 66.66666666666667
+        }
+      ],
+      "commonRunIds": [
+        "SYNTHETIC-1",
+        "SYNTHETIC-0"
+      ],
+      "commonRecommendation": {
+        "runId": "SYNTHETIC-1",
+        "runVersionId": "00000000-0000-0000-0000-000000000002",
+        "pressure": 10.0,
+        "sourcePower": 400.0,
+        "biasPower": 100.0,
+        "metrics": {
+          "meanIonEnergy": 30.0,
+          "ionFlux": 4.0,
+          "iedWidth": null
+        },
+        "units": {
+          "pressure": "mTorr",
+          "sourcePower": "W",
+          "biasPower": "W",
+          "meanIonEnergy": "eV",
+          "ionFlux": "10¹⁸ m⁻²s⁻¹",
+          "iedWidth": "eV"
+        },
+        "qualityStatus": "VERIFIED",
+        "convergenceStatus": "CONVERGED",
+        "catalogStatus": "READY",
+        "presentationScore": 100,
+        "analysis": {
+          "hasDistribution": false
+        },
+        "sourceFileCount": 2,
+        "metricAvailability": {
+          "iedWidth": "MISSING_VALUE"
+        }
+      },
+      "objectiveResults": [
+        {
+          "objective": {
+            "metric": "meanIonEnergy",
+            "operator": "RANGE",
+            "min": 20.0,
+            "max": 40.0,
+            "unit": "eV",
+            "id": "objective-1",
+            "comparisonOperator": "between"
+          },
+          "candidates": [
+            {
+              "run": {
+                "runId": "SYNTHETIC-1",
+                "runVersionId": "00000000-0000-0000-0000-000000000002",
+                "pressure": 10.0,
+                "sourcePower": 400.0,
+                "biasPower": 100.0,
+                "metrics": {
+                  "meanIonEnergy": 30.0,
+                  "ionFlux": 4.0,
+                  "iedWidth": null
+                },
+                "units": {
+                  "pressure": "mTorr",
+                  "sourcePower": "W",
+                  "biasPower": "W",
+                  "meanIonEnergy": "eV",
+                  "ionFlux": "10¹⁸ m⁻²s⁻¹",
+                  "iedWidth": "eV"
+                },
+                "qualityStatus": "VERIFIED",
+                "convergenceStatus": "CONVERGED",
+                "catalogStatus": "READY",
+                "presentationScore": 100,
+                "analysis": {
+                  "hasDistribution": false
+                },
+                "sourceFileCount": 2,
+                "metricAvailability": {
+                  "iedWidth": "MISSING_VALUE"
+                }
+              },
+              "evaluations": [
+                {
+                  "objectiveId": "objective-1",
+                  "metric": "meanIonEnergy",
+                  "operator": "RANGE",
+                  "comparisonOperator": "between",
+                  "unit": "eV",
+                  "actual": 30.0,
+                  "satisfied": true,
+                  "targetLabel": "20–40",
+                  "boundaryDelta": null,
+                  "percentDelta": null,
+                  "rangeStatus": "IN_RANGE",
+                  "baselineDelta": null,
+                  "baselinePercentDelta": null,
+                  "unavailableReason": null,
+                  "referenceValue": 30.0,
+                  "matchPercent": 100
+                }
+              ],
+              "matchPercent": 100,
+              "closeness": 100.0
+            },
+            {
+              "run": {
+                "runId": "SYNTHETIC-0",
+                "runVersionId": "00000000-0000-0000-0000-000000000001",
+                "pressure": 10.0,
+                "sourcePower": 300.0,
+                "biasPower": 100.0,
+                "metrics": {
+                  "meanIonEnergy": 20.0,
+                  "ionFlux": 0.0,
+                  "iedWidth": 5.0
+                },
+                "units": {
+                  "pressure": "mTorr",
+                  "sourcePower": "W",
+                  "biasPower": "W",
+                  "meanIonEnergy": "eV",
+                  "ionFlux": "10¹⁸ m⁻²s⁻¹",
+                  "iedWidth": "eV"
+                },
+                "qualityStatus": "VERIFIED",
+                "convergenceStatus": "CONVERGED",
+                "catalogStatus": "READY",
+                "presentationScore": 100,
+                "analysis": {
+                  "hasDistribution": true
+                },
+                "sourceFileCount": 2
+              },
+              "evaluations": [
+                {
+                  "objectiveId": "objective-1",
+                  "metric": "meanIonEnergy",
+                  "operator": "RANGE",
+                  "comparisonOperator": "between",
+                  "unit": "eV",
+                  "actual": 20.0,
+                  "satisfied": true,
+                  "targetLabel": "20–40",
+                  "boundaryDelta": null,
+                  "percentDelta": null,
+                  "rangeStatus": "IN_RANGE",
+                  "baselineDelta": null,
+                  "baselinePercentDelta": null,
+                  "unavailableReason": null,
+                  "referenceValue": 30.0,
+                  "matchPercent": 67
+                }
+              ],
+              "matchPercent": 67,
+              "closeness": 66.66666666666667
+            }
+          ],
+          "allConstraintsGuaranteed": false
+        }
+      ],
+      "goalResults": [],
+      "candidateEvaluations": [
+        {
+          "runId": "SYNTHETIC-0",
+          "runVersionId": "00000000-0000-0000-0000-000000000001",
+          "evaluations": [
+            {
+              "objectiveId": "objective-1",
+              "metric": "meanIonEnergy",
+              "operator": "RANGE",
+              "comparisonOperator": "between",
+              "unit": "eV",
+              "actual": 20.0,
+              "satisfied": true,
+              "targetLabel": "20–40",
+              "boundaryDelta": null,
+              "percentDelta": null,
+              "rangeStatus": "IN_RANGE",
+              "baselineDelta": null,
+              "baselinePercentDelta": null,
+              "unavailableReason": null,
+              "referenceValue": 30.0,
+              "matchPercent": 67
+            }
+          ],
+          "matchPercent": 67
+        },
+        {
+          "runId": "SYNTHETIC-1",
+          "runVersionId": "00000000-0000-0000-0000-000000000002",
+          "evaluations": [
+            {
+              "objectiveId": "objective-1",
+              "metric": "meanIonEnergy",
+              "operator": "RANGE",
+              "comparisonOperator": "between",
+              "unit": "eV",
+              "actual": 30.0,
+              "satisfied": true,
+              "targetLabel": "20–40",
+              "boundaryDelta": null,
+              "percentDelta": null,
+              "rangeStatus": "IN_RANGE",
+              "baselineDelta": null,
+              "baselinePercentDelta": null,
+              "unavailableReason": null,
+              "referenceValue": 30.0,
+              "matchPercent": 100
+            }
+          ],
+          "matchPercent": 100
+        }
+      ],
+      "nearMatches": [],
+      "nearMisses": [],
+      "usedRunRefs": [
+        {
+          "runId": "SYNTHETIC-1",
+          "runVersionId": "00000000-0000-0000-0000-000000000002"
+        },
+        {
+          "runId": "SYNTHETIC-0",
+          "runVersionId": "00000000-0000-0000-0000-000000000001"
+        }
+      ],
+      "excludedRuns": [],
+      "defaultedUnits": [],
+      "numericPolicyVersion": "v1"
+    },
+    "answer": null,
+    "contextProvenance": {},
+    "inputHistory": [],
+    "usedRunRefs": [
+      {
+        "runId": "SYNTHETIC-1",
+        "runVersionId": "00000000-0000-0000-0000-000000000002"
+      },
+      {
+        "runId": "SYNTHETIC-0",
+        "runVersionId": "00000000-0000-0000-0000-000000000001"
+      }
+    ],
+    "versions": {
+      "graphBuildId": "synthetic-tool-1",
+      "schemaVersion": "2"
+    },
+    "unitAssumptions": []
+  },
+  "partial": {
+    "kind": "compare_runs",
+    "resultStatus": "COMPARISON_PARTIAL",
+    "mode": "baseline",
+    "metricIds": [
+      "ionFlux",
+      "iedWidth"
+    ],
+    "baselineKey": "R1",
+    "trendAxis": null,
+    "runs": [
+      {
+        "key": "R1",
+        "ref": {
+          "runId": "SYNTHETIC-0",
+          "runVersionId": "00000000-0000-0000-0000-000000000001"
+        },
+        "conditions": {
+          "pressure": {
+            "value": 10.0,
+            "unit": "mTorr",
+            "status": "AVAILABLE",
+            "reason": null,
+            "sourceValue": {
+              "value": 10.0,
+              "unit": "mTorr"
+            }
+          },
+          "sourcePower": {
+            "value": 300.0,
+            "unit": "W",
+            "status": "AVAILABLE",
+            "reason": null,
+            "sourceValue": {
+              "value": 300.0,
+              "unit": "W"
+            }
+          },
+          "biasPower": {
+            "value": 100.0,
+            "unit": "W",
+            "status": "AVAILABLE",
+            "reason": null,
+            "sourceValue": {
+              "value": 100.0,
+              "unit": "W"
+            }
+          }
+        },
+        "metrics": {
+          "ionFlux": {
+            "value": 0.0,
+            "unit": "10¹⁸ m⁻²s⁻¹",
+            "status": "AVAILABLE",
+            "reason": null,
+            "sourceValue": {
+              "value": 0.0,
+              "unit": "10¹⁸ m⁻²s⁻¹"
+            }
+          },
+          "iedWidth": {
+            "value": 5.0,
+            "unit": "eV",
+            "status": "AVAILABLE",
+            "reason": null,
+            "sourceValue": {
+              "value": 5.0,
+              "unit": "eV"
+            }
+          }
+        },
+        "quality": {
+          "convergenceStatus": "CONVERGED",
+          "qualityStatus": "VERIFIED",
+          "catalogStatus": "READY"
+        }
+      },
+      {
+        "key": "R2",
+        "ref": {
+          "runId": "SYNTHETIC-1",
+          "runVersionId": "00000000-0000-0000-0000-000000000002"
+        },
+        "conditions": {
+          "pressure": {
+            "value": 10.0,
+            "unit": "mTorr",
+            "status": "AVAILABLE",
+            "reason": null,
+            "sourceValue": {
+              "value": 10.0,
+              "unit": "mTorr"
+            }
+          },
+          "sourcePower": {
+            "value": 400.0,
+            "unit": "W",
+            "status": "AVAILABLE",
+            "reason": null,
+            "sourceValue": {
+              "value": 400.0,
+              "unit": "W"
+            }
+          },
+          "biasPower": {
+            "value": 100.0,
+            "unit": "W",
+            "status": "AVAILABLE",
+            "reason": null,
+            "sourceValue": {
+              "value": 100.0,
+              "unit": "W"
+            }
+          }
+        },
+        "metrics": {
+          "ionFlux": {
+            "value": 4.0,
+            "unit": "10¹⁸ m⁻²s⁻¹",
+            "status": "AVAILABLE",
+            "reason": null,
+            "sourceValue": {
+              "value": 4.0,
+              "unit": "10¹⁸ m⁻²s⁻¹"
+            }
+          },
+          "iedWidth": {
+            "value": null,
+            "unit": "eV",
+            "status": "UNAVAILABLE",
+            "reason": "MISSING_VALUE",
+            "sourceValue": {
+              "value": null,
+              "unit": "eV"
+            }
+          }
+        },
+        "quality": {
+          "convergenceStatus": "CONVERGED",
+          "qualityStatus": "VERIFIED",
+          "catalogStatus": "READY"
+        }
+      }
+    ],
+    "comparisons": [
+      {
+        "id": "baseline_delta:R1:R2:ionFlux",
+        "kind": "baseline_delta",
+        "leftKey": "R1",
+        "rightKey": "R2",
+        "metric": "ionFlux",
+        "difference": {
+          "value": 4.0,
+          "unit": "10¹⁸ m⁻²s⁻¹",
+          "status": "AVAILABLE",
+          "reason": null,
+          "sourceValue": null
+        },
+        "percentChange": {
+          "value": null,
+          "unit": "%",
+          "status": "UNAVAILABLE",
+          "reason": "ZERO_BASELINE",
+          "sourceValue": null
+        },
+        "direction": "increase"
+      },
+      {
+        "id": "baseline_delta:R1:R2:iedWidth",
+        "kind": "baseline_delta",
+        "leftKey": "R1",
+        "rightKey": "R2",
+        "metric": "iedWidth",
+        "difference": {
+          "value": null,
+          "unit": "eV",
+          "status": "UNAVAILABLE",
+          "reason": "MISSING_TARGET",
+          "sourceValue": null
+        },
+        "percentChange": {
+          "value": null,
+          "unit": "%",
+          "status": "UNAVAILABLE",
+          "reason": "MISSING_TARGET",
+          "sourceValue": null
+        },
+        "direction": "unavailable"
+      }
+    ],
+    "summaries": [
+      {
+        "id": "summary:ionFlux",
+        "metric": "ionFlux",
+        "availableCount": 2,
+        "minimum": {
+          "value": 0.0,
+          "unit": "10¹⁸ m⁻²s⁻¹",
+          "status": "AVAILABLE",
+          "reason": null,
+          "sourceValue": null
+        },
+        "minimumKeys": [
+          "R1"
+        ],
+        "maximum": {
+          "value": 4.0,
+          "unit": "10¹⁸ m⁻²s⁻¹",
+          "status": "AVAILABLE",
+          "reason": null,
+          "sourceValue": null
+        },
+        "maximumKeys": [
+          "R2"
+        ],
+        "range": {
+          "value": 4.0,
+          "unit": "10¹⁸ m⁻²s⁻¹",
+          "status": "AVAILABLE",
+          "reason": null,
+          "sourceValue": null
+        }
+      },
+      {
+        "id": "summary:iedWidth",
+        "metric": "iedWidth",
+        "availableCount": 1,
+        "minimum": {
+          "value": 5.0,
+          "unit": "eV",
+          "status": "AVAILABLE",
+          "reason": null,
+          "sourceValue": null
+        },
+        "minimumKeys": [
+          "R1"
+        ],
+        "maximum": {
+          "value": 5.0,
+          "unit": "eV",
+          "status": "AVAILABLE",
+          "reason": null,
+          "sourceValue": null
+        },
+        "maximumKeys": [
+          "R1"
+        ],
+        "range": {
+          "value": null,
+          "unit": "eV",
+          "status": "UNAVAILABLE",
+          "reason": "INSUFFICIENT_DATA",
+          "sourceValue": null
+        }
+      }
+    ],
+    "trends": [],
+    "observations": [
+      {
+        "id": "obs:run:R1:ionFlux",
+        "source": {
+          "kind": "run",
+          "key": "R1",
+          "metric": "ionFlux"
+        },
+        "text": "R1 (SYNTHETIC-0)의 이온 플럭스: 0 10¹⁸ m⁻²s⁻¹."
+      },
+      {
+        "id": "obs:run:R1:iedWidth",
+        "source": {
+          "kind": "run",
+          "key": "R1",
+          "metric": "iedWidth"
+        },
+        "text": "R1 (SYNTHETIC-0)의 IED 폭: 5 eV."
+      },
+      {
+        "id": "obs:run:R2:ionFlux",
+        "source": {
+          "kind": "run",
+          "key": "R2",
+          "metric": "ionFlux"
+        },
+        "text": "R2 (SYNTHETIC-1)의 이온 플럭스: 4 10¹⁸ m⁻²s⁻¹."
+      },
+      {
+        "id": "obs:run:R2:iedWidth",
+        "source": {
+          "kind": "run",
+          "key": "R2",
+          "metric": "iedWidth"
+        },
+        "text": "R2 (SYNTHETIC-1)의 IED 폭: 비가용 (MISSING_VALUE)."
+      },
+      {
+        "id": "obs:comparison:baseline_delta:R1:R2:ionFlux:ionFlux",
+        "source": {
+          "kind": "comparison",
+          "key": "baseline_delta:R1:R2:ionFlux",
+          "metric": "ionFlux"
+        },
+        "text": "R1 → R2의 이온 플럭스 변화량: 4 10¹⁸ m⁻²s⁻¹. 기준 대비 변화율: 비가용 (ZERO_BASELINE)."
+      },
+      {
+        "id": "obs:comparison:baseline_delta:R1:R2:iedWidth:iedWidth",
+        "source": {
+          "kind": "comparison",
+          "key": "baseline_delta:R1:R2:iedWidth",
+          "metric": "iedWidth"
+        },
+        "text": "R1 → R2의 IED 폭 변화량: 비가용 (MISSING_TARGET). 기준 대비 변화율: 비가용 (MISSING_TARGET)."
+      },
+      {
+        "id": "obs:summary:summary:ionFlux:ionFlux",
+        "source": {
+          "kind": "summary",
+          "key": "summary:ionFlux",
+          "metric": "ionFlux"
+        },
+        "text": "선택한 Run의 이온 플럭스 최솟값: 0 10¹⁸ m⁻²s⁻¹, 최댓값: 4 10¹⁸ m⁻²s⁻¹, 범위 폭: 4 10¹⁸ m⁻²s⁻¹. 가용 Run 2개."
+      },
+      {
+        "id": "obs:summary:summary:iedWidth:iedWidth",
+        "source": {
+          "kind": "summary",
+          "key": "summary:iedWidth",
+          "metric": "iedWidth"
+        },
+        "text": "선택한 Run의 IED 폭 최솟값: 5 eV, 최댓값: 5 eV, 범위 폭: 비가용 (INSUFFICIENT_DATA). 가용 Run 1개."
+      }
+    ],
+    "usedRunRefs": [
+      {
+        "runId": "SYNTHETIC-0",
+        "runVersionId": "00000000-0000-0000-0000-000000000001"
+      },
+      {
+        "runId": "SYNTHETIC-1",
+        "runVersionId": "00000000-0000-0000-0000-000000000002"
+      }
+    ],
+    "numericPolicyVersion": "v1",
+    "aggregationPolicyVersion": "multi-run-1",
+    "schemaVersion": 2,
+    "explanationComplete": false
+  },
+  "pending": {
+    "type": "run_selection",
+    "id": "synthetic-pending",
+    "message": "실험을 두 개 이상 선택해 주세요.",
+    "minSelections": 2,
+    "baselineRequired": false,
+    "optionsUrl": "/api/agent/requests/synthetic/run-options?pendingInputId=synthetic-pending"
+  },
+  "resume": {
+    "expectedRequestRevision": 0,
+    "pendingInputId": "synthetic-pending",
+    "input": {
+      "type": "run_selection",
+      "runKeys": [
+        "R1",
+        "R2"
+      ],
+      "baselineKey": null
+    }
+  }
+}

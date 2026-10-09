@@ -10,9 +10,16 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
+    "agent": "*",
+    "katex": "0.16.47",
+    "mdast-util-from-markdown": "2.1.0",
     "react": "19.3.0",
     "react-dom": "19.3.0",
-    "agent": "*"
+    "react-markdown": "10.1.0",
+    "rehype-katex": "7.0.1",
+    "remark-cjk-friendly": "2.3.2",
+    "remark-gfm": "4.0.1",
+    "remark-math": "6.0.0"
   },
   "devDependencies": {
     "@playwright/test": "1.63.0",

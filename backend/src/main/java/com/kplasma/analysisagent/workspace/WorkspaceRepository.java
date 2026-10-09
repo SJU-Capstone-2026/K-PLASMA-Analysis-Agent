@@ -3,6 +3,7 @@ package com.kplasma.analysisagent.workspace;
 import com.kplasma.analysisagent.contract.WorkspaceDto.*;
 import com.kplasma.analysisagent.contract.RunDto.RunRef;
 import com.kplasma.analysisagent.ingestion.IntakeException;
+import com.kplasma.analysisagent.agent.AgentRequestRepository;
 import java.util.*;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
@@ -12,9 +13,10 @@ import tools.jackson.databind.ObjectMapper;
 public class WorkspaceRepository {
     private final JdbcTemplate jdbc;
     private final ObjectMapper mapper;
-    public WorkspaceRepository(JdbcTemplate jdbc,ObjectMapper mapper) {this.jdbc=jdbc;this.mapper=mapper;}
+    private final AgentRequestRepository agents;
+    public WorkspaceRepository(JdbcTemplate jdbc,ObjectMapper mapper,AgentRequestRepository agents) {this.jdbc=jdbc;this.mapper=mapper;this.agents=agents;}
     public WorkspaceView lock() {
-        return jdbc.queryForObject("select * from workspace where id=1 for update",(rs,n)->new WorkspaceView(new StateToken(rs.getLong("workspace_epoch"),rs.getLong("conversation_epoch"),rs.getLong("revision")),new Conversation(1,read(rs.getString("active_run"),RunRef.class),turns()),read(rs.getString("candidate_reference"),ReferenceState.class)));
+        return jdbc.queryForObject("select * from workspace where id=1 for update",(rs,n)->new WorkspaceView(new StateToken(rs.getLong("workspace_epoch"),rs.getLong("conversation_epoch"),rs.getLong("revision")),new Conversation(1,read(rs.getString("active_run"),RunRef.class),turns()),read(rs.getString("candidate_reference"),ReferenceState.class),agents.latest(rs.getLong("workspace_epoch"),rs.getLong("conversation_epoch"),false),agents.latest(rs.getLong("workspace_epoch"),rs.getLong("conversation_epoch"),true)));
     }
     private <T> T read(String json,Class<T> type) {return json==null?null:mapper.readValue(json,type);}
     private List<TurnSnapshot> turns() {
@@ -29,8 +31,11 @@ public class WorkspaceRepository {
     public boolean hasTurn(UUID id) {return Boolean.TRUE.equals(jdbc.queryForObject("select exists(select 1 from conversation_turn where id=?)",Boolean.class,id));}
     public void updateUi(UUID id,TurnUiSnapshot ui) {jdbc.update("update conversation_turn set ui=?::jsonb where id=?",mapper.writeValueAsString(ui),id);}
     public void references(ReferenceState candidate,RunRef active) {jdbc.update("update workspace set active_run=?::jsonb,candidate_reference=?::jsonb where id=1",mapper.writeValueAsString(active),mapper.writeValueAsString(candidate));}
+    public void invalidateAgentReferences(StateToken token){agents.invalidateReferences(token.workspaceEpoch(),token.conversationEpoch());}
     public void advance() {jdbc.update("update workspace set revision=revision+1 where id=1");}
     public void clear(boolean reset) {
+        var token=jdbc.queryForObject("select workspace_epoch,conversation_epoch,revision from workspace where id=1",(rs,n)->new StateToken(rs.getLong(1),rs.getLong(2),rs.getLong(3)));
+        agents.clearConversation(token.workspaceEpoch(),token.conversationEpoch(),reset);
         jdbc.update("delete from conversation_turn where workspace_id=1");
         if(reset) {
             jdbc.update("delete from decision where workspace_id=1");

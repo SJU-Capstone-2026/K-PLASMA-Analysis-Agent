@@ -2868,6 +2868,40 @@ p.manual-limit { margin-bottom: 0; color: #826947; font-size: 9px; line-height: 
   line-height: 1;
 }
 .reference-tray-clear:hover { color: #294777; background: transparent; }
+.reference-tray button svg { display: block; }
+
+.agent-composer .reference-tray-runs,
+.agent-composer .reference-tray-more-grid {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.agent-composer > .reference-tray .run-context-chip {
+  flex: 0 1 auto;
+  width: fit-content;
+  min-height: 32px;
+  gap: 7px;
+  padding: 3px 7px 3px 9px;
+  border: 1px solid #dfe5f3;
+  border-radius: 8px;
+  background: #f6f8fc;
+}
+.agent-composer .run-context-chip button {
+  flex: 0 0 22px;
+  width: 22px;
+  min-width: 22px;
+  height: 22px;
+  min-height: 22px;
+  margin-left: 1px;
+  border: 0;
+  border-radius: 5px;
+  font-size: 16px;
+}
+.agent-composer .run-context-chip button:hover { color: #315bc7; background: #e9efff; }
+.agent-composer .reference-tray-more { flex: 1 0 100%; }
+.agent-composer .reference-tray-more summary { padding-top: 2px; }
+.agent-composer .reference-tray-more-grid { margin-top: 4px; }
 
 .agent-fit-card { transition: border-color 140ms ease, box-shadow 140ms ease, transform 140ms ease; }
 .agent-fit-card-selectable { cursor: pointer; outline: 0; }
@@ -2888,3 +2922,27 @@ p.manual-limit { margin-bottom: 0; color: #826947; font-size: 9px; line-height: 
   .reference-tray-more-grid { grid-template-columns: minmax(0, 1fr); }
   .agent-result-footer-actions { width: 100%; justify-content: flex-start; }
 }
+
+/* Agent graph v1: server-produced facts and explanations remain readable at all supported widths. */
+.v1-answer,.v1-pending{min-width:0;overflow-wrap:anywhere}.v1-answer h3,.v1-pending h3{margin:12px 0}.v1-answer h4{margin:16px 0 8px}.v1-answer p,.v1-pending p{line-height:1.7}.v1-pending{padding:20px;margin:16px 0}.v1-pending textarea{display:block;width:100%;min-width:0;margin:10px 0;border:1px solid var(--border,#dbe3ed);border-radius:8px;padding:12px;font:inherit}.v1-pending .v1-user-input{border-left:3px solid #8899b5;padding-left:12px}.v1-summary{font-weight:600}.v1-run-pair{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.v1-run-pair>div{padding:16px;border:1px solid var(--border,#dbe3ed);border-radius:10px;min-width:0}.v1-run-pair strong,.v1-run-pair small{display:block}.v1-run-pair small{font-size:12px;color:#526278;margin:4px 0}.v1-table-scroll{max-width:100%;overflow-x:auto;border:1px solid var(--border,#dbe3ed);border-radius:8px}.v1-comparison-table{width:100%;border-collapse:collapse;font-size:13px;min-width:560px}.v1-comparison-table th,.v1-comparison-table td{padding:10px 12px;text-align:left;border-bottom:1px solid var(--border,#dbe3ed)}.v1-comparison-table th{background:#f5f8fc}.v1-comparison-table td small{display:block;font-size:11px;color:#6b5872;max-width:190px}.v1-limitation{font-size:13px;color:#6b5872}.v1-card-actions{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0}.v1-interpretation{margin-top:20px;font-size:13px;border-top:1px solid var(--border,#dbe3ed);padding-top:12px}.v1-interpretation summary{cursor:pointer}.v1-explanation article{padding:4px 0 12px}.v1-explanation li{line-height:1.7}.v1-partial-result{margin-top:16px;border-top:1px solid #dbe3ed;padding-top:10px}@media(max-width:800px){.v1-run-pair{gap:8px}.v1-run-pair>div{padding:12px}.v1-pending{padding:16px}}@media(max-width:440px){.v1-run-pair{grid-template-columns:1fr}.v1-card-actions .button{flex:1 1 auto}.v1-comparison-table{font-size:12px}}
+.v1-answer{padding:20px}@media(max-width:800px){.v1-answer{padding:16px}}
+
+/* v1 structured experiment selection and free Markdown answers. */
+.v1-run-selection,.v1-general-answer,.v1-markdown{min-width:0;overflow-wrap:anywhere}
+.v1-picker-controls{display:flex;flex-wrap:wrap;gap:16px;margin:16px 0}
+.v1-picker-controls label{flex:1 1 200px;display:grid;gap:6px}
+.v1-run-selection input[type=search],.v1-run-selection select,.v1-pending select{width:100%;min-width:0;padding:10px;border:1px solid #d6e0f3;border-radius:10px;background:white;color:inherit}
+.v1-picker-list{max-height:390px;overflow:auto;margin:16px 0;padding:12px;border:1px solid #d6e0f3;border-radius:12px}
+.v1-picker-option{display:flex;gap:12px;align-items:flex-start;padding:12px;border-radius:8px;border-bottom:1px solid #e7ecf6;cursor:pointer}
+.v1-picker-option.is-selected{background:#edf3ff}.v1-picker-option span{min-width:0;flex:1 1 0}.v1-picker-option small,.v1-comparison-table small{display:block;overflow-wrap:anywhere}
+.v1-picker-option input[type=checkbox]{width:18px;height:18px;min-width:18px;min-height:18px;padding:0;margin:4px 0 0;flex:0 0 18px;accent-color:#315ed8}.v1-picker-chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:12px}
+.v1-picker-chips button{max-width:100%;overflow-wrap:anywhere;border:1px solid #cad9f5;border-radius:16px;background:#f5f8ff;padding:6px 10px;color:#2f59cf}
+.v1-baseline{display:grid;gap:6px;margin:14px 0}.v1-table-scroll{max-width:100%;overflow:auto}.v1-comparison-table{min-width:650px}
+.v1-unit-notice{padding:12px 16px;margin:0 0 16px;border:1px solid #cad9f5;border-radius:12px;background:#f3f7ff;color:#3a5077;font-size:14px;line-height:1.6;overflow-wrap:anywhere}
+.v1-unit-help{margin-top:12px;font-size:13px;color:#627594}.v1-unit-help summary,.v1-comparison details summary{cursor:pointer}.v1-unit-help ul{display:flex;flex-wrap:wrap;gap:6px 16px;list-style:none;padding:0}
+.v1-comparison .v1-calculation-evidence{margin-top:18px;padding:12px 16px;border:1px solid #d6e0f3;border-radius:10px;background:#f8faff}.v1-comparison .v1-run-metadata{font-weight:400;font-size:12px;color:#627594;margin:6px 0}
+.v1-markdown{line-height:1.7}.v1-markdown pre{overflow:auto;background:#f5f7fc;padding:14px;border-radius:10px}.v1-markdown table{display:block;max-width:100%;overflow:auto}.v1-markdown th,.v1-markdown td{padding:8px;border:1px solid #d6e0f3}
+.v1-markdown .katex{overflow-wrap:normal}
+.v1-markdown .katex-display{max-width:100%;overflow-x:auto;overflow-y:hidden;padding:4px 0}
+.v1-markdown .katex-error{white-space:pre-wrap;overflow-wrap:anywhere}
+@media(max-width:600px){.v1-picker-controls{gap:10px}.v1-picker-list{max-height:320px}.v1-picker-chips{max-height:140px;overflow:auto}.v1-run-selection .v1-card-actions{flex-wrap:wrap}.v1-run-selection .button{max-width:100%;white-space:normal}}

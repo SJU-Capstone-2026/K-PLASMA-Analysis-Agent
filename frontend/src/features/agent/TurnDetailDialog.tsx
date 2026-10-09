@@ -3,7 +3,7 @@ import {viewModels,type FullRun,type RunRef} from 'agent';
 import {Modal} from '../../components/Modal';
 import {RunDetail,RunDetailUnavailable} from '../analysis/RunDetail';
 import {fetchRunVersion} from '../../api/runs';
-export function TurnDetailDialog({runRef,turnId,tab,onTabChange,onClose}:{runRef:RunRef;turnId:string;tab?:string;onTabChange:(tab:string)=>void;onClose:()=>void}){
+export function TurnDetailDialog({runRef,turnId,tab='',onTabChange,onClose}:{runRef:RunRef;turnId:string;tab?:string;onTabChange:(tab:string)=>void;onClose:()=>void}){
  const key=JSON.stringify([turnId,runRef.runId,runRef.runVersionId]);
  const [result,setResult]=useState<{key:string;run:FullRun|null;error:unknown}>({key,run:null,error:null});const current=result.key===key;const run=current?result.run:null;const error=current?result.error:null;
  useEffect(()=>{const controller=new AbortController();fetchRunVersion(runRef,controller.signal).then(run=>{if(!controller.signal.aborted)setResult({key,run,error:null});}).catch(error=>{if(!controller.signal.aborted)setResult({key,run:null,error});});return()=>controller.abort();},[key]);

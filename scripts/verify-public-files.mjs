@@ -10,7 +10,7 @@ const failures=[];
 for(const file of files) {
   const fieldDocumentation=file==='docs/data/parser-field-map.md';
   if((denied.test(file)&&!fieldDocumentation)||(/(^|\/)\.env(?:\.|$)/.test(file)&&!file.endsWith('.example'))) {failures.push(`${file}: prohibited public path`);continue;}
-  if(!/\.(?:js|ts|tsx|json|java|md|yml|yaml|toml|env|html|xml)$/.test(file))continue;
+  if(!/\.(?:js|ts|tsx|json|java|py|md|yml|yaml|toml|env|html|xml)$/.test(file))continue;
   const text=await readFile(resolve(root,file),'utf8');
   // Full actual analysis payload signatures; artificial small fixtures and field definitions remain allowed.
   if((text.match(/RUN-P\d{2}-S\d{3}-B\d{4}/g)??[]).length>100 && /iedDistribution|residualTrace/.test(text))failures.push(`${file}: possible actual Run payload`);

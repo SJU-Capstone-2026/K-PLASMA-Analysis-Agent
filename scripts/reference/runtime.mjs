@@ -34,8 +34,15 @@ export async function startBackend(output,instant) {
   const container=`kplasma-verify-${randomUUID()}`;
   const password=randomUUID();let child;
   await mkdir(output,{recursive:true});
+  const stopServer=async(signal='SIGTERM')=>{
+    if(child && child.exitCode===null && child.signalCode===null){
+      const stopped=once(child,'exit');child.kill(signal);
+      await Promise.race([stopped,sleep(10000)]);
+      if(child.exitCode===null && child.signalCode===null){child.kill('SIGKILL');await stopped;}
+    }
+  };
   const cleanup=async()=>{
-    if(child && child.exitCode===null){child.kill('SIGTERM');await Promise.race([once(child,'exit'),sleep(10000)]);if(child.exitCode===null)child.kill('SIGKILL');}
+    await stopServer();
     try{execFileSync('docker',['rm','-f',container],{stdio:'ignore'});}catch {/* only this isolated container */}
   };
   try {
@@ -58,10 +65,13 @@ import java.time.*; import org.springframework.context.annotation.*;
     const stable=join(output,'server.jar');await copyFile(join(output,'build/libs',jar),stable);
     const port=await freePort();const url=`http://127.0.0.1:${port}`;
     const env={...process.env,DB_URL:`jdbc:postgresql://127.0.0.1:${binding}/kplasma`,POSTGRES_USER:'kplasma',POSTGRES_PASSWORD:password,BACKEND_PORT:String(port),KPLASMA_STORAGE_ROOT:join(output,'storage')};
-    child=spawn(process.env.JAVA_HOME?join(process.env.JAVA_HOME,'bin/java'):'java',['-jar',stable],{cwd:repo,env,stdio:['ignore','pipe','pipe']});
-    const log=createWriteStream(join(output,'server.log'));child.stdout.pipe(log,{end:false});child.stderr.pipe(log,{end:false});child.on('exit',()=>log.end());
-    await waitForHealth(`${url}/api/health`,child);
-    return {url,close:cleanup};
+    const launch=async()=>{
+      child=spawn(process.env.JAVA_HOME?join(process.env.JAVA_HOME,'bin/java'):'java',['-jar',stable],{cwd:repo,env,stdio:['ignore','pipe','pipe']});
+      const log=createWriteStream(join(output,'server.log'),{flags:'a'});child.stdout.pipe(log,{end:false});child.stderr.pipe(log,{end:false});child.on('exit',()=>log.end());
+      await waitForHealth(`${url}/api/health`,child);
+    };
+    await launch();
+    return {url,close:cleanup,restart:async()=>{await stopServer('SIGKILL');await launch();}};
   } catch(error){await cleanup();throw error;}
 }
 export async function createZip(root,target) {

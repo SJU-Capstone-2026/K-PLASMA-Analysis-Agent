@@ -77,3 +77,14 @@ it('preserves independent nullable context writes and a complete ordinary EXP wi
   expect(experiment.candidates[0].decision).toBe('ADOPT');
   expect(experiment.overallComment).toBe('artificial common comment');
 });
+
+it('distinguishes persisted graph v1 answers from legacy snapshots without changing either', async () => {
+  const {isV1AnswerSnapshot} = await import('../src/contracts');
+  const current = {implementationId:'v1',schemaVersion:1,kind:'compare_runs',result:{metrics:[{baseline:0,target:3,delta:3,percentChange:null,reason:'ZERO_BASELINE'}]}};
+  const before = structuredClone(current);
+  expect(isV1AnswerSnapshot(current)).toBe(true);
+  expect(isV1AnswerSnapshot({intent:'CHANGE_EXPLANATION'})).toBe(false);
+  expect(isV1AnswerSnapshot({...current,schemaVersion:2})).toBe(true);
+  expect(isV1AnswerSnapshot({...current,schemaVersion:3})).toBe(false);
+  expect(current).toEqual(before);
+});

@@ -1,0 +1,44 @@
+[project]
+name = "kplasma-agent"
+version = "1.0.0"
+description = "K-PLASMA durable LangGraph v1 worker"
+requires-python = ">=3.12,<3.14"
+dependencies = [
+  "langgraph>=1.0,<2",
+  "openai>=2,<3",
+  "pydantic>=2.10,<3",
+  "httpx>=0.28,<1",
+  "python-dotenv>=1,<2",
+]
+
+[project.optional-dependencies]
+tracing = ["arize-phoenix-otel>=0.17,<1"]
+
+[dependency-groups]
+dev = ["pytest>=8,<10", "ruff>=0.12,<1", "mypy>=1.15,<2"]
+
+[project.scripts]
+kplasma-worker = "kplasma_agent.worker:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/kplasma_agent"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[tool.ruff]
+line-length = 110
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F"]
+
+[tool.mypy]
+python_version = "3.12"
+ignore_missing_imports = true
+check_untyped_defs = true

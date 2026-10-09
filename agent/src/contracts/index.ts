@@ -49,7 +49,7 @@ export function toRunSummary(full: FullRun): RunSummary {
 /** Compact original engine objects; physical Run/analysis/graph payloads are forbidden in persisted snapshots. */
 export type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
 export type Snapshot = { [key: string]: JsonValue };
-export type Intent = 'FORWARD_LOOKUP' | 'REVERSE_SEARCH' | 'CHANGE_EXPLANATION' | 'CONCEPT_EXPLANATION' | 'RECORD_REUSE' | 'CLARIFICATION' | 'UNSUPPORTED';
+export type Intent = 'FORWARD_LOOKUP' | 'REVERSE_SEARCH' | 'RUN_COMPARISON' | 'GENERAL_ANSWER' | 'CHANGE_EXPLANATION' | 'CONCEPT_EXPLANATION' | 'RECORD_REUSE' | 'CLARIFICATION' | 'UNSUPPORTED';
 export interface AgentRequest { text: string; baseline?: RunRef; candidateReferences: RunRef[]; clarification?: Snapshot }
 export interface AgentResponse { intent: Intent; status: string; candidates: RunRef[]; explanation: Snapshot | null; answerSnapshot: Snapshot; usedRunRefs: RunRef[] }
 export interface AgentContext {
@@ -66,7 +66,7 @@ export interface TurnSnapshot { id: string; askedAt: string; question: string; i
 export type ReferenceState = { kind: '단일 Run' | '후보 집합'; runs: RunRef[] } | null;
 export interface ReferenceWrite { stateToken: StateToken; candidateReference: ReferenceState; activeRun: RunRef | null }
 export interface Conversation { version: 1; activeRun: RunRef | null; turns: TurnSnapshot[] }
-export interface WorkspaceView { stateToken: StateToken; conversation: Conversation; candidateReference: ReferenceState }
+export interface WorkspaceView { stateToken: StateToken; conversation: Conversation; candidateReference: ReferenceState; activeAgentRequest?:AgentRequestView|null; failedAgentRequest?:AgentRequestView|null }
 export type Decision = 'ADOPT' | 'HOLD' | 'REJECT';
 export type ExperimentDecision = Decision | 'ALTERNATIVE' | 'COMPARISON';
 export interface RunSnapshot extends RunRef { conditions: Conditions; metrics: Metrics; supportingMetrics: { electronDensity: number; electronTemperature: number } }
@@ -93,3 +93,18 @@ export interface UploadManifest { mode: 'FOLDER' | 'ZIP'; entries: UploadEntry[]
 export interface JobView { jobId: string; runId: string | null; runVersionId: string | null; status: JobStatus; reason: string | null; errors: ApiError[] }
 export interface BatchView { batchId: string; status: JobStatus | 'SUCCESS' | 'PARTIAL_SUCCESS' | 'FAILED'; receivedBytes: number; totalBytes: number; processedRuns: number; totalRuns: number; jobs: JobView[] }
 export interface CatalogView { runs: RunSummary[]; jobs: JobView[]; sourceFilesByVersion: Record<string, SourceFile[]> }
+
+/** Durable v1 request metadata; a completed answer is saved by the server exactly once. */
+export type AgentOperationKind = 'forward_lookup' | 'reverse_search' | 'compare_runs' | 'generate_answer' | 'explain_change' | 'explain_concept';
+export type AgentRequestStatus = 'QUEUED' | 'RUNNING' | 'NEEDS_INPUT' | 'COMPLETED' | 'FAILED' | 'CANCELLED';
+export interface AgentPendingInput { id: string; message: string; type?:'text'|'run_selection'|'comparison_options'; fields?: string[]; options?: {label:string;input:Snapshot}[]; minSelections?:number;baselineRequired?:boolean;optionsUrl?:string;allowedRunKeys?:string[];allowedTrendAxes?:import('./answers.js').ConditionId[] }
+export interface AgentRequestView {
+  requestId:string; requestRevision:number; status:AgentRequestStatus; stage:string; graphVersion:'v1'; question:string;
+  pendingInput:AgentPendingInput|null; error:{code:string;message:string}|null; partialResult:Snapshot|null;
+  turnId:string|null; answerSnapshot:Snapshot|null; inputEvents:Snapshot[]; explanationComplete?:boolean;
+}
+export interface AgentSubmission {text:string;stateToken:StateToken;selectedRunRef?:RunRef;baseline?:RunRef;candidateReferences?:RunRef[];attachedRunRefs?:RunRef[];referenceOrigins?:import('./answers.js').ReferenceOrigin[]}
+export interface AgentResume {expectedRequestRevision:number;pendingInputId:string;input:Snapshot}
+export function isV1AnswerSnapshot(snapshot:Snapshot):boolean {return snapshot.implementationId==='v1'&&(snapshot.schemaVersion===1||snapshot.schemaVersion===2);}
+export type * from './answers.js';
+export {queryDefaultUnits} from './answers.js';

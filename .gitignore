@@ -27,6 +27,13 @@ dist/
 coverage/
 playwright-report/
 test-results/
+.venv/
+__pycache__/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+/agent/python/.runtime/
 
 # Local operating-system files
 .DS_Store

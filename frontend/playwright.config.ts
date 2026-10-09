@@ -1,3 +1,4 @@
+// Historical fallback/prototype gate. Active Agent Graph v1 uses v1.playwright.config.ts.
 import {defineConfig} from '@playwright/test';
 const port=process.env.KPLASMA_E2E_PORT??'5192';
 export default defineConfig({

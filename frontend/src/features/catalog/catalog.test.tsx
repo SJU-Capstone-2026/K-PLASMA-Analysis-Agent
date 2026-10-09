@@ -70,7 +70,7 @@ test('late initial catalog cannot replace newer completion refresh',async()=>{
 });
 test('new latest Run detail uses matching successful job inventory after menu remount',async()=>{
  api();const prior={...ready,jobId:'prior-job',runVersionId:'prior-version'};const normal=fetch;vi.stubGlobal('fetch',vi.fn((url:string,options:RequestInit)=>url==='/api/catalog'?Promise.resolve(new Response(JSON.stringify({...catalog,jobs:[prior,ready,failed]}))):normal(url,options)));
- render(<CatalogPage state={{...initialCatalogState,catalogSelectedRunId:run.runId,catalogSelectedJobId:'prior-job'}}/>);await screen.findByRole('button',{name:'Agent에서 자세히 보기'});expect(fetch).toHaveBeenCalledWith('/api/import-jobs/ready-job/files',expect.anything());expect(fetch).not.toHaveBeenCalledWith('/api/import-jobs/prior-job/files',expect.anything());
+ render(<CatalogPage state={{...initialCatalogState,catalogSelectedRunId:run.runId,catalogSelectedJobId:'prior-job'}}/>);await screen.findByRole('button',{name:'Agent에서 자세히 보기'});await waitFor(()=>expect(fetch).toHaveBeenCalledWith('/api/import-jobs/ready-job/files',expect.anything()));expect(fetch).not.toHaveBeenCalledWith('/api/import-jobs/prior-job/files',expect.anything());
 });
 function inventoryFailureApi(failRun=false){
  const other:JobView={...failed,jobId:'other-job',runId:'OTHER-SYNTHETIC',status:'INCOMPLETE',reason:'synthetic output missing'};

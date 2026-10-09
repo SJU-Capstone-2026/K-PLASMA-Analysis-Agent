@@ -1,6 +1,7 @@
 import {useEffect,useRef,useState} from 'react';
-import {createExperimentRecord,createRecord,viewModels,type DecisionRecord,type FullRun,type RunSummary,type RunRef,type TurnSnapshot,type ReviewRecord,type ExperimentRecord,type CandidateSnapshot,type RunSnapshot,type Snapshot} from 'agent';
-import {displayAnswer,resolveCandidateRef} from '../agent/references';
+import {isV1AnswerSnapshot,createExperimentRecord,createRecord,viewModels,type DecisionRecord,type FullRun,type RunSummary,type RunRef,type TurnSnapshot,type ReviewRecord,type ExperimentRecord,type CandidateSnapshot,type RunSnapshot,type Snapshot} from 'agent';
+import {displayAnswer,resolveCandidateRef,v1CandidateRefs} from '../agent/references';
+import {v1RecordModel} from '../agent/v1-record-model';
 import {Modal} from '../../components/Modal';
 import {fetchRuns,fetchRunVersion} from '../../api/runs';
 export interface DecisionDialogProps {turn?:TurnSnapshot;target?:RunRef;runs?:FullRun[];workspaceEpoch:number;onSave:(record:DecisionRecord,refs:RunRef[],key:string)=>Promise<void>;onClose:()=>void}
@@ -12,10 +13,10 @@ const labels={ADOPT:'채택',HOLD:'보류',REJECT:'반려'};
 const refOf=(run:RunRef):RunRef=>({runId:run.runId,runVersionId:run.runVersionId});
 export function DecisionDialog({turn,target,runs:provided,onSave,onClose}:DecisionDialogProps){
  const [runs,setRuns]=useState<RunSummary[]|null>(provided??null);const [draft,setDraft]=useState(initialDraft);const [decision,setDecision]=useState('');const [compared,setCompared]=useState<string[]>([]);const [comment,setComment]=useState('');const [author,setAuthor]=useState('');const [error,setError]=useState('');const [pending,setPending]=useState(false);const errorNode=useRef<HTMLDivElement>(null);const attempt=useRef<{fingerprint:string;record:DecisionRecord;key:string}|null>(null);
- useEffect(()=>{if(provided)return;const controller=new AbortController();async function load(){if(turn){const refs=displayAnswer(turn.answerSnapshot).candidateRunRefs??turn.answerRunRefs;const unique=[...new Map(refs.map(ref=>[ref.runVersionId,ref])).values()];setRuns(await Promise.all(unique.map(ref=>fetchRunVersion(ref,controller.signal))));}else{const [selected,summaries]=await Promise.all([fetchRunVersion(target!,controller.signal),fetchRuns(controller.signal)]);setRuns([selected,...summaries.filter(run=>run.runId!==selected.runId)]);}}load().catch(e=>{if(!controller.signal.aborted)setError(e.message);});return()=>controller.abort();},[provided,turn?.id,target?.runVersionId]);
+ useEffect(()=>{if(provided)return;const controller=new AbortController();async function load(){if(turn){const refs=isV1AnswerSnapshot(turn.answerSnapshot)?v1CandidateRefs(turn):displayAnswer(turn.answerSnapshot).candidateRunRefs??turn.answerRunRefs;const unique=[...new Map(refs.map(ref=>[ref.runVersionId,ref])).values()];setRuns(await Promise.all(unique.map(ref=>fetchRunVersion(ref,controller.signal))));}else{const [selected,summaries]=await Promise.all([fetchRunVersion(target!,controller.signal),fetchRuns(controller.signal)]);setRuns([selected,...summaries.filter(run=>run.runId!==selected.runId)]);}}load().catch(e=>{if(!controller.signal.aborted)setError(e.message);});return()=>controller.abort();},[provided,turn?.id,target?.runVersionId]);
  useEffect(()=>{if(error)errorNode.current?.focus();},[error]);
  const recordRuns=turn&&runs?runs.filter(run=>resolveCandidateRef(turn,run.runId)?.runVersionId===run.runVersionId):runs;
- const model=turn&&recordRuns?viewModels.buildExperimentRecordModel(turn,recordRuns):null;
+ const model=turn&&recordRuns?(isV1AnswerSnapshot(turn.answerSnapshot)?v1RecordModel(turn):viewModels.buildExperimentRecordModel(turn,recordRuns)):null;
  const workflow=model?viewModels.buildExperimentRecordWorkflowModel(model,draft):null;
  const update=(patch:Partial<Draft>)=>setDraft(current=>({...current,...patch}));
  function select(runId:string,adopt:boolean,checked:boolean){setError('');if(adopt){update({adoptedRunId:runId,selectedRunIds:draft.selectedRunIds.filter(id=>id!==runId)});return;}if(checked&&draft.selectedRunIds.length>=2){setError('추가 후보는 최대 2개까지 선택할 수 있습니다.');return;}update({selectedRunIds:checked?[...draft.selectedRunIds,runId]:draft.selectedRunIds.filter(id=>id!==runId)});}
