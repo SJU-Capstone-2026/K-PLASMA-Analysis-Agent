@@ -1,16 +1,35 @@
-import {expect,test} from '@playwright/test';
+import {expect,test,type Locator} from '@playwright/test';
 import type {AgentSubmission,ComparisonResultV3,RunOutput,TurnSnapshot,WorkspaceView} from 'agent';
 import wire from '../../../../agent/tests/support/answer-v3-wire.json' with {type:'json'};
 import {syntheticRun} from '../../test/runs';
 import {emptyWorkspace,initialTurnUi} from './useConversation';
+async function expectChartLabelsInside(svg:Locator){
+ const labels=await svg.evaluate(node=>{
+  const bounds=node.getBoundingClientRect();return [...node.querySelectorAll('text')].map(text=>{
+   const box=text.getBoundingClientRect();return {text:text.textContent,left:box.left-bounds.left,right:box.right-bounds.left,top:box.top-bounds.top,bottom:box.bottom-bounds.top,width:bounds.width,height:bounds.height};
+  });
+ });
+ for(const label of labels){
+  expect(label.left,label.text??'').toBeGreaterThanOrEqual(-1);expect(label.right,label.text??'').toBeLessThanOrEqual(label.width+1);
+  expect(label.top,label.text??'').toBeGreaterThanOrEqual(-1);expect(label.bottom,label.text??'').toBeLessThanOrEqual(label.height+1);
+ }
+ for(let i=0;i<labels.length;i++)for(let j=i+1;j<labels.length;j++){
+  const a=labels[i],b=labels[j];expect(a.left<b.right-.5&&b.left<a.right-.5&&a.top<b.bottom-.5&&b.top<a.bottom-.5,`${a.text} / ${b.text}`).toBe(false);
+ }
+}
 for(const width of [390,800,1008,1440])test(`comparison charts and independent tagged message at ${width}px`,async({page},info)=>{
  await page.setViewportSize({width,height:1000});const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));
  const result=structuredClone(wire.comparison.result) as ComparisonResultV3;
- const first=result.runs[0];result.runs=Array.from({length:5},(_,i)=>({...structuredClone(first),key:`R${i+1}`,ref:{runId:`SYNTHETIC-${i+1}-P08-S200-B0400`,runVersionId:`00000000-0000-0000-0000-${String(i+1).padStart(12,'0')}`}}));
- result.usedRunRefs=result.runs.map(r=>r.ref);result.plotIds=['current','iead'];
+ const runCount=width===1440?12:5;
+ const first=result.runs[0];result.runs=Array.from({length:runCount},(_,i)=>({...structuredClone(first),key:`R${i+1}`,ref:{runId:`SYNTHETIC-${i+1}-P08-S200-B0400`,runVersionId:`00000000-0000-0000-0000-${String(i+1).padStart(12,'0')}`}}));
+ result.usedRunRefs=result.runs.map(r=>r.ref);result.plotIds=['current','potential','iead'];result.metricIds.push('current.minimum','residual.final');
  const outputs:RunOutput[]=result.runs.flatMap((r,i)=>{
   const current=structuredClone(wire.outputs[0]) as RunOutput;current.metadata={...current.metadata,ref:r.ref,sourceIntegrity:`artificial-${i}`};
-  return [current,{metadata:{...current.metadata,outputId:'iead',xUnit:'°',yUnit:'eV',valueUnit:'원본 단위 미지정',extrema:{maximum:{value:4,x:10,y:200,count:1}}},features:{},display:{kind:'grid',samples:[],rows:[{x:-10,coordinates:[100,200],values:[1,2]},{x:10,coordinates:[100,200],values:[3,4]}]}}];
+  const factor=1e7*(i+1);current.display!.samples.forEach(p=>p.y*=factor);Object.values(current.metadata.extrema).forEach(e=>e.value*=factor);
+  for(const metric of ['current.maximum','current.halfPeakToPeak'] as const)r.metrics[metric]!.value!*=factor;
+  r.metrics['current.minimum']={value:-2*factor,unit:'statampere/cm²',status:'AVAILABLE',reason:null,sourceValue:null};r.metrics['residual.final']={value:(i+1)*1e-9,unit:'relative residual',status:'AVAILABLE',reason:null,sourceValue:null};
+  const potential:RunOutput={metadata:{...current.metadata,outputId:'potential',valueUnit:'V',sourceCount:3,extrema:{maximum:{value:-7.44,x:0,y:null,count:2},minimum:{value:-987.65-i,x:.5,y:null,count:1}}},features:{},display:{kind:'line',samples:[{x:0,y:-7.44},{x:.5,y:-987.65-i},{x:1,y:-7.44}],rows:[]}};
+  return [current,potential,{metadata:{...current.metadata,outputId:'iead',xUnit:'°',yUnit:'eV',valueUnit:'원본 단위 미지정',extrema:{maximum:{value:4,x:10,y:200,count:1}}},features:{},display:{kind:'grid',samples:[],rows:[{x:-10,coordinates:[100,200],values:[1,2]},{x:10,coordinates:[100,200],values:[3,4]}]}}];
  });
  result.outputs=outputs.map(o=>o.metadata);
  const turn={id:'artificial-compare',askedAt:'2026-10-09T00:00:00Z',question:'인공 파형 비교',intent:'RUN_COMPARISON',context:null,answerRunRefs:result.usedRunRefs,answerSnapshot:{...wire.comparison,result,usedRunRefs:result.usedRunRefs},ui:structuredClone(initialTurnUi)} as unknown as TurnSnapshot;
@@ -46,20 +65,27 @@ for(const width of [390,800,1008,1440])test(`comparison charts and independent t
  await page.keyboard.press('Escape');await expect(detail).toBeHidden();
  await table.locator('..').evaluate(node=>node.scrollLeft=0);
  await card.getByRole('region',{name:'비교 그래프'}).scrollIntoViewIfNeeded();
- await expect(card.locator('path[data-run-id]')).toHaveCount(5);
+ await expect(card.locator('path[data-run-id]')).toHaveCount(runCount);
  const chart=card.getByRole('region',{name:'비교 그래프'});
- await chart.getByRole('button',{name:`R1 ${result.runs[0].ref.runId}`,exact:true}).click();await expect(card.locator('path[data-run-id]')).toHaveCount(4);
+ await expectChartLabelsInside(chart.getByRole('img'));await chart.screenshot({path:info.outputPath(`synthetic-source-labels-${width}.png`)});
+ await chart.getByRole('button',{name:`R1 ${result.runs[0].ref.runId}`,exact:true}).click();await expect(card.locator('path[data-run-id]')).toHaveCount(runCount-1);
  await chart.getByRole('button',{name:'전체 숨기기'}).click();await expect(chart.getByText(/표시 중인 실험이 없습니다/)).toBeVisible();
  await chart.getByRole('button',{name:'전체 표시'}).click();
- await chart.getByRole('tab',{name:'RF 전류 밀도 최댓값',exact:true}).click();await expect(chart.locator('rect[data-run-key]')).toHaveCount(5);
- await chart.getByRole('tab',{name:'에너지·입사각 분포',exact:true}).click();await expect(chart.getByRole('img')).toHaveCount(5);expect(graphCalls).toBe(2);
+ for(const name of ['RF 전류 밀도 최댓값','RF 전류 밀도 최솟값','마지막 잔차']){
+  await chart.getByRole('tab',{name,exact:true}).click();await expect(chart.locator('rect[data-run-key]')).toHaveCount(runCount);await expectChartLabelsInside(chart.getByRole('img'));
+  if(name==='마지막 잔차')await expect(chart.getByRole('img').getByText('1.00e-9',{exact:true})).toBeVisible();
+  if(name==='RF 전류 밀도 최댓값')await chart.screenshot({path:info.outputPath(`synthetic-bar-labels-${width}.png`)});
+ }
+ await chart.getByRole('tab',{name:'전극 전위',exact:true}).click();await expect(chart.locator('path[data-run-id]')).toHaveCount(runCount);await expectChartLabelsInside(chart.getByRole('img'));
+ await chart.getByRole('tab',{name:'에너지·입사각 분포',exact:true}).click();await expect(chart.getByRole('img')).toHaveCount(runCount);expect(graphCalls).toBe(3);
+ for(const svg of await chart.getByRole('img').all())await expectChartLabelsInside(svg);
  await chart.getByRole('button',{name:'그래프 접기'}).click();await page.reload();await expect(chart.getByRole('button',{name:'그래프 펼치기'})).toBeVisible();
- await chart.getByRole('button',{name:'그래프 펼치기'}).click();await expect(chart.getByRole('img')).toHaveCount(5);
+ await chart.getByRole('button',{name:'그래프 펼치기'}).click();await expect(chart.getByRole('img')).toHaveCount(runCount);
  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1)).toBe(true);expect(await card.evaluate(node=>node.scrollWidth<=node.clientWidth+1)).toBe(true);
  await card.screenshot({path:info.outputPath(`synthetic-comparison-${width}.png`)});
  await page.locator('#agent-query').fill('이 실험들 다시 비교해줘');await page.locator('#agent-query-form button[type=submit]').click();
  await expect.poll(()=>posted.length).toBe(1);const user=page.locator('.agent-user-message').filter({hasText:'이 실험들 다시 비교해줘'});
- await expect(user).toHaveCount(1);await expect(user.locator('.run-context-chip')).toHaveCount(5);
+ await expect(user).toHaveCount(1);await expect(user.locator('.run-context-chip')).toHaveCount(runCount);
  await page.locator('#agent-query-form').evaluate(form=>form.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true})));
  expect(posted).toHaveLength(1);release!();await expect(page.getByRole('heading',{name:'추가 정보가 필요합니다'})).toBeVisible();
  await expect(page.getByText('이 실험들 다시 비교해줘',{exact:true})).toHaveCount(1);expect(errors).toEqual([]);

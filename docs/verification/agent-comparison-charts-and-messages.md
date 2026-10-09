@@ -10,6 +10,12 @@
 
 상하 배치 검증: `npm run test -w frontend` **203개 통과**, `npm run typecheck`, `npm run lint`, `npm run build -w frontend`, `npm run verify:public-files`, `git diff --check` 통과. `npx playwright test --config frontend/src/features/agent/agent-v1.playwright.config.ts comparison-visualization.pw.ts agent-v1.pw.ts` **8개 통과**. 390/800/1008/1440px 각각에서 표 다음에 같은 폭의 그래프가 배치됨, 실험 이름 줄바꿈 없음, 기본 행 높이 46px 이하, 정확한 버전의 상세 보기와 모달 닫기, 화면 넘침 없음, 그래프 전환·실험 표시·복원 및 기존 조회 화면을 확인했다. 삭제한 메타데이터 펼치기 검증은 상세 버튼의 버전·동작 검증으로 대체했다. UI만 변경해 Python·backend 테스트는 이번에 재실행하지 않았다.
 
+같은 날 축 글자 잘림·단위 겹침을 수정했다. 고정된 SVG 왼쪽 여백에서 큰 음수 축 라벨이 경계 밖으로 나오는 현상을 인공 데이터로 재현했다. 축 글자 길이에 따라 여백을 정하고 축·선·막대·격자·극값 표식을 같은 좌표계에 배치한다. 절댓값이 10⁶ 이상이거나 0보다 크고 0.01 미만인 값은 그래프에서 지수 표기로 줄이며 원값은 툴팁에 남긴다. 막대 간격도 값 라벨 길이를 반영한다. 파형·막대의 세로 단위 중복 표기를 제거하고 상단 단위는 줄바꿈할 수 있게 했다. 격자의 y축 단위는 숫자와 떨어진 위쪽에 가로로 표시한다. 원본 값·단위·계산·저장 계약은 변경하지 않았다.
+
+개별 Run·전체 후보의 `채팅에 추가` 동작에서는 저장 후 입력창에 강제로 포커스를 주던 코드를 제거했다. 현재 위치·클릭한 버튼의 포커스를 유지하고 기존 오른쪽 아래 알림만 표시하며 3,200ms 뒤 자동 제거한다. 다중 참조 누적·중복 제거·저장 완료 후 알림·질문 전송 대기 정책은 유지한다.
+
+축·참조 추가 검증: frontend **203개**, `npx playwright test --config frontend/src/features/agent/agent-v1.playwright.config.ts comparison-visualization.pw.ts chat-references.pw.ts` **8개 통과**, 타입 검사·lint·frontend build·공개 파일 검사·diff 검사 통과. 네 화면 폭에서 큰 양수·음수·10⁻⁹ 단위의 작은 값, 선·막대·격자의 모든 SVG 글자 경계 및 서로 겹치지 않음, 12개 실험의 막대 간격을 확인했다. 실제 클릭 이벤트 시점부터 참조 저장 후까지 문서 스크롤·포커스 유지와 알림 자동 제거도 확인했다. 자동화 도구가 클릭 대상을 화면 안으로 가져오는 과정의 스크롤은 앱 동작 측정에서 제외했다. 인공 데이터만 사용했고 Python·backend 테스트는 이번 UI 수정에서 재실행하지 않았다.
+
 2026-10-09 사용자 요청으로 비교 출력의 `계산 정의·원본`, `계산 근거`, `가능한 해석`, `설명의 한계` 영역과 전용 스타일·설명 전달값을 제거했다. 삭제한 근거 펼치기 기능의 UI 테스트 두 개를 삭제하고, 기존 저장 답변·그래프 테스트에서 설명 영역이 없는 출력을 확인한다. 계산 결과·비가용 이유와 내부 근거 검증, 저장 답변의 데이터 계약은 유지한다.
 
 출력 정리 검증: `npm run test -w frontend` 203개 통과, `npm run typecheck`, `npm run lint`, `npm run build -w frontend`, `npm run verify:public-files`, `git diff --check` 통과. `npx playwright test --config frontend/src/features/agent/agent-v1.playwright.config.ts comparison-visualization.pw.ts`는 390/800/1008/1440px 네 경우에서 설명 영역 제거, 수치·파형·2D 그래프, 실험별 표시 전환과 접기·복원을 확인했다. 이번 변경에서 Python·backend 테스트는 재실행하지 않았다.

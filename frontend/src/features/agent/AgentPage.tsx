@@ -26,8 +26,8 @@ export function AgentPage({conversation,notify,onDetail,onRecord,onEvidence,onDe
  async function action(turn:TurnSnapshot,name:string,element:HTMLElement){const runId=element.dataset.runId;const ref=runId?(element.dataset.runVersionId?{runId,runVersionId:element.dataset.runVersionId}:resolveCandidateRef(turn,runId)):undefined;try{
   if(name==='select-candidate-card')await conversation.updateTurnUi(turn.id,{selectedCandidateRunId:turn.ui.selectedCandidateRunId===runId?null:runId!});
   else if(name==='candidate-group')await conversation.updateTurnUi(turn.id,{activeCandidateGroup:element.dataset.groupId!});
-  else if(name==='continue-with-run'&&ref){await conversation.setReference(state=>appendRunReferences(state,[ref]));document.getElementById('agent-query')?.focus();notify(`${ref.runId}을 채팅에 추가했습니다.`,'info');}
-  else if(name==='reference-candidate-group'){const refs=candidateRefs(turn);await conversation.setReference(state=>appendRunReferences(state,refs));document.getElementById('agent-query')?.focus();notify(`${refs.length}개 후보를 채팅에 추가했습니다.`,'info');}
+  else if(name==='continue-with-run'&&ref){await conversation.setReference(state=>appendRunReferences(state,[ref]));notify(`${ref.runId}을 채팅에 추가했습니다.`,'info');}
+  else if(name==='reference-candidate-group'){const refs=candidateRefs(turn);await conversation.setReference(state=>appendRunReferences(state,refs));notify(`${refs.length}개 후보를 채팅에 추가했습니다.`,'info');}
   else if(name==='open-run-detail'&&ref)onDetail(ref,turn);
   else if(name==='open-experiment-record')onRecord(turn);
   else if(name==='memory-evidence'&&runId)onEvidence(turn,runId);
