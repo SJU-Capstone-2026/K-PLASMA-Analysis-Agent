@@ -2940,7 +2940,7 @@ p.manual-limit { margin-bottom: 0; color: #826947; font-size: 9px; line-height: 
 .v1-baseline{display:grid;gap:6px;margin:14px 0}.v1-table-scroll{max-width:100%;overflow:auto}.v1-comparison-table{min-width:650px}
 .v1-unit-notice{padding:12px 16px;margin:0 0 16px;border:1px solid #cad9f5;border-radius:12px;background:#f3f7ff;color:#3a5077;font-size:14px;line-height:1.6;overflow-wrap:anywhere}
 .v1-unit-help{margin-top:12px;font-size:13px;color:#627594}.v1-unit-help summary,.v1-comparison details summary{cursor:pointer}.v1-unit-help ul{display:flex;flex-wrap:wrap;gap:6px 16px;list-style:none;padding:0}
-.v1-comparison .v1-calculation-evidence{margin-top:18px;padding:12px 16px;border:1px solid #d6e0f3;border-radius:10px;background:#f8faff}.v1-comparison .v1-run-metadata{font-weight:400;font-size:12px;color:#627594;margin:6px 0}
+.v1-comparison .v1-run-metadata{font-weight:400;font-size:12px;color:#627594;margin:6px 0}
 .v1-markdown{line-height:1.7}.v1-markdown pre{overflow:auto;background:#f5f7fc;padding:14px;border-radius:10px}.v1-markdown table{display:block;max-width:100%;overflow:auto}.v1-markdown th,.v1-markdown td{padding:8px;border:1px solid #d6e0f3}
 .v1-markdown .katex{overflow-wrap:normal}
 .v1-markdown .katex-display{max-width:100%;overflow-x:auto;overflow-y:hidden;padding:4px 0}
@@ -2953,7 +2953,7 @@ p.manual-limit { margin-bottom: 0; color: #826947; font-size: 9px; line-height: 
 .comparison-numbers .v1-comparison-table th,.comparison-numbers .v1-comparison-table td{padding:10px 12px;font-size:13px;white-space:nowrap}
 .comparison-numbers .v1-comparison-table th:first-child{min-width:190px}
 .comparison-numbers .v1-comparison-table .button{padding:3px 8px;margin-top:4px;font-size:11px;min-height:26px}
-.comparison-source-info{font-size:12px;margin:12px 0}.comparison-source-info small{display:block;overflow-wrap:anywhere}.comparison-source-info li{margin:8px 0}.comparison-numbers h4{margin:16px 0 8px}.comparison-numbers .v1-run-metadata{font-size:11px;margin:4px 0}
+.comparison-numbers h4{margin:16px 0 8px}.comparison-numbers .v1-run-metadata{font-size:11px;margin:4px 0}
 .comparison-charts{border:1px solid var(--line,#dce4f3);border-radius:14px;background:#fafbff;padding:12px}
 .comparison-chart-heading{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:10px}
 .comparison-tabs{display:flex;gap:4px;overflow-x:auto;background:#eef2f8;padding:5px;border-radius:10px}

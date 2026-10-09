@@ -27,6 +27,7 @@ for(const width of [390,800,1008,1440])test(`comparison charts and independent t
   return route.fulfill({json:workspace});
  });
  await page.goto('/');const card=page.locator('[data-turn-id="artificial-compare"]');await card.getByRole('region',{name:'비교 그래프'}).scrollIntoViewIfNeeded();
+ for(const label of ['계산 정의·원본','계산 근거','가능한 해석','설명의 한계'])await expect(card.getByText(label,{exact:true})).toHaveCount(0);
  await expect(card.locator('path[data-run-id]')).toHaveCount(5);
  const chart=card.getByRole('region',{name:'비교 그래프'});
  await chart.getByRole('button',{name:'R1 SYNTHETIC-1',exact:true}).click();await expect(card.locator('path[data-run-id]')).toHaveCount(4);
