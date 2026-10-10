@@ -1,0 +1,20 @@
+// Test runtime only: no benchmark classes enter bootJar or production APIs.
+allprojects {
+    afterEvaluate {
+        tasks.register('forwardBenchmarkClasspath') {
+            dependsOn testClasses
+            doLast {
+                def target = project.file('../.local/performance/forward-lookup/classpath.txt')
+                target.parentFile.mkdirs()
+                target.text = sourceSets.test.runtimeClasspath.asPath
+            }
+        }
+        tasks.register('forwardBenchmark', JavaExec) {
+            dependsOn testClasses
+            classpath = sourceSets.test.runtimeClasspath
+            mainClass = 'com.kplasma.analysisagent.performance.ForwardLookupBenchmarkSupport'
+            jvmArgs '-Xms256m', '-Xmx4g', '-XX:+ExitOnOutOfMemoryError',
+                '-Xlog:gc:file=../.local/performance/forward-lookup/java-gc.log:time,uptime,level,tags'
+        }
+    }
+}
