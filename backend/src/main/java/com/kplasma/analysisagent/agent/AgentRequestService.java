@@ -28,7 +28,7 @@ public class AgentRequestService {
     public record Claim(String workerId,int leaseSeconds) {}
     public record Mutation(long claimGeneration,long requestRevision,Integer leaseSeconds,String stage,String operationKind,Boolean dependsOnContext,
         Map<String,Object> payload,Map<String,Object> pendingInput,Map<String,Object> error,Map<String,Object> partialResult,List<RunRef> usedRunRefs,AgentResponse answer,Integer limit,List<RunRef> requiredRunRefs,
-        Map<String,Object> reverseQuery,Boolean referencesOnly) {}
+        Map<String,Object> reverseQuery,Boolean referencesOnly,Map<String,Object> forwardQuery) {}
     private void require(boolean condition,String message){validate.require(condition,INVALID,message);}
     private void conflict(String code,String message){throw new IntakeException(code,409,message);}
     @Transactional public Map<String,Object> submit(Submission body,String key){
@@ -178,7 +178,18 @@ public class AgentRequestService {
         return context(id,generation,revision,required,null,false);
     }
     @Transactional public Map<String,Object> context(UUID id,long generation,long revision,List<RunRef> required,Map<String,Object> reverseQuery,Boolean referencesOnly){
+        return context(id,generation,revision,required,reverseQuery,referencesOnly,null);
+    }
+    @Transactional public Map<String,Object> context(UUID id,long generation,long revision,List<RunRef> required,Map<String,Object> reverseQuery,Boolean referencesOnly,Map<String,Object> forwardQuery){
         var current=workspace.lock();var row=fence(id,generation,revision);epochs(row,current);if(required==null)required=List.of();
+        require(!Boolean.TRUE.equals(referencesOnly)||reverseQuery==null,"referencesOnly and reverseQuery are mutually exclusive");
+        require(forwardQuery==null||("forward_lookup".equals(row.operationKind())&&reverseQuery==null&&!Boolean.TRUE.equals(referencesOnly)),"forwardQuery is exclusive to a forward lookup");
+        ForwardContextQuery forward=forwardQuery==null?null:new ForwardContextQuery(forwardQuery);
+        if("forward_lookup".equals(row.operationKind())&&(forward!=null||Boolean.TRUE.equals(referencesOnly)||(row.manifest()!=null&&Boolean.TRUE.equals(row.manifest().get("forwardScoped"))))){
+            require(reverseQuery==null,"A forward manifest cannot use reverseQuery");
+            var scoped=forwardContext(id,row,required,forward);
+            if(scoped!=null)return scoped;
+        }
         if("compare_runs".equals(row.operationKind())&&row.context()!=null&&row.context().containsKey("comparisonReference"))return comparisonContext(id,row,required,reverseQuery,referencesOnly);
         validate.refs(required,INVALID,false);
         boolean only=Boolean.TRUE.equals(referencesOnly);require(!only||reverseQuery==null,"referencesOnly and reverseQuery are mutually exclusive");
@@ -186,7 +197,8 @@ public class AgentRequestService {
         Map<String,Object> manifest=row.manifest()==null?new LinkedHashMap<>():new LinkedHashMap<>(row.manifest());
         if(manifest.get("reverseQuery")!=null&&query!=null&&!mapper.valueToTree(manifest.get("reverseQuery")).equals(mapper.valueToTree(query.normalized())))conflict("MANIFEST_QUERY_CONFLICT","A materialized reverse query cannot change");
         boolean changed=row.manifest()==null;
-        if(row.manifest()==null){
+        if(row.manifest()==null||Boolean.TRUE.equals(manifest.remove("forwardScoped"))){
+            changed=true;
             // Pin identities before any context-derived numerical condition is calculated.
             var inventory=jdbc.query("select r.run_id,r.current_version_id::text from run r where r.current_version_id is not null order by r.run_id",(rs,n)->Map.of("runId",rs.getString(1),"runVersionId",rs.getString(2)));
             manifest.put("catalogRunRefs",inventory);manifest.put("runs",List.of());manifest.put("referencedRuns",List.of());manifest.put("context",row.context());manifest.put("createdAt",Instant.now().toString());
@@ -213,6 +225,48 @@ public class AgentRequestService {
             manifest.put("runs",scalarVersions(pinned.toArray(String[]::new)));manifest.put("catalogMaterialized",true);changed=true;
         }
         if(changed)jdbc.update("update agent_request set manifest=?::jsonb,updated_at=now() where id=?",requests.json(manifest),id);
+        return manifest;
+    }
+    private Map<String,Object> forwardContext(UUID id,AgentRequestRepository.Row row,List<RunRef> required,ForwardContextQuery query){
+        // Already captured legacy inventories keep their original versions on resume.
+        if(row.manifest()!=null&&!Boolean.TRUE.equals(row.manifest().get("forwardScoped")))return null;
+        validate.refs(required,INVALID,false);
+        Map<String,Object> manifest=row.manifest()==null?new LinkedHashMap<>():new LinkedHashMap<>(row.manifest());
+        if(manifest.get("forwardQuery") instanceof Map<?,?> previous){
+            if(query!=null&&!mapper.valueToTree(previous).equals(mapper.valueToTree(query.normalized())))conflict("MANIFEST_QUERY_CONFLICT","A materialized forward query cannot change");
+            Set<String> fetched=new HashSet<>();collectVersions(manifest.get("referencedRuns"),fetched);
+            var additional=required.stream().map(RunRef::runVersionId).filter(v->!fetched.contains(v)).toArray(String[]::new);
+            if(additional.length>0){
+                List<Object> historical=new ArrayList<>((List<?>)manifest.get("referencedRuns"));historical.addAll(scalarVersions(additional));
+                manifest.put("referencedRuns",historical);
+                jdbc.update("update agent_request set manifest=?::jsonb,updated_at=now() where id=?",requests.json(manifest),id);
+            }
+            return manifest;
+        }
+        if(query!=null){
+            String runId=query.runId();
+            var matches=runId==null?List.<Map<String,Object>>of():jdbc.query(
+                "select v.summary::text,jsonb_array_length(v.full_run->'sourceFiles') from run r join run_version v on v.id=r.current_version_id where r.run_id=?",
+                (rs,n)->scalarRow(rs.getString(1),rs.getObject(2)),runId);
+            // Preserve the existing nearest/exclusion behavior when there is no usable exact match.
+            if(matches.size()!=1||!query.matches(matches.getFirst()))return null;
+            var match=matches.getFirst();
+            manifest.put("runs",matches);
+            manifest.put("catalogRunRefs",List.of(Map.of("runId",match.get("runId"),"runVersionId",match.get("runVersionId"))));
+            manifest.put("forwardQuery",query.normalized());manifest.put("catalogMaterialized",true);
+        }
+        manifest.putIfAbsent("runs",List.of());manifest.putIfAbsent("catalogRunRefs",List.of());
+        manifest.putIfAbsent("referencedRuns",List.of());manifest.putIfAbsent("context",row.context());
+        manifest.putIfAbsent("createdAt",Instant.now().toString());manifest.put("forwardScoped",true);
+        Set<String> refs=new LinkedHashSet<>();
+        if(query==null&&row.context()!=null)for(String key:List.of("activeRun","selectedRunRef"))collectVersions(row.context().get(key),refs);
+        required.forEach(ref->refs.add(ref.runVersionId()));
+        Set<String> fetched=new HashSet<>();collectVersions(manifest.get("referencedRuns"),fetched);refs.removeAll(fetched);
+        if(!refs.isEmpty()){
+            List<Object> historical=new ArrayList<>((List<?>)manifest.get("referencedRuns"));historical.addAll(scalarVersions(refs.toArray(String[]::new)));
+            manifest.put("referencedRuns",historical);
+        }
+        jdbc.update("update agent_request set manifest=?::jsonb,updated_at=now() where id=?",requests.json(manifest),id);
         return manifest;
     }
     private List<Map<String,Object>> scalarVersions(String[] versions){return jdbc.query("select summary::text,jsonb_array_length(full_run->'sourceFiles') from run_version where id=any(?::uuid[]) order by run_id,registration_sequence",(rs,n)->scalarRow(rs.getString(1),rs.getObject(2)),(Object)versions);}

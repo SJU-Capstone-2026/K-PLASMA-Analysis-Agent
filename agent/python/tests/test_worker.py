@@ -17,7 +17,7 @@ class Backend:
     def save(self, payload):
         self.payload = deepcopy(payload)
 
-    def context(self, refs=None):
+    def context(self, refs=None, **kwargs):
         return {"runs": [], "referencedRuns": [], "context": {}}
 
     def stage(self, *args, **kwargs):
