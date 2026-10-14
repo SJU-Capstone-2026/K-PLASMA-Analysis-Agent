@@ -185,38 +185,6 @@ def _objective_key(entry, objective):
     return (distance, -presentation_score(entry["run"]), run_id_key(entry["run"]))
 
 
-def _violation(run, rule):
-    actual, error = scalar(run, rule["metric"])
-    if error:
-        return {
-            "metric": rule["metric"],
-            "operator": rule["operator"],
-            "actual": None,
-            "required": None,
-            "delta": None,
-            "unit": rule["unit"],
-            "reason": error,
-        }
-    if check_rule(actual, rule):
-        return None
-    if rule["operator"] == "between":
-        nearest = rule["min"] if actual < rule["min"] else rule["max"]
-        required = f"{rule['min']:g}–{rule['max']:g}"
-    else:
-        nearest = rule["value"]
-        required = f"{rule['operator']} {nearest:g}"
-    delta = _stable_delta(actual - nearest, digits=3)
-    return {
-        "metric": rule["metric"],
-        "operator": rule["operator"],
-        "actual": actual,
-        "required": required,
-        "delta": delta,
-        "unit": rule["unit"],
-        "reason": None if delta is not None else "NUMERIC_OVERFLOW",
-    }
-
-
 def search_reverse(inputs, ordered_runs):
     constraints, goals, defaulted_units = _normalized_query(inputs)
     if not constraints and not goals:
@@ -278,25 +246,10 @@ def search_reverse(inputs, ordered_runs):
         objective_results.append(
             {"objective": objective, "candidates": selected, "allConstraintsGuaranteed": False}
         )
-    near_matches = []
-    if not combined:
-        for run in common_eligible:
-            violations = [v for rule in constraints if (v := _violation(run, rule)) is not None]
-            if violations:
-                near_matches.append({"run": run, "violations": violations, "allConstraintsGuaranteed": False})
-        # Mixed units are legacy display ranking only, never a physical distance.
-        near_matches.sort(
-            key=lambda entry: sum(
-                Decimal.from_float(abs(v["delta"])) if v["delta"] is not None else Decimal("Infinity")
-                for v in entry["violations"]
-            )
-        )
-        near_matches = near_matches[:3]
     representatives = [entry["run"] for entry in combined]
     all_displayed = [
         *representatives,
         *(entry["run"] for group in objective_results for entry in group["candidates"]),
-        *(entry["run"] for entry in near_matches),
     ]
     status = "MATCH" if representatives else "NO_MATCH"
     displayed_refs = used_refs(all_displayed)
@@ -310,13 +263,15 @@ def search_reverse(inputs, ordered_runs):
         "goals": goals,
         "objectives": objectives,
         "totalCount": len(representatives),
-        "allMatches": representatives,
-        "candidates": representatives,
-        "representativeCandidates": representatives,
-        "commonCandidates": combined,
+        "searchResultVersion": 2,
+        "runsByVersion": {run["runVersionId"]: run for run in all_displayed},
+        "commonRunRefs": [run_ref(run) for run in representatives],
         "commonRunIds": [r["runId"] for r in representatives],
-        "commonRecommendation": representatives[0] if representatives else None,
-        "objectiveResults": objective_results,
+        "commonRecommendation": run_ref(representatives[0]) if representatives else None,
+        "objectiveResults": [
+            {"objective": group["objective"], "candidateRefs": [run_ref(entry["run"]) for entry in group["candidates"]], "allConstraintsGuaranteed": False}
+            for group in objective_results
+        ],
         # Retain the field for compatibility with existing saved answer schemas.
         # Goals order common matches; they no longer create global candidate tabs.
         "goalResults": [],
@@ -330,8 +285,6 @@ def search_reverse(inputs, ordered_runs):
             for entry in entries
             if (entry["run"]["runId"], entry["run"]["runVersionId"]) in displayed_keys
         ],
-        "nearMatches": near_matches,
-        "nearMisses": near_matches,
         "usedRunRefs": displayed_refs,
         "excludedRuns": excluded,
         "defaultedUnits": defaulted_units,

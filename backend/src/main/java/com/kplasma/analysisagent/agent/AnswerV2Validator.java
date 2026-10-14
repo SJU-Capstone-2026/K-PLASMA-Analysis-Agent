@@ -40,7 +40,35 @@ final class AnswerV2Validator {
         String intent=Map.of("forward_lookup","FORWARD_LOOKUP","reverse_search","REVERSE_SEARCH","compare_runs","RUN_COMPARISON","generate_answer","GENERAL_ANSWER").get(kind);require(intent.equals(answer.intent()),"Intent/tool mismatch");
         if(kind.equals("compare_runs")){require(answer.candidates().isEmpty()&&answer.explanation()==null,"Comparison has no legacy candidates/explanation");comparison(result,answer.usedRunRefs(),false);comparisonAnswer(snapshot.get("answer"),result);}
         else require(snapshot.get("answer")==null,"Only comparisons have an answer object");
+        if(kind.equals("reverse_search")&&result.containsKey("searchResultVersion"))compactSearch(result);
         if(kind.equals("generate_answer")){fields(result,"kind","resultStatus","markdown","knowledgeBasis","usedRunRefs");require("ANSWER_READY".equals(result.get("resultStatus"))&&"LLM_GENERAL_KNOWLEDGE".equals(result.get("knowledgeBasis")),"Invalid general answer");text(result.get("markdown"));require(answer.usedRunRefs().isEmpty()&&refs(result.get("usedRunRefs")).isEmpty()&&answer.candidates().isEmpty()&&answer.explanation()==null,"General answer cannot depend on Run refs");require(object(snapshot.get("resolvedInputs")).isEmpty()&&object(snapshot.get("contextProvenance")).isEmpty()&&object(selection.get("arguments")).isEmpty(),"General inputs must be empty");}
+    }
+    private void compactSearch(Map<?,?> result){
+        fields(result,"kind","resultStatus","status","processMode","constraints","goals","objectives","totalCount","searchResultVersion","runsByVersion","commonRunRefs","commonRunIds","commonRecommendation","objectiveResults","goalResults","candidateEvaluations","usedRunRefs","excludedRuns","defaultedUnits","numericPolicyVersion");
+        require(result.get("searchResultVersion") instanceof Number n&&n.doubleValue()==2,"Unknown search result version");
+        var runs=object(result.get("runsByVersion"));
+        Map<String,RunRef> inventory=new HashMap<>();
+        for(var entry:runs.entrySet()){
+            var run=object(entry.getValue());var ref=new RunRef(text(run.get("runId")),text(run.get("runVersionId")));
+            require(Objects.equals(entry.getKey(),ref.runVersionId()),"Search snapshot version mismatch");inventory.put(ref.runVersionId(),ref);
+        }
+        var common=refs(result.get("commonRunRefs"));unique(common);
+        require(result.get("totalCount") instanceof Number n&&n.doubleValue()==common.size(),"Search count mismatch");
+        enumeration(result.get("resultStatus"),"MATCH","NO_MATCH");
+        require(Objects.equals(result.get("status"),result.get("resultStatus"))&&common.isEmpty()=="NO_MATCH".equals(result.get("resultStatus")),"Search status mismatch");
+        require(strings(result.get("commonRunIds")).equals(common.stream().map(RunRef::runId).toList()),"Search Run IDs mismatch");
+        require(common.isEmpty()?result.get("commonRecommendation")==null:ref(result.get("commonRecommendation")).equals(common.getFirst()),"Search recommendation mismatch");
+        Set<RunRef> displayed=new HashSet<>(common);
+        for(Object value:array(result.get("objectiveResults"))){
+            var group=object(value);require(Boolean.FALSE.equals(group.get("allConstraintsGuaranteed")),"Individual condition must not claim all constraints");
+            var selected=refs(group.get("candidateRefs"));unique(selected);displayed.addAll(selected);
+        }
+        require(displayed.equals(new HashSet<>(inventory.values()))&&displayed.equals(new HashSet<>(refs(result.get("usedRunRefs")))),"Search candidate inventory mismatch");
+        require(!result.containsKey("nearMatches")&&!result.containsKey("nearMisses"),"Compact searches cannot contain nearest candidates");
+        for(var ref:displayed)require(Objects.equals(inventory.get(ref.runVersionId()),ref),"Unknown search reference");
+        Set<RunRef> evaluated=new HashSet<>();
+        for(Object value:array(result.get("candidateEvaluations"))){var entry=object(value);var ref=new RunRef(text(entry.get("runId")),text(entry.get("runVersionId")));require(displayed.contains(ref)&&evaluated.add(ref),"Unknown or duplicate candidate evaluation");array(entry.get("evaluations"));nullableNumber(entry.get("matchPercent"));}
+        require(evaluated.equals(displayed),"Search evaluations incomplete");
     }
     private void unitAssumptions(Map<?,?> snapshot,String kind){
         var assumptions=array(snapshot.get("unitAssumptions"));

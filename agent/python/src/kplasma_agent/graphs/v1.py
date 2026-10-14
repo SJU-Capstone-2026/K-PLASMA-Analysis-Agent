@@ -111,6 +111,18 @@ def _context_refs(context):
     return refs
 
 
+def _reverse_context_refs(context):
+    # Both roles may point at the same immutable experiment.
+    unique = {}
+    for key in ("activeRun", "selectedRunRef"):
+        ref = context.get(key)
+        if isinstance(ref, dict) and ref.get("runId") and ref.get("runVersionId"):
+            unique[(ref["runId"], ref["runVersionId"])] = {
+                "runId": ref["runId"], "runVersionId": ref["runVersionId"]
+            }
+    return list(unique.values())
+
+
 def _resolve(selector, manifest, context):
     if not selector:
         return None
@@ -505,7 +517,10 @@ def build_graph(model, backend, settings, checkpointer):
             from ..domain.reverse import normalized_reverse_query
 
             manifest = (
-                backend.context(references_only=True)
+                backend.context(
+                    _reverse_context_refs(state.get("context", {})),
+                    references_only=True,
+                )
                 if inputs.get("context_rules")
                 else backend.context(reverse_query=normalized_reverse_query(inputs))
             )
@@ -545,6 +560,9 @@ def build_graph(model, backend, settings, checkpointer):
             if kind == "reverse_search":
                 manifest = backend.context(reverse_query=normalized_reverse_query(inputs))
                 source = manifest["runs"]
+        if kind == "reverse_search":
+            # Scalar inputs live in source; do not also serialize them inside manifest.
+            manifest = {key: value for key, value in manifest.items() if key not in ("runs", "referencedRuns")}
         return {
             "manifest": manifest,
             "source": source,
@@ -685,7 +703,7 @@ def build_graph(model, backend, settings, checkpointer):
                 }[kind],
                 "status": result["resultStatus"],
                 "candidates": [
-                    {k: r[k] for k in ("runId", "runVersionId")} for r in result.get("candidates", [])
+                    {k: r[k] for k in ("runId", "runVersionId")} for r in result.get("commonRunRefs", result.get("candidates", []))
                 ]
                 if search
                 else [],

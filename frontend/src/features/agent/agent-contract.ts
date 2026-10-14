@@ -1,3 +1,4 @@
+import {expandSearchResult,type CompactSearchResult} from './search-result-codec';
 import {viewModels,type RunRef,type RunSummary,type Snapshot} from 'agent';
 export const metricNames:Record<string,string>={pressure:'압력',sourcePower:'소스 전력',biasPower:'바이어스 전력',ionFlux:'이온 플럭스',meanIonEnergy:'평균 이온 에너지',iedWidth:'IED 폭'};
 export const reasons:Record<string,string>={ZERO_BASELINE:'기준값이 0이므로 변화율 계산 불가',MISSING_VALUE:'측정값 없음',INSUFFICIENT_DATA:'비교 자료 부족',MISSING_BASELINE:'기준값 없음',MISSING_TARGET:'대상값 없음',MISSING_BOTH:'양쪽 값 없음',INVALID_VALUE:'유효하지 않은 값',UNIT_NOT_COMPARABLE:'단위를 비교할 수 없음',NUMERIC_OVERFLOW:'계산 범위 초과'};
@@ -17,5 +18,14 @@ export function searchGroups(result:SearchResult){
   ...(result.resultStatus==='NO_MATCH'&&(result.nearMisses?.length??0)>0?[{id:'near',label:'조건 미충족 근접 후보',runs:result.nearMisses!.map(item=>item.run)}]:[]),
  ];
 }
-export function snapshotResult<T>(snapshot:Snapshot):T{return snapshot.result as unknown as T;}
+const decodedSearchResults=new WeakMap<object,SearchResult>();
+export function snapshotResult<T>(snapshot:Snapshot):T{
+ const result=snapshot.result as Snapshot;
+ if(result?.kind==='reverse_search'&&result.searchResultVersion===2){
+  let decoded=decodedSearchResults.get(result);
+  if(!decoded){decoded=expandSearchResult(result as unknown as CompactSearchResult);decodedSearchResults.set(result,decoded);}
+  return decoded as unknown as T;
+ }
+ return result as unknown as T;
+}
 export function numberText(value:number|null|undefined,digits=2,signed=false){if(typeof value!=='number'||!Number.isFinite(value))return '—';const rounded=Number(value.toFixed(digits));return `${signed&&rounded>0?'+':''}${rounded.toLocaleString('ko-KR',{maximumFractionDigits:digits})}`;}

@@ -42,6 +42,8 @@ public abstract class WorkspaceTestSupport {
             jdbc.update("insert into run(run_id) values (?)",runId);
             jdbc.update("insert into run_version(id,run_id,source_id,registered_at,summary,full_run) values (?,?,?,now(),?::jsonb,?::jsonb)",version,runId,source,full.toString(),full.toString());
             jdbc.update("update run set current_version_id=? where run_id=?",version,runId);
+            jdbc.update("update run_version set source_file_count=jsonb_array_length(full_run->'sourceFiles') where id=?",version);
+            jdbc.queryForObject("select run_search_refresh_v1(?)",Object.class,runId);
             refs.add(mapper.valueToTree(Map.of("runId",runId,"runVersionId",version.toString())));
         }
     }

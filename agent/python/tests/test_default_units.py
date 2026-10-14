@@ -24,7 +24,7 @@ def test_omitted_range_unit_executes_and_records_the_applied_default(claimed):
     snapshot = state["answer"]["answerSnapshot"]
     assert snapshot["unitAssumptions"] == [{"metric": "meanIonEnergy", "unit": "eV"}]
     assert snapshot["resolvedInputs"]["constraints"][0]["min"] == 30
-    assert len(snapshot["result"]["candidates"]) == 1
+    assert len(snapshot["result"]["commonRunRefs"]) == 1
 
 
 def test_flux_default_keeps_scaled_flux_and_power_filters_in_reverse_search():
@@ -46,7 +46,7 @@ def test_flux_default_keeps_scaled_flux_and_power_filters_in_reverse_search():
         {"metric": "sourcePower", "unit": "W"},
     ]
     assert snapshot["result"]["constraints"][0]["value"] == 5
-    assert len(snapshot["result"]["candidates"]) == 1
+    assert len(snapshot["result"]["commonRunRefs"]) == 1
 
 
 def test_missing_forward_condition_resume_keeps_unit_notice_and_zero():

@@ -4,7 +4,7 @@ from fixtures import run
 
 
 def ids(result):
-    return [r["runId"] for r in result["representativeCandidates"]]
+    return [r["runId"] for r in result["commonRunRefs"]]
 
 
 def test_soft_goal_priority_order_and_hard_range():
@@ -38,7 +38,7 @@ def test_range_matches_are_sorted_by_flux_without_a_global_flux_group():
     assert ids(result) == ["A-4", "A-3", "A-2", "A-1", "A-0"]
     assert result["goalResults"] == []
     assert "OUTSIDE" not in [ref["runId"] for ref in result["usedRunRefs"]]
-    assert len(result["objectiveResults"][0]["candidates"]) == 5
+    assert len(result["objectiveResults"][0]["candidateRefs"]) == 5
     middle = next(e for e in result["candidateEvaluations"] if e["runId"] == "A-2")
     assert middle["evaluations"][0]["matchPercent"] == 100
     assert middle["evaluations"][0]["referenceValue"] == 155
@@ -81,16 +81,17 @@ def test_independent_objective_group_does_not_claim_all_constraints():
         ],
     )
     assert ids(result) == ["A"]
-    assert [c["run"]["runId"] for c in result["objectiveResults"][0]["candidates"]] == ["A", "B"]
+    assert [c["runId"] for c in result["objectiveResults"][0]["candidateRefs"]] == ["A", "B"]
     assert result["goalResults"] == []
     assert result["objectiveResults"][0]["allConstraintsGuaranteed"] is False
 
 
-def test_near_matches_keep_violations_and_limit_three():
+def test_no_match_has_no_nearest_recommendations():
     result = search_reverse(
         {"constraints": [{"metric": "pressure", "operator": "lt", "value": 1, "unit": "mTorr"}]},
         [run(i, pressure=p) for i, p in zip("ABCD", [5, 2, 1, 3])],
     )
     assert result["resultStatus"] == "NO_MATCH"
-    assert [e["run"]["runId"] for e in result["nearMatches"]] == ["C", "B", "D"]
-    assert result["nearMatches"][0]["violations"][0]["operator"] == "lt"
+    assert result["commonRunRefs"] == []
+    assert result["runsByVersion"] == {}
+    assert "nearMatches" not in result

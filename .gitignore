@@ -39,3 +39,7 @@ __pycache__/
 .DS_Store
 Thumbs.db
 .idea/
+
+# Local-only benchmark datasets, snapshots and execution logs.
+.local/
+.context/compound-engineering/ce-optimize/

@@ -122,7 +122,7 @@ def test_unit_only_reply_resumes_reverse_range_without_losing_flux_sort():
     assert "__interrupt__" in state
     state = graph.invoke(Command(resume={"text": "e볼트"}), config)
     assert "__interrupt__" not in state
-    assert state["verified"] and len(state["result"]["candidates"]) == 1
+    assert state["verified"] and len(state["result"]["commonRunRefs"]) == 1
     assert state["result"]["constraints"][0]["unit"] == "eV"
     assert state["result"]["goals"][0]["direction"] == "maximize"
 

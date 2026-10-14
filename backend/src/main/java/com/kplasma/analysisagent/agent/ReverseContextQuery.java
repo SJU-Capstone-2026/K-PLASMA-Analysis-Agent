@@ -41,22 +41,20 @@ final class ReverseContextQuery {
         return result;
     }
     record Sql(String text,List<Object> arguments){}
-    Sql select(String[] pinnedVersions){
-        List<Object> args=new ArrayList<>();args.add(pinnedVersions);
-        String common="usable";for(String metric:required)common+=" and "+metric+" is not null";
+    private static final Map<String,String> COLUMNS=Map.of("pressure","pressure_mtorr","sourcePower","source_power_w","biasPower","bias_power_w","meanIonEnergy","mean_ion_energy_ev","ionFlux","ion_flux_1e18","iedWidth","ied_width_ev");
+    Sql select(){
+        List<Object> args=new ArrayList<>();
+        String common="r.searchable and r.current_version_id is not null";
+        for(String metric:required)common+=" and "+column(metric)+" is not null";
         for(var rule:constraints)common+=" and "+predicate(rule,args);
-        // The common predicate is evaluated once. Separate condition tabs need their own matches,
-        // while unusable/non-comparable rows stay available for deterministic exclusion reasons.
-        String selected="common_match or not usable";
-        for(String metric:required)selected+=" or "+metric+" is null";
-        for(var rule:constraints)if(OUTPUTS.contains(rule.get("metric")))selected+=" or "+predicate(rule,args);
-        selected+=" or not exists (select 1 from matches where common_match)";
+        List<String> branches=new ArrayList<>();
+        branches.add("select r.current_version_id as id from run r where "+common);
+        // Each condition tab requires only its own metric, not the other goals/constraints.
+        for(var rule:constraints)if(OUTPUTS.contains(rule.get("metric")))
+            branches.add("select r.current_version_id as id from run r where r.searchable and r.current_version_id is not null and "+column((String)rule.get("metric"))+" is not null and "+predicate(rule,args));
         List<String> ordering=new ArrayList<>();
-        // Existing near-match sorting is stable on catalog order for equal violations.
-        // When no common match exists, preserve that order before the worker computes near matches.
-        ordering.add("case when not exists (select 1 from matches where common_match) then m.run_id end asc");
         for(var goal:goals){
-            String metric=(String)goal.get("metric"),direction=(String)goal.get("direction");
+            String metric=column((String)goal.get("metric")),direction=(String)goal.get("direction");
             if(direction.equals("target_range")){
                 double min=(Double)goal.get("min"),max=(Double)goal.get("max");
                 ordering.add("case when "+metric+" between ?::float8 and ?::float8 then 0 else 1 end");args.add(min);args.add(max);
@@ -64,25 +62,14 @@ final class ReverseContextQuery {
                 args.add(min);args.add(max);args.add(min/2+max/2);args.add(min);args.add(min);args.add(max);
             }else ordering.add(metric+(direction.equals("maximize")?" desc":" asc")+" nulls last");
         }
-        ordering.add("m.run_id asc");ordering.add("m.registration_sequence asc");
-        String columns=String.join(",",required.stream().sorted().map(metric->scalar(metric)+" as "+metric).toList());
-        String sql="with normalized as (select v.id,v.run_id,v.registration_sequence,v.summary,coalesce(v.summary->>'qualityStatus'='VERIFIED' and v.summary->>'convergenceStatus'='CONVERGED' and v.summary->>'catalogStatus'='READY',false) as usable,"+columns+" from run_version v where v.id=any(?::uuid[])), matches as (select normalized.*,("+common+") as common_match from normalized) select m.summary::text,jsonb_array_length(v.full_run->'sourceFiles') from matches m join run_version v on v.id=m.id where "+selected+" order by "+String.join(",",ordering);
+        ordering.add("r.run_id asc");ordering.add("v.registration_sequence asc");
+        String sql="with selected as ("+String.join(" union ",branches)+") select v.summary::text,v.source_file_count from selected s join run_version v on v.id=s.id join run r on r.current_version_id=s.id and r.run_id=v.run_id order by "+String.join(",",ordering);
         return new Sql(sql,args);
     }
+    private static String column(String metric){return "r."+COLUMNS.get(metric);}
     private static String predicate(Map<String,Object> rule,List<Object> args){
-        String metric=(String)rule.get("metric"),operator=(String)rule.get("operator");
+        String metric=column((String)rule.get("metric")),operator=(String)rule.get("operator");
         if(operator.equals("between")){args.add(rule.get("min"));args.add(rule.get("max"));return metric+" between ?::float8 and ?::float8";}
         args.add(rule.get("value"));return metric+" "+OPERATORS.get(operator)+" ?::float8";
-    }
-    private static String scalar(String metric){
-        String value=OUTPUTS.contains(metric)?"v.summary->'metrics'->'"+metric+"'":"v.summary->'"+metric+"'";
-        String text=OUTPUTS.contains(metric)?"v.summary->'metrics'->>'"+metric+"'":"v.summary->>'"+metric+"'";
-        // PostgreSQL rejects decimal underflow rather than rounding to binary64 zero. Keep
-        // unusually tiny values in the NULL branch so they are returned for exact worker normalization.
-        String raw="case when jsonb_typeof("+value+")='number' then case when abs(("+text+")::numeric)<=1.7976931348623157e308::numeric and (("+text+")::numeric=0 or abs(("+text+")::numeric)>=4.9406564584124654e-324::numeric) then ("+text+")::float8 end end";
-        String unit="coalesce(v.summary->'units'->>'"+metric+"','"+UNITS.get(metric)+"')";
-        if(metric.equals("pressure"))return "case when "+unit+"='mTorr' then "+raw+" when "+unit+"='Torr' then case when abs(("+raw+"))<=1.7976931348623157e305::float8 then ("+raw+")*1000::float8 end end";
-        if(metric.equals("ionFlux"))return "case when "+unit+" in ('10¹⁸ m⁻²s⁻¹','10^18 m^-2s^-1','10^18 m^-2 s^-1') then "+raw+" when "+unit+" in ('m⁻²s⁻¹','m^-2s^-1','m^-2 s^-1','m-2s-1') then case when ("+raw+")=0 or abs(("+raw+"))>=4.9406564584124654e-306::float8 then ("+raw+")/1e18::float8 end end";
-        return "case when "+unit+"='"+UNITS.get(metric)+"' then "+raw+" end";
     }
 }
