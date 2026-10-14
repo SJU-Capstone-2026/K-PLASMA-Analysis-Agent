@@ -1,0 +1,12 @@
+allprojects {
+    afterEvaluate {
+        tasks.register('reverseBenchmarkClasspath') {
+            dependsOn testClasses
+            doLast {
+                def target = project.file('../.local/performance/reverse-lookup/classpath.txt')
+                target.parentFile.mkdirs()
+                target.text = sourceSets.test.runtimeClasspath.asPath
+            }
+        }
+    }
+}
