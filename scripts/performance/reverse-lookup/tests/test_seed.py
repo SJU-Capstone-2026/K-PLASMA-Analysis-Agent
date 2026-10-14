@@ -15,3 +15,13 @@ def test_unique_current_conditions_and_fixed_five_candidates():
         assert [make_run(i)['metrics']['meanIonEnergy'] for i in range(5)]==[150,151,152,153,154]
         assert make_run(5)['metrics']['meanIonEnergy']>160
         assert query_for(make_run(0))==query_for(make_run(size-1))
+
+
+def test_benchmark_isolation_rejects_unmarked_container_and_wrong_database(monkeypatch):
+    import pytest
+    import seed
+    for responses, message in [(["other"], "unmarked"), (["reverse-lookup-synthetic-only", "service"], "non-benchmark")]:
+        values = iter(responses)
+        monkeypatch.setattr(seed.subprocess, "check_output", lambda *args, **kwargs: next(values))
+        with pytest.raises(RuntimeError, match=message):
+            seed.check_isolation()

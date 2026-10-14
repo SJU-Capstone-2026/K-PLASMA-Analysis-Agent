@@ -1,5 +1,8 @@
 import subprocess,json,time
 from pathlib import Path
+from seed import check_isolation
+
+check_isolation()
 root=Path(__file__).resolve().parents[3]
 out=root/'.local/performance/reverse-lookup/pgbench';out.mkdir(exist_ok=True)
 if (out/'results.json').exists():raise ValueError('Refusing to overwrite pgbench measurements')
