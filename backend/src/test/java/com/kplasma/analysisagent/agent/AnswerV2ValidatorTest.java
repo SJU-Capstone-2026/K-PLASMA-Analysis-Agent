@@ -35,6 +35,18 @@ class AnswerV2ValidatorTest {
         var general=wire("general");validator.answer(response(general),(String)general.get("originalQuestion"));
         validator.comparison(wire("partial"),response(comparison).usedRunRefs(),true);
     }
+    @Test void numericOnlyComparisonsAcceptNullAnswersAndKeepInventoryChecks()throws Exception{
+        var extended=new AnswerV2Validator(new SnapshotValidator(null,null),true);
+        for(int version:List.of(2,3)){
+            @SuppressWarnings("unchecked") var root=(Map<String,Object>)mapper.readValue(Files.readString(Path.of("../agent/tests/support/answer-v"+version+"-wire.json")),Map.class);
+            @SuppressWarnings("unchecked") var snapshot=(Map<String,Object>)root.get("comparison");
+            snapshot.put("answer",null);
+            var current=version==3?extended:validator;
+            current.answer(response(snapshot),(String)snapshot.get("originalQuestion"));
+            Collections.reverse((List<?>)snapshot.get("usedRunRefs"));
+            assertThatThrownBy(()->current.answer(response(snapshot),(String)snapshot.get("originalQuestion"))).hasMessageContaining("inventory mismatch");
+        }
+    }
     @Test void missingScalarFieldsAndNonintegerSchemaFail()throws Exception{
         var snapshot=wire("comparison");snapshot.put("schemaVersion",2.5);
         assertThatThrownBy(()->validator.answer(response(snapshot),"인공 질문")).hasMessageContaining("Unknown answer version");

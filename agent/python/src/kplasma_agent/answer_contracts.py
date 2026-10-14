@@ -239,7 +239,7 @@ class AnswerSnapshotV2(StrictModel):
                 seen.add(assumption.metric)
         if self.kind == "compare_runs":
             value = (ComparisonResultV3 if self.schemaVersion == 3 else ComparisonResultV2).model_validate(self.result)
-            if self.answer is None or value.usedRunRefs != self.usedRunRefs:
+            if value.usedRunRefs != self.usedRunRefs:
                 raise ValueError("comparison answer/inventory mismatch")
         elif self.answer is not None:
             raise ValueError("only comparisons have structured answers")

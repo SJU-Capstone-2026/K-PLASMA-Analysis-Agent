@@ -78,7 +78,7 @@ def test_graph_loads_outputs_only_for_supported_source_features(question, unsupp
             return {'outputs':[{**o,'display':None} for o in wire['outputs']]}
     class Model:
         def select_tool(self,*args):return wire['comparison']['toolSelection'],{'responseItems':[]}
-        def generate(self,*args,**kwargs):return {'observationIds':['O1'],'interpretations':[],'limitations':[]},{}
+        def generate(self,*args,**kwargs):raise AssertionError('Comparison must not generate an explanation')
     backend=Backend()
     graph=build_graph(Model(),backend,Settings(),None)
     value=graph.invoke({'request_id':'synthetic-request','question':question,'context':context,'input_history':[]})
@@ -88,5 +88,6 @@ def test_graph_loads_outputs_only_for_supported_source_features(question, unsupp
         return
     assert backend.reads==1, (value.get("pending"),value.get("__interrupt__"))
     assert value['answer']['answerSnapshot']['schemaVersion']==3
+    assert value['answer']['answerSnapshot']['answer'] is None
     assert value['result']['runs'][0]['metrics']['current.maximum']['value']==4
     assert 'display' not in str(value['answer'])

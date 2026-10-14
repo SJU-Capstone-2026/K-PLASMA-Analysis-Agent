@@ -862,6 +862,7 @@ properties:
     type: object
   result:
     $ref: '#/$defs/ComparisonResultV3'
+  # New compare_runs responses use null; historical structured answers remain valid.
   answer:
     anyOf:
     - $ref: '#/$defs/ComparisonAnswer'

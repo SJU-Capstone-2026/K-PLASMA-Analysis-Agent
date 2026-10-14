@@ -16,6 +16,7 @@ class Backend:
         self.kill_stage = kill_stage
         self.reads = 0
         self.errors = []
+        self.stages = []
 
     def checkpoint(self):
         return deepcopy(self.payload)
@@ -29,6 +30,7 @@ class Backend:
 
     def stage(self, stage=None, **kwargs):
         self.stage_name = stage
+        self.stages.append(stage)
 
     def attempt(self, *args):
         pass
@@ -89,7 +91,7 @@ def claim():
 
 
 @pytest.mark.parametrize(
-    "stage", ["calculate", "validate_result", "generate_answer", "validate_answer", "present"]
+    "stage", ["calculate", "validate_result", "present"]
 )
 def test_reconstructed_comparison_preserves_numeric_work_and_native_call(stage):
     backend, model = Backend(stage), Model()
@@ -99,21 +101,20 @@ def test_reconstructed_comparison_preserves_numeric_work_and_native_call(stage):
     run_claim(claim(), backend, model, Settings())
     assert not backend.errors and backend.answer is not None
     assert backend.reads == model.selection_calls == 1
-    # The simulated exception cannot stop a concurrently executing node like SIGKILL.
-    # Only persisted drafts avoid a repeated answer call; an in-flight call may repeat.
-    assert (
-        model.answer_calls in (1, 2) if stage in ("calculate", "validate_result") else model.answer_calls == 1
-    )
+    assert model.answer_calls == 0
+    assert not {"generate_answer", "validate_answer"}.intersection(backend.stages)
+    assert backend.answer["answerSnapshot"]["answer"] is None
     result = backend.answer["answerSnapshot"]["result"]
     assert result["comparisons"][0]["percentChange"]["reason"] == "ZERO_BASELINE"
     assert len(result["runs"]) == len(result["usedRunRefs"]) == 2
 
 
-def test_failed_answer_retains_full_numeric_partial_without_final_turn():
+def test_comparison_completes_without_calling_a_failing_explanation_model():
     backend, model = Backend(), Model(fail=True)
     run_claim(claim(), backend, model, Settings())
-    assert backend.answer is None and backend.errors == ["MODEL_OUTPUT_INVALID"]
-    assert model.answer_calls == 2 and model.selection_calls == backend.reads == 1
-    assert backend.partial["schemaVersion"] == 2 and not backend.partial["explanationComplete"]
-    assert len(backend.partial["runs"]) == len(backend.partial["usedRunRefs"]) == 2
-    assert backend.partial["comparisons"][0]["difference"]["value"] == 4
+    assert backend.answer is not None and backend.errors == [] and backend.partial is None
+    assert model.answer_calls == 0 and model.selection_calls == backend.reads == 1
+    snapshot = backend.answer["answerSnapshot"]
+    assert snapshot["schemaVersion"] == 2 and snapshot["answer"] is None
+    assert len(snapshot["result"]["runs"]) == len(snapshot["usedRunRefs"]) == 2
+    assert snapshot["result"]["comparisons"][0]["difference"]["value"] == 4
