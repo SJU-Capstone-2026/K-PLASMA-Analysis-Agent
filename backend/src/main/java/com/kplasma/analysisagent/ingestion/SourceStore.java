@@ -27,11 +27,12 @@ public class SourceStore {
     public Path root() { return root; }
 
     public StoredBatch stage(UploadManifest manifest, List<UploadPart> parts) {
+        try(var _timing=ImportTimingRecorder.span("file.stage")) {
         Path staging = null;
         try {
             validateManifest(manifest, parts);
             Path stagingParent = safeDirectory(root.resolve("staging"));
-            UUID id = UUID.randomUUID();
+            UUID id = UUID.randomUUID(); ImportTimingRecorder.batch(id.toString());
             staging = Files.createDirectory(stagingParent.resolve(id.toString()));
             List<StoredBatch.File> files = new ArrayList<>();
             Set<String> paths = new HashSet<>();
@@ -91,6 +92,7 @@ public class SourceStore {
         } finally {
             if (parts != null) for (var part : parts) if (part != null && part.path() != null) cleanup(part.path());
         }
+            }
     }
     private void validateManifest(UploadManifest manifest, List<UploadPart> parts) {
         if (manifest == null || manifest.entries() == null || manifest.entries().isEmpty() || parts == null)
@@ -109,6 +111,7 @@ public class SourceStore {
         if (!actual.equals(expected)) throw IntakeException.invalid("File parts do not match manifest");
     }
     private StoredBatch.File copy(InputStream input, Path staging, String relative, Set<String> paths, long[] total) throws IOException {
+        try(var _timing=ImportTimingRecorder.span("file.staging_copy_hash")) {
         if (paths.size() >= limits.files()) throw IntakeException.limit("Too many files");
         String key = collisionKey(relative);
         if (!paths.add(key)) throw IntakeException.invalid("Conflicting upload paths");
@@ -126,15 +129,20 @@ public class SourceStore {
                 digest.update(buffer, 0, read); output.write(buffer, 0, read);
             }
         }
+        _timing.bytes(size);
         return new StoredBatch.File(relative, target, size, HexFormat.of().formatHex(digest.digest()), kind(relative));
+            }
     }
     private long countArchive(Path path) throws IOException {
+        try(var _timing=ImportTimingRecorder.span("file.zip_container_scan")) {
         long bytes = 0;
         try (var input = Files.newInputStream(path, LinkOption.NOFOLLOW_LINKS)) {
             byte[] buffer = new byte[64 * 1024]; int read;
             while ((read = input.read(buffer)) != -1) { bytes += read; if (bytes > limits.totalBytes()) throw IntakeException.limit("Archive exceeds container byte limit"); }
         }
+        _timing.bytes(bytes);
         return bytes;
+            }
     }
     static String safeRelativePath(String path) {
         if (path == null || path.isBlank() || path.length() > 1024 || path.startsWith("/") || path.contains("\\") || path.contains(":"))

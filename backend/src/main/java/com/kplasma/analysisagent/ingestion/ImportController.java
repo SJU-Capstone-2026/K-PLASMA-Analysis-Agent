@@ -41,13 +41,13 @@ public class ImportController {
                 Path file = Files.createTempFile(directory, "part-", ".tmp");
                 uploads.add(new UploadPart(part.getName(), file, part.getSize()));
                 long size = 0;
-                try (var input = part.getInputStream(); var output = Files.newOutputStream(file)) {
+                try (var timing=ImportTimingRecorder.span("file.controller_copy"); var input = part.getInputStream(); var output = Files.newOutputStream(file)) {
                     byte[] buffer = new byte[64 * 1024]; int read;
                     while ((read = input.read(buffer)) != -1) {
                         size += read; received += read;
                         long fileLimit = "ZIP".equals(manifest.mode()) ? SourceStore.DEFAULT_LIMITS.totalBytes() : SourceStore.DEFAULT_LIMITS.fileBytes();
                         if (size > fileLimit || received > SourceStore.DEFAULT_LIMITS.totalBytes()) throw IntakeException.limit("Upload exceeds byte limit");
-                        output.write(buffer, 0, read);
+                        output.write(buffer, 0, read); timing.bytes(read);
                     }
                 }
             }

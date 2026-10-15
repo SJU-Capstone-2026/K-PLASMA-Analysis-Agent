@@ -19,15 +19,17 @@ public class ImportIntakeService {
         this.transactions = new TransactionTemplate(transactionManager);
     }
     public BatchView accept(StoredBatch batch, String idempotencyKey) {
+        try(var _timing=ImportTimingRecorder.span("intake")) {
         List<Path> newlyRetained = new ArrayList<>();
         try {
             if (idempotencyKey == null || idempotencyKey.isBlank() || idempotencyKey.length() > 200)
                 throw IntakeException.invalid("A valid idempotency key is required");
-            var sources = discovery.discover(batch);
+            ImportTimingRecorder.batch(batch.batchId().toString());
+            var sources = ImportTimingRecorder.call("intake.discovery",()->discovery.discover(batch));
             Map<String, StoredBatch.File> manifest = new TreeMap<>();
             batch.files().forEach(file -> manifest.put(file.relativePath(), file));
             String hash = SourceStore.hashFiles(manifest);
-            return transactions.execute(status -> {
+            return ImportTimingRecorder.transaction("tx.intake",transactions,status -> {
                 // Serialize intake publication, including filesystem promotion, to avoid duplicate-source races.
                 repository.lockIntake();
                 var replay = repository.replay(idempotencyKey);
@@ -66,16 +68,20 @@ public class ImportIntakeService {
                 }
                 repository.saveBatchFiles(batch, retained);
                 repository.saveIdempotency(idempotencyKey, hash, batch.batchId());
+                ImportTimingRecorder.committed("queue.ready");
                 return repository.get(batch.batchId());
             });
         } catch (RuntimeException e) {
             for (var path : newlyRetained) SourceStore.cleanup(path);
             throw e;
         } finally { SourceStore.cleanup(batch.stagingRoot()); }
+            }
     }
     private void move(Path source, Path target) {
+        try(var _timing=ImportTimingRecorder.span("file.promote_move")) {
         try { store.safeDirectory(target.getParent()); Files.move(source, target, StandardCopyOption.ATOMIC_MOVE); }
         catch (IOException e) { throw new UncheckedIOException("Cannot retain original bytes", e); }
+            }
     }
     public BatchView get(String id) {
         try { return repository.get(UUID.fromString(id)); }

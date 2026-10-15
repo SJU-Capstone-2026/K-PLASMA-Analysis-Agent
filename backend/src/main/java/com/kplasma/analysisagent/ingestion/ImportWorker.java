@@ -44,22 +44,25 @@ public class ImportWorker {
         if(!ids.isEmpty())process(ids.getFirst());
     }
     public void process(UUID id) {
-        Job job=transactions.execute(tx->{
+        try(var _timing=ImportTimingRecorder.trace("job",id.toString())) {
+        Job job=ImportTimingRecorder.transaction("tx.claim",transactions,tx->{
             var jobs=jdbc.query("select id,batch_id,source_id,source_root,reprocess from import_job where id=? and status='QUEUED' for update skip locked",(rs,n)->new Job(rs.getObject(1,UUID.class),rs.getObject(2,UUID.class),rs.getObject(3,UUID.class),rs.getString(4),rs.getBoolean(5)),id);
             if(jobs.isEmpty())return null;
             jdbc.update("update import_job set status='PROCESSING',updated_at=now() where id=?",id);
             refresh(jobs.getFirst().batch());return jobs.getFirst();
         });
         if(job==null)return;
+        ImportTimingRecorder.batch(job.batch().toString()); ImportTimingRecorder.mark("job.claimed");
         try {
             // Serialize attempts for a source across public process callers as well as the single scheduler.
-            transactions.executeWithoutResult(tx->{
+            ImportTimingRecorder.inTransaction("tx.process",transactions,tx->{
                 jdbc.queryForList("select id from source_set where id=? for update",job.source());
                 RunRef previous=job.reprocess()?null:runs.sourceVersion(job.source());
                 if(previous!=null) {finish(job,"DUPLICATE",previous,null,List.of());return;}
-                var source=load(job);
-                var scalar=scalars.parse(source);var graph=graphs.parse(source,scalar);
-                var ref=registration.register(source,scalar,graph);
+                var source=ImportTimingRecorder.call("source.load",()->load(job));
+                var scalar=ImportTimingRecorder.call("parse.scalar",()->scalars.parse(source));
+                var graph=ImportTimingRecorder.call("parse.graph",()->graphs.parse(source,scalar));
+                var ref=ImportTimingRecorder.call("run.register",()->registration.register(source,scalar,graph));
                 finish(job,"READY",ref,null,List.of());
             });
         } catch(ParseFailure failure) {
@@ -70,6 +73,7 @@ public class ImportWorker {
             LoggerFactory.getLogger(ImportWorker.class).warn("Import job {} failed ({})",id,failure.getClass().getSimpleName());
             failure(job,"PARSE_FAILED","Import processing failed; originals retained for reprocessing",List.of(new WorkspaceDto.Error("PROCESSING_FAILED","Import processing failed; originals retained for reprocessing",null,null,UUID.randomUUID().toString())));
         }
+            }
     }
     private StoredSource load(Job job) {
         Map<String,StoredBatch.File> files=new HashMap<>();
@@ -81,17 +85,20 @@ public class ImportWorker {
         String hash=jdbc.queryForObject("select sha256 from source_set where id=?",String.class,job.source());
         return new StoredSource(job.source(),job.root(),files,hash);
     }
-    private void failure(Job job,String status,String reason,List<WorkspaceDto.Error> errors) {transactions.executeWithoutResult(tx->finish(job,status,null,reason,errors));}
+    private void failure(Job job,String status,String reason,List<WorkspaceDto.Error> errors) {ImportTimingRecorder.inTransaction("tx.failure",transactions,tx->finish(job,status,null,reason,errors));}
     private void finish(Job job,String status,RunRef ref,String reason,List<WorkspaceDto.Error> errors) {
         jdbc.update("update import_job set status=?,run_id=?,run_version_id=?,reason=?,errors=?::jsonb,updated_at=now() where id=?",status,ref==null?null:ref.runId(),ref==null?null:UUID.fromString(ref.runVersionId()),reason,mapper.writeValueAsString(errors),job.id());
         refresh(job.batch());
+        ImportTimingRecorder.committed("job.terminal");
     }
     void refresh(UUID batch) {
+        try(var _timing=ImportTimingRecorder.span("db.progress")) {
         jdbc.queryForList("select id from import_batch where id=? for update",batch);
         var counts=jdbc.queryForMap("select count(*) filter (where status in ('READY','DUPLICATE')) good, count(*) filter (where status not in ('QUEUED','PROCESSING')) done,count(*) filter (where status='PROCESSING') active,count(*) total from import_job where batch_id=?",batch);
         long good=((Number)counts.get("good")).longValue(),done=((Number)counts.get("done")).longValue(),total=((Number)counts.get("total")).longValue(),active=((Number)counts.get("active")).longValue();
         String status=done==total?(good==total?"SUCCESS":good>0?"PARTIAL_SUCCESS":"FAILED"):active>0||done>0?"PROCESSING":"QUEUED";
         jdbc.update("update import_batch set status=?,processed_runs=? where id=?",status,(int)done,batch);
+            }
     }
     public BatchView reprocess(UUID id,String key) {
         if(key==null||key.isBlank()||key.length()>200)throw IntakeException.invalid("A valid idempotency key is required");
