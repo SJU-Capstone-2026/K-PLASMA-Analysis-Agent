@@ -104,6 +104,18 @@ def analyze_trial(path):
         k6=json.loads((path/'k6-summary.json').read_text())
         measured['dropped_iterations']=k6.get('metrics',{}).get('dropped_iterations',{}).get('values',{}).get('count',0)
     measured['all_client_requests']=len(clients)
+    measured['all_client_errors']=sum(r['status']!=200 or not r['valid'] for r in clients)
+    measured['all_invalid_payloads']=sum(r['status']==200 and not r['valid'] for r in clients)
+    duration=meta.get('configuredDuration')
+    measured['achieved_start_rate']=len(clients)/duration if duration else None
+    measured['pool']['configured_maxima']=sorted({e['maximum'] for e in pool if 'maximum' in e})
+    measured['pool']['configured_minima']=sorted({e['minimumIdle'] for e in pool if 'minimumIdle' in e})
+    ready=[e['endNs'] for e in events if e['phase']=='queue.ready']
+    worker_start=max(ready) if ready else None
+    worker_rows=[r for r in measured['rows'] if worker_start is not None and r['serverStartNs'] is not None and r['serverStartNs']>=worker_start]
+    worker_pool=[e for e in pool if worker_start is not None and e['startNs']>=worker_start]
+    measured['worker']=dict(count=len(worker_rows),db_acquire_ms=describe([r['db_acquire_ms'] for r in worker_rows]),
+                           pending_samples=sum(e['pending']>0 for e in worker_pool))
     (path/'analysis.json').write_text(json.dumps({**meta,'lookup':measured},indent=2))
     return {**meta,'lookup':measured}
 
@@ -132,7 +144,9 @@ def aggregate(root):
             continue
         # HTTP errors are measured load outcomes, not grounds for exclusion.
         if row['measured']:
-            groups[f"{row['variant']}-p{row['pool']}-{row['scenario']}-{'on' if row['timingEnabled'] else 'off'}"].append(row)
+            name=f"{row['variant']}-p{row['pool']}-{row['scenario']}-{'on' if row['timingEnabled'] else 'off'}"
+            if row.get('stage','legacy')!='legacy':name+=f"-{row['stage']}-r{row['configuredRate']}"
+            groups[name].append(row)
     summary={}
     for name,rows in groups.items():
         summary[name]={'batches':len(rows),'labels':[r['label'] for r in rows],

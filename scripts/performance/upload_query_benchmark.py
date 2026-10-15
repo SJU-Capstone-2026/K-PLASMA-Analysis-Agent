@@ -5,6 +5,8 @@ import hashlib
 import http.client
 import json
 import os
+import signal
+from contextlib import contextmanager
 import subprocess
 import threading
 import time
@@ -16,6 +18,27 @@ from analyze_upload_query_benchmark import analyze_trial
 
 ROOT=Path(__file__).resolve().parents[2]
 
+
+def trial_label(args):
+    suffix=f"-{args.stage}-r{args.rate}" if args.stage!='legacy' else ''
+    return f"{args.variant}-p{args.pool}-{args.scenario}-{'measure' if args.measured else 'warm'}-{args.index:02}-{'on' if args.timing_enabled else 'off'}{suffix}"
+
+
+class UploadObservationTimeout(TimeoutError):
+    pass
+
+
+@contextmanager
+def upload_deadline(seconds):
+    """Interrupt stalled multipart sends/polls as well as the polling loop (local Unix harness)."""
+    if seconds<=0:raise ValueError('Upload timeout must be positive')
+    def expired(*_):raise UploadObservationTimeout('Upload observation deadline reached')
+    previous=signal.signal(signal.SIGALRM,expired)
+    signal.setitimer(signal.ITIMER_REAL,seconds)
+    try:yield
+    finally:
+        signal.setitimer(signal.ITIMER_REAL,0)
+        signal.signal(signal.SIGALRM,previous)
 
 def validate_seed(dataset,queries):
     if not queries:raise ValueError('Lookup seed cannot be empty')
@@ -48,6 +71,8 @@ def observe_resources(args,path,stop):
         while not stop.is_set():
             row={'epochNs':time.time_ns()}
             commands={'process':['ps','-p',str(args.pid),'-o','pid=,%cpu=,rss='],
+                      'loadProcess':['ps','-p',str(getattr(args,'k6_pid',0)),'-o','pid=,%cpu=,rss='],
+                      'hostMemory':['memory_pressure','-Q'],
                       'dbResources':['docker','exec',args.container,'sh','-c','cat /sys/fs/cgroup/cpu.stat /sys/fs/cgroup/memory.current /sys/fs/cgroup/io.stat'],
                       'dbWaits':['docker','exec',args.container,'psql','-U',upload.DB_USER,'-d',upload.DB_NAME,'-Atc',"select coalesce(json_agg(json_build_object('state',state,'waitType',wait_event_type,'wait',wait_event)),'[]') from pg_stat_activity where datname=current_database() and pid<>pg_backend_pid()"]}
             for name,command in commands.items():
@@ -57,45 +82,50 @@ def observe_resources(args,path,stop):
 
 
 def run_trial(args):
+    for key,value in dict(rate=5,stage='legacy',query_duration=60,upload_timeout=600).items():
+        if not hasattr(args,key):setattr(args,key,value)
+    if not 1<=args.rate<=400:raise ValueError('Rate must be between 1 and 400')
     dataset=json.loads(args.manifest.read_text());queries=json.loads(args.queries.read_text())
     validate_seed(dataset,queries)
     if urlsplit(args.base).hostname not in {'localhost','127.0.0.1'}:raise ValueError('Local benchmark only')
-    label=f"{args.variant}-p{args.pool}-{args.scenario}-{'measure' if args.measured else 'warm'}-{args.index:02}-{'on' if args.timing_enabled else 'off'}"
+    label=trial_label(args)
     target=args.output/label
     if target.exists():raise FileExistsError(target)
     target.mkdir(parents=True)
     result=dict(label=label,variant=args.variant,pool=args.pool,scenario=args.scenario,index=args.index,
                 measured=args.measured,timingEnabled=args.timing_enabled,datasetHash=dataset['datasetHash'],
-                configuredRate=5,newRuns=len(dataset.get("expected",dataset.get("runIds",[])))-len(queries),updatedRuns=len(queries),errors=[],queryManifest=[{k:v for k,v in q.items() if k!='sha256'} for q in queries])
-    process=None;stop=threading.Event();monitor=None
+                configuredRate=args.rate,stage=args.stage,configuredDuration=args.query_duration if args.scenario=='query' else args.duration,preAllocatedVUs=60,newRuns=len(dataset.get("expected",dataset.get("runIds",[])))-len(queries),updatedRuns=len(queries),errors=[],queryManifest=[{k:v for k,v in q.items() if k!='sha256'} for q in queries])
+    process=None;stop=threading.Event();monitor=None;offset=None
     try:
         upload.restore_seed(args.container,args.storage,args.seed)
         validate_query_payloads(args.base,queries)
         offset=args.timing.stat().st_size if args.timing.exists() else 0
         monitor=threading.Thread(target=observe_resources,args=(args,target/'resources.jsonl',stop),daemon=True);monitor.start()
         if args.scenario!='upload':
-            duration=60 if args.scenario=='query' else args.duration
+            duration=args.query_duration if args.scenario=='query' else args.duration
             env={**os.environ,'BASE_URL':args.base,'QUERY_MANIFEST':str(args.queries.resolve()),'TRIAL_ID':label,
-                 'DURATION':f'{duration}s','SUMMARY_PATH':str((target/'k6-summary.json').resolve())}
+                 'RATE':str(args.rate),'DURATION':f'{duration}s','SUMMARY_PATH':str((target/'k6-summary.json').resolve())}
             with (target/'k6.log').open('w') as log:
                 process=subprocess.Popen(['k6','run','--quiet','--log-format','raw','--console-output',str((target/'lookup.jsonl').resolve()),str(ROOT/'scripts/performance/upload_query_load.js')],env=env,cwd=ROOT,stdout=log,stderr=subprocess.STDOUT)
+            args.k6_pid=process.pid
+            result['loadStartedEpochMs']=time.time()*1000
             if args.scenario=='combined':time.sleep(args.pre_seconds)
         if args.scenario!='query':
             epoch=time.time_ns()
-            info,t0,sent,accepted,wire=upload.post(args.base,dataset,'FOLDER',str(uuid.uuid4()))
-            deadline=time.monotonic()+600
-            while info['status'] in upload.ACTIVE:
-                if time.monotonic()>deadline:raise TimeoutError('Upload not terminal')
-                time.sleep(1)
-                try:info=upload.get(args.base,'/api/import-batches/'+info['batchId'])
-                except RuntimeError as error:result['errors'].append({'kind':'poll','error':str(error)[:100]})
+            with upload_deadline(args.upload_timeout):
+                info,t0,sent,accepted,wire=upload.post(args.base,dataset,'FOLDER',str(uuid.uuid4()))
+                result['batchId']=info['batchId']
+                while info['status'] in upload.ACTIVE:
+                    time.sleep(1)
+                    try:info=upload.get(args.base,'/api/import-batches/'+info['batchId'])
+                    except RuntimeError as error:result['errors'].append({'kind':'poll','error':str(error)[:100]})
             end=time.perf_counter_ns();end_epoch=time.time_ns()
             result['batchId']=info['batchId'];result['clientWindowEpochMs']=[epoch/1e6,end_epoch/1e6]
             result['upload']={'client_total_ms':(end-t0)/1e6,'accept_ms':(accepted-t0)/1e6,'send_ms':(sent-t0)/1e6,'wire_bytes':wire,'jobs':len(info['jobs']),'status':info['status']}
             assert info['status']=='SUCCESS',info['status']
             assert len(info['jobs'])==len(dataset['expected'])
             assert all(j['status']=='READY' for j in info['jobs'])
-            if args.scenario=='combined' and (end-t0)/1e9>args.duration-args.pre_seconds-10:result['incompleteWindow']=True
+            if args.scenario=='combined' and (end-t0)/1e9>args.duration-args.pre_seconds-5:result['incompleteWindow']=True
         if process:
             code=process.wait(timeout=args.duration+30)
             result['k6ExitCode']=code
@@ -119,6 +149,9 @@ def run_trial(args):
             upload.verify(args.base,args.container,dataset,'new',golden,historical_versions=len(queries))
         result['verified']=True
     except Exception as error:
+        if isinstance(error,UploadObservationTimeout):
+            result['censored']=True
+            result['observationLowerBoundMs']=args.upload_timeout*1000
         result['error']={'type':type(error).__name__,'message':str(error)[:1000]}
         raise
     finally:
@@ -128,10 +161,12 @@ def run_trial(args):
             process.terminate()
             try:process.wait(timeout=15)
             except subprocess.TimeoutExpired:process.kill();process.wait()
+        if offset is not None and args.timing.exists():
+            with args.timing.open('rb') as stream:stream.seek(offset);raw=stream.read()
+            (target/'timing.jsonl').write_bytes(raw)
         (target/'result.json').write_text(json.dumps(result,indent=2))
     analyzed=analyze_trial(target)
-    if analyzed['lookup']['invalid_payloads']:raise AssertionError('Lookup payload mismatch during load')
-    if analyzed['lookup'].get('dropped_iterations',0):raise AssertionError('Requested arrival rate not achieved')
+    if analyzed['lookup']['all_invalid_payloads']:raise AssertionError('Lookup payload mismatch during load')
     print(json.dumps({'label':label,'upload':result.get('upload',{}).get('client_total_ms'),
                       'lookups':analyzed['lookup']['count'],'acquire':analyzed['lookup']['db_acquire_ms']['mean'],
                       'client':analyzed['lookup']['client_ms']['mean'],'p95':analyzed['lookup']['client_ms']['p95'],
@@ -147,6 +182,8 @@ def arguments():
     parser.add_argument('--pid',type=int,required=True);parser.add_argument('--index',type=int,default=1)
     parser.add_argument('--scenario',choices=['query','upload','combined'],default='combined')
     parser.add_argument('--warmup',dest='measured',action='store_false');parser.add_argument('--no-timing',dest='timing_enabled',action='store_false')
+    parser.add_argument('--rate',type=int,default=5);parser.add_argument('--stage',choices=['legacy','discovery','confirm','diagnostic','warmup'],default='legacy')
+    parser.add_argument('--query-duration',type=int,default=60);parser.add_argument('--upload-timeout',type=float,default=600)
     parser.add_argument('--duration',type=int,default=90);parser.add_argument('--pre-seconds',type=int,default=10)
     return parser.parse_args()
 

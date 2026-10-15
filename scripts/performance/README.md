@@ -122,3 +122,26 @@ python3 -m unittest discover -s scripts/performance -p 'test_*upload*py'
 통계 단위는 요청 한 건이 아닌 배치이며 B/C 각각 같은 번호끼리 비교한다. 기본 풀 10, 선행 설정 2, 진단용 1의 결과를 합치지 않는다. 계측 off/on 제어 실험에서는 클라이언트 지표만 비교하고 DB 시간을 추정해 채우지 않는다. 전체 볼륨 기준선·본 측정 횟수와 순서는 계획 및 실행 보고서를 따른다.
 
 최종 [업로드 중 조회 B/C 실측 결과](../../docs/verification/2026-10-15-업로드-중-조회-대기와-응답-성능-비교.md)에 기본 풀과 연결 부족 진단을 구분했다. 분석 출력 `summary.json`의 `groups`에는 유효 측정 배치가, `excluded_trials`에는 실행 실패·불완전 부하·상관관계 누락 등의 사유가 남는다. 상관관계가 있는 HTTP 오류는 유효한 부하 결과로 집계하며 성공 요청으로 바꾸지 않는다.
+
+## 연결 10개 고정 · 짧은 단계별 조회 부하
+
+[후속 계획](../../docs/plans/2026-10-15-연결-10개-고정-업로드-중-조회-단계별-부하-비교-계획.md)의 실행기는 `upload_query_ramp.py`다. 보존한 B/C 계측 JAR, 위에서 만든 조회 seed/`queries.json`, 원래 인공 fixture/전체 응답 golden을 재사용한다. 입력과 JAR 해시는 선행 실험에 고정되어 있으며 다른 제품 빌드를 그대로 대체하면 안 된다.
+
+```sh
+python3 scripts/performance/upload_query_ramp.py \
+  --artifacts .local/performance/upload-query \
+  --fixture-root .local/performance/upload \
+  --output .local/performance/upload-query-ramp-NEW \
+  --container kplasma-upload-benchmark-query-20261015 \
+  --java "$JAVA_HOME/bin/java"
+```
+
+전용 PostgreSQL 컨테이너(포트 15452)가 먼저 준비돼 있어야 한다. Java는 실행기가 포트 18552에서 시작·종료하며, 결과 경로는 기존 실험과 겹치면 실행을 거부한다. 전용 DB·storage는 매 배치와 종료 시 seed로 복원한다. 서버가 중단된 뒤에만 미완료 작업을 정리한다.
+
+- 연결 10개·VU 60개 고정. B에서 20→50→100→200→400건/초를 탐색하고, 지연 시작 단계와 직전 단계만 B/C 각 3회 확인한다. 끝까지 지연이 없으면 400건/초만 비교한다.
+- `selection.json`은 C를 측정하기 전에 비교 단계를 고정한다. `schedule.json`에는 JAR 해시·상한, `state.json`에는 완료/중단 내역, `measured-harness/`에는 실행한 도구 사본을 보존한다.
+- 배치당 조회 60초, 5초 후 업로드, 업로드 관측 최대 50초. 측정 시작 25분 이후 새 배치를 시작하지 않고 30분 상한에서 종료한다. 도구 준비 시간은 별도다.
+- k6는 일정 요청률의 HTTP 부하와 지연/오류/발행 누락, JDBC 계측은 획득/SQL/연결 점유, Hikari MXBean은 풀 상태, Python은 실행 순서·동일 결과 검증·집계를 담당한다. `ps`와 DB cgroup/`pg_stat_activity`로 다른 자원 한계를 함께 확인한다.
+- 요청률별 결과는 별도로 집계한다. HTTP 오류나 부하 발행 실패는 사라지는 데이터가 아니라 보고할 결과이며, 지연 원인이 확인되지 않으면 DB 병목으로 단정하지 않는다.
+
+측정 도구 검증: `python3 -m unittest discover -s scripts/performance -p 'test_*upload_query*.py'`. 로컬 macOS/Linux의 POSIX 타이머를 사용하며 제품 런타임 의존성은 추가하지 않는다.

@@ -5,7 +5,9 @@ import exec from 'k6/execution';
 const targets=JSON.parse(open(__ENV.QUERY_MANIFEST));
 const base=__ENV.BASE_URL;
 if(!/^http:\/\/(127\.0\.0\.1|localhost):\d+$/.test(base))throw new Error('Local benchmark only');
-export const options={scenarios:{lookup:{executor:'constant-arrival-rate',rate:5,timeUnit:'1s',duration:__ENV.DURATION||'90s',preAllocatedVUs:60,maxVUs:60,gracefulStop:'10s'}},maxRedirects:0};
+const rate=Number(__ENV.RATE||5);
+if(!Number.isInteger(rate)||rate<1||rate>400)throw new Error('Rate must be an integer between 1 and 400');
+export const options={scenarios:{lookup:{executor:'constant-arrival-rate',rate,timeUnit:'1s',duration:__ENV.DURATION||'90s',preAllocatedVUs:60,maxVUs:60,gracefulStop:'10s'}},maxRedirects:0};
 export default function(){
   const sequence=exec.scenario.iterationInTest;
   const target=targets[sequence%targets.length];

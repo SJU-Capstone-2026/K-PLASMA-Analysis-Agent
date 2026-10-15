@@ -59,6 +59,21 @@ class QueryAnalysisTest(unittest.TestCase):
             self.assertEqual(measured['errors'],1)
             self.assertEqual(measured['metrics']['client_ms']['mean'],20)
 
+    def test_rates_and_discovery_do_not_merge_into_one_improvement(self):
+        import json,tempfile
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory)
+            for rate,stage in [(20,'discovery'),(20,'confirm'),(50,'confirm')]:
+                label=f'B-{stage}-{rate}';ident=label+'-1'
+                path=root/'results'/label;path.mkdir(parents=True)
+                (path/'result.json').write_text(json.dumps(dict(label=label,measured=True,verified=True,variant='B',pool=10,
+                    scenario='combined',timingEnabled=True,configuredRate=rate,configuredDuration=60,stage=stage)))
+                (path/'timing.jsonl').write_text(json.dumps(event('lookup',1,21,ident,status=200))+'\n')
+                (path/'lookup.jsonl').write_text(json.dumps(client(ident))+'\n')
+            result=aggregate(root)
+            self.assertEqual(set(result['groups']),{'B-p10-combined-on-discovery-r20','B-p10-combined-on-confirm-r20','B-p10-combined-on-confirm-r50'})
+
     def test_p95_empty_and_zero_baseline(self):
         self.assertEqual(describe([1,2,3,4,5])['p95'],4.8)
         self.assertIsNone(describe([])['p95'])
