@@ -74,6 +74,22 @@ class QueryAnalysisTest(unittest.TestCase):
             result=aggregate(root)
             self.assertEqual(set(result['groups']),{'B-p10-combined-on-discovery-r20','B-p10-combined-on-confirm-r20','B-p10-combined-on-confirm-r50'})
 
+    def test_user_levels_do_not_merge_with_arrival_rate_groups(self):
+        import json,tempfile
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory)
+            for vus in [10,100]:
+                label=f'B-vu{vus}';ident=label+'-1'
+                path=root/'results'/label;path.mkdir(parents=True)
+                (path/'result.json').write_text(json.dumps(dict(label=label,measured=True,verified=True,variant='B',pool=10,
+                    scenario='combined',timingEnabled=True,configuredRate=None,configuredDuration=50,stage='confirm',
+                    loadModel='users',configuredVUs=vus)))
+                (path/'timing.jsonl').write_text(json.dumps(event('lookup',1,21,ident,status=200))+'\n')
+                (path/'lookup.jsonl').write_text(json.dumps(client(ident))+'\n')
+            result=aggregate(root)
+            self.assertEqual(set(result['groups']),{'B-p10-combined-on-confirm-vu10','B-p10-combined-on-confirm-vu100'})
+
     def test_p95_empty_and_zero_baseline(self):
         self.assertEqual(describe([1,2,3,4,5])['p95'],4.8)
         self.assertIsNone(describe([])['p95'])

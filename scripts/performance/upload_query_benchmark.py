@@ -19,7 +19,20 @@ from analyze_upload_query_benchmark import analyze_trial
 ROOT=Path(__file__).resolve().parents[2]
 
 
+def load_configuration(args):
+    mode=getattr(args,'load_model','arrival')
+    if mode=='users':
+        vus=getattr(args,'vus',1)
+        if not isinstance(vus,int) or not 1<=vus<=100:raise ValueError('VUs must be between 1 and 100')
+        return dict(loadModel=mode,configuredRate=None,configuredVUs=vus,configuredMeanRate=vus/5,
+                    readIntervalSeconds=5,requestPattern='synchronized',preAllocatedVUs=vus)
+    if mode!='arrival' or not 1<=args.rate<=400:raise ValueError('Rate must be between 1 and 400')
+    return dict(loadModel=mode,configuredRate=args.rate,preAllocatedVUs=60)
+
+
 def trial_label(args):
+    if getattr(args,'load_model','arrival')=='users':
+        return f"{args.variant}-p{args.pool}-{args.scenario}-{'measure' if args.measured else 'warm'}-{args.index:02}-{'on' if args.timing_enabled else 'off'}-{args.stage}-vu{args.vus}"
     suffix=f"-{args.stage}-r{args.rate}" if args.stage!='legacy' else ''
     return f"{args.variant}-p{args.pool}-{args.scenario}-{'measure' if args.measured else 'warm'}-{args.index:02}-{'on' if args.timing_enabled else 'off'}{suffix}"
 
@@ -84,7 +97,7 @@ def observe_resources(args,path,stop):
 def run_trial(args):
     for key,value in dict(rate=5,stage='legacy',query_duration=60,upload_timeout=600).items():
         if not hasattr(args,key):setattr(args,key,value)
-    if not 1<=args.rate<=400:raise ValueError('Rate must be between 1 and 400')
+    load=load_configuration(args)
     dataset=json.loads(args.manifest.read_text());queries=json.loads(args.queries.read_text())
     validate_seed(dataset,queries)
     if urlsplit(args.base).hostname not in {'localhost','127.0.0.1'}:raise ValueError('Local benchmark only')
@@ -94,7 +107,7 @@ def run_trial(args):
     target.mkdir(parents=True)
     result=dict(label=label,variant=args.variant,pool=args.pool,scenario=args.scenario,index=args.index,
                 measured=args.measured,timingEnabled=args.timing_enabled,datasetHash=dataset['datasetHash'],
-                configuredRate=args.rate,stage=args.stage,configuredDuration=args.query_duration if args.scenario=='query' else args.duration,preAllocatedVUs=60,newRuns=len(dataset.get("expected",dataset.get("runIds",[])))-len(queries),updatedRuns=len(queries),errors=[],queryManifest=[{k:v for k,v in q.items() if k!='sha256'} for q in queries])
+                **load,stage=args.stage,configuredDuration=args.query_duration if args.scenario=='query' else args.duration,newRuns=len(dataset.get("expected",dataset.get("runIds",[])))-len(queries),updatedRuns=len(queries),errors=[],queryManifest=[{k:v for k,v in q.items() if k!='sha256'} for q in queries])
     process=None;stop=threading.Event();monitor=None;offset=None
     try:
         upload.restore_seed(args.container,args.storage,args.seed)
@@ -104,7 +117,7 @@ def run_trial(args):
         if args.scenario!='upload':
             duration=args.query_duration if args.scenario=='query' else args.duration
             env={**os.environ,'BASE_URL':args.base,'QUERY_MANIFEST':str(args.queries.resolve()),'TRIAL_ID':label,
-                 'RATE':str(args.rate),'DURATION':f'{duration}s','SUMMARY_PATH':str((target/'k6-summary.json').resolve())}
+                 'RATE':str(args.rate),'LOAD_MODEL':load['loadModel'],'USER_VUS':str(load.get('configuredVUs',1)),'DURATION':f'{duration}s','SUMMARY_PATH':str((target/'k6-summary.json').resolve())}
             with (target/'k6.log').open('w') as log:
                 process=subprocess.Popen(['k6','run','--quiet','--log-format','raw','--console-output',str((target/'lookup.jsonl').resolve()),str(ROOT/'scripts/performance/upload_query_load.js')],env=env,cwd=ROOT,stdout=log,stderr=subprocess.STDOUT)
             args.k6_pid=process.pid
@@ -182,6 +195,7 @@ def arguments():
     parser.add_argument('--pid',type=int,required=True);parser.add_argument('--index',type=int,default=1)
     parser.add_argument('--scenario',choices=['query','upload','combined'],default='combined')
     parser.add_argument('--warmup',dest='measured',action='store_false');parser.add_argument('--no-timing',dest='timing_enabled',action='store_false')
+    parser.add_argument('--load-model',choices=['arrival','users'],default='arrival');parser.add_argument('--vus',type=int,default=1)
     parser.add_argument('--rate',type=int,default=5);parser.add_argument('--stage',choices=['legacy','discovery','confirm','diagnostic','warmup'],default='legacy')
     parser.add_argument('--query-duration',type=int,default=60);parser.add_argument('--upload-timeout',type=float,default=600)
     parser.add_argument('--duration',type=int,default=90);parser.add_argument('--pre-seconds',type=int,default=10)

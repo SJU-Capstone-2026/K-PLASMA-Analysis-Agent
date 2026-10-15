@@ -47,10 +47,17 @@ def confirmation_schedule(rates):
             for index in indices for rate in (rates if index%2 else list(reversed(rates)))]
 
 
+def user_schedule():
+    levels=[1,10,20,50,100]
+    return [(variant,index,vus) for variant,indices in [('B',[1]),('C',[1,2]),('B',[2])]
+            for index in indices for vus in (levels if index%2 else list(reversed(levels)))]
+
+
 def parse_args():
     parser=argparse.ArgumentParser(description=__doc__)
     for key in ['artifacts','fixture-root','output']:parser.add_argument('--'+key,type=Path,required=True)
     parser.add_argument('--container',required=True)
+    parser.add_argument('--load-model',choices=['arrival','users'],default='arrival')
     parser.add_argument('--java',default=shutil.which('java'))
     parser.add_argument('--server-port',type=int,default=18552)
     parser.add_argument('--db-port',type=int,default=15452)
@@ -58,11 +65,12 @@ def parse_args():
 
 
 def run(args):
+    users=getattr(args,'load_model','arrival')=='users'
     if not args.container.startswith('kplasma-upload-benchmark-'):raise ValueError('Dedicated benchmark container required')
     if args.output.exists():raise FileExistsError(args.output)
     args.output.mkdir(parents=True)
     snapshot=args.output/'measured-harness';snapshot.mkdir()
-    for name in ['upload_query_ramp.py','upload_query_benchmark.py','analyze_upload_query_benchmark.py','upload_benchmark.py','upload_query_load.js']:
+    for name in ['upload_query_ramp.py','upload_query_benchmark.py','analyze_upload_query_benchmark.py','upload_benchmark.py','upload_query_load.js','upload_query_user_schedule.mjs']:
         shutil.copy2(Path(__file__).parent/name,snapshot/name)
     base=f'http://127.0.0.1:{args.server_port}'
     storage=args.artifacts/'active/storage'
@@ -101,46 +109,54 @@ def run(args):
         else:raise RuntimeError('Server startup timeout')
         owns_database=True
         current_variant=variant
-        trial(variant,'upload',block,'warmup',5,False)
+        trial(variant,'upload',block,'warmup',1 if users else 5,False)
     def trial(variant,scenario,index,stage,rate,measured=True):
         if time.monotonic()-started>=1500:raise TimeoutError('25 minute new-batch cutoff')
-        state['current']=dict(variant=variant,scenario=scenario,index=index,stage=stage,rate=rate,startedEpoch=time.time());save()
+        state['current']=dict(variant=variant,scenario=scenario,index=index,stage=stage,loadModel='users' if users else 'arrival',loadLevel=rate,startedEpoch=time.time());save()
         print('START '+json.dumps(state['current']),flush=True)
         row=q.run_trial(SimpleNamespace(base=base,variant=variant,pool=10,container=args.container,
             manifest=args.fixture_root/'synthetic/manifest.json',queries=args.artifacts/'queries.json',
             seed=args.artifacts/'seed',storage=storage,timing=target/'timing.jsonl',output=args.output/'results',
             pid=process.pid,index=index,scenario=scenario,measured=measured,timing_enabled=True,
-            duration=60,pre_seconds=5,query_duration=30,upload_timeout=50,rate=rate,stage=stage,
+            duration=50 if users else 60,pre_seconds=5,query_duration=30,upload_timeout=40 if users else 50,
+            rate=5 if users else rate,stage=stage,load_model='users' if users else 'arrival',vus=rate if users else 1,
             golden=args.fixture_root/'golden-new.json'))
         pool=row['lookup']['pool']
         if pool['configured_maxima']!=[10] or pool['configured_minima']!=[10]:raise AssertionError('Pool configuration mismatch')
         if row.get('incompleteWindow'):raise TimeoutError('Incomplete upload observation window')
-        state['completed'].append(dict(label=row['label'],reason=stop_reason(row) if scenario=='combined' else None));save()
+        state['completed'].append(dict(label=row['label'],reason=stop_reason(row) if scenario=='combined' and not users else None));save()
         return row
     jars={v:hashlib.sha256((args.artifacts/(v+'.jar')).read_bytes()).hexdigest() for v in ['B','C']}
     expected={'B':'3570164bede4c955b1f8b190a4c2f43669c77e6aeff06bc112a8f8605d2e6f38','C':'b3e06de0a0b6948cba22f3f1ab49b864279254a278147f8a74bcc0721a880b92'}
     if jars!=expected:raise ValueError('JAR differs from the measured baseline')
-    (args.output/'schedule.json').write_text(json.dumps(dict(rates=RATES,pool=10,vus=60,duration=60,preSeconds=5,
+    (args.output/'schedule.json').write_text(json.dumps(dict(loadModel='users' if users else 'arrival',rates=None if users else RATES,
+        userSchedule=user_schedule() if users else None,readIntervalSeconds=5 if users else None,
+        pool=10,vus=[1,10,20,50,100] if users else 60,duration=50 if users else 60,preSeconds=5,
         seed=str(args.artifacts/'seed'),jarSha256=jars,maxNewBatchSeconds=1500,maxSuiteSeconds=1800),indent=2))
     def expire(*_):raise TimeoutError('30 minute suite limit')
     previous=signal.signal(signal.SIGUSR1,expire)
     watchdog=threading.Timer(1800,lambda:os.kill(os.getpid(),signal.SIGUSR1));watchdog.daemon=True
     started=time.monotonic();state.update(status='running',startedEpoch=time.time());save();watchdog.start()
     try:
-        start('B');discovery=[]
-        for rate in RATES:
-            row=trial('B','combined',1,'discovery',rate);discovery.append(row)
-            if stop_reason(row):break
-        rates,reason=selected_rates(discovery)
-        state.update(selectedRates=rates,selectionReason=reason);save()
-        (args.output/'selection.json').write_text(json.dumps(dict(rates=rates,reason=reason,selectedEpoch=time.time(),
-            discovery=[r['label'] for r in discovery],confirmation=confirmation_schedule(rates)),indent=2))
-        print('SELECTED '+json.dumps(dict(rates=rates,reason=reason)),flush=True)
-        trial('B','query',1,'diagnostic',max(rates))
-        for variant,index,rate in confirmation_schedule(rates):
-            changed=current_variant!=variant;start(variant)
-            if changed and variant=='C':trial('C','query',1,'diagnostic',max(rates))
-            trial(variant,'combined',index,'confirm',rate)
+        if users:
+            for variant,index,vus in user_schedule():
+                start(variant)
+                trial(variant,'combined',index,'confirm',vus)
+        else:
+            start('B');discovery=[]
+            for rate in RATES:
+                row=trial('B','combined',1,'discovery',rate);discovery.append(row)
+                if stop_reason(row):break
+            rates,reason=selected_rates(discovery)
+            state.update(selectedRates=rates,selectionReason=reason);save()
+            (args.output/'selection.json').write_text(json.dumps(dict(rates=rates,reason=reason,selectedEpoch=time.time(),
+                discovery=[r['label'] for r in discovery],confirmation=confirmation_schedule(rates)),indent=2))
+            print('SELECTED '+json.dumps(dict(rates=rates,reason=reason)),flush=True)
+            trial('B','query',1,'diagnostic',max(rates))
+            for variant,index,rate in confirmation_schedule(rates):
+                changed=current_variant!=variant;start(variant)
+                if changed and variant=='C':trial('C','query',1,'diagnostic',max(rates))
+                trial(variant,'combined',index,'confirm',rate)
         state['status']='complete'
     except BaseException as error:
         state.update(status='stopped',error=dict(type=type(error).__name__,message=str(error)))

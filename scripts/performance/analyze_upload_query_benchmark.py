@@ -145,7 +145,8 @@ def aggregate(root):
         # HTTP errors are measured load outcomes, not grounds for exclusion.
         if row['measured']:
             name=f"{row['variant']}-p{row['pool']}-{row['scenario']}-{'on' if row['timingEnabled'] else 'off'}"
-            if row.get('stage','legacy')!='legacy':name+=f"-{row['stage']}-r{row['configuredRate']}"
+            if row.get('loadModel')=='users':name+=f"-{row['stage']}-vu{row['configuredVUs']}"
+            elif row.get('stage','legacy')!='legacy':name+=f"-{row['stage']}-r{row['configuredRate']}"
             groups[name].append(row)
     summary={}
     for name,rows in groups.items():

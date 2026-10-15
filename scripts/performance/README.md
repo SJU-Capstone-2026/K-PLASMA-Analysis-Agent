@@ -145,3 +145,28 @@ python3 scripts/performance/upload_query_ramp.py \
 - 요청률별 결과는 별도로 집계한다. HTTP 오류나 부하 발행 실패는 사라지는 데이터가 아니라 보고할 결과이며, 지연 원인이 확인되지 않으면 DB 병목으로 단정하지 않는다.
 
 측정 도구 검증: `python3 -m unittest discover -s scripts/performance -p 'test_*upload_query*.py'`. 로컬 macOS/Linux의 POSIX 타이머를 사용하며 제품 런타임 의존성은 추가하지 않는다.
+
+### 관리자 1명 업로드 중 동시 조회 사용자 비교
+
+[계획](../../docs/plans/2026-10-15-동시-사용자-조회와-업로드-트랜잭션-비교-계획.md)에 따라 기존 `upload_query_ramp.py`에 `--load-model users`를 지정한다. 풀 10개·업로드 worker 1개를 유지하고 VU 1 / 10 / 20 / 50 / 100명이 5초마다 함께 조회한다. 평균 목표 요청률은 각각 0.2 / 2 / 4 / 10 / 20건/초지만, 매번 VU 수만큼의 요청이 한꺼번에 시작되는 가정이다.
+
+```bash
+python3 scripts/performance/upload_query_ramp.py \
+  --artifacts .local/performance/upload-query \
+  --fixture-root .local/performance/upload \
+  --output .local/performance/upload-query-users-NEW \
+  --container kplasma-upload-benchmark-query-20261015 \
+  --java /path/to/jdk-21/bin/java \
+  --load-model users
+```
+
+기존 전용 벤치마크 DB, B/C 계측 JAR, seed와 인공 업로드 입력이 필요하다. 실행 중인 서버 포트나 기존 출력 폴더는 재사용하지 않는다. 사용자·제품 DB에 연결하지 않는다. `users` 모드는 조회 단독 실험을 실행하지 않는다. JVM 워밍업 업로드 3회를 제외하고 단계별 B/C 2회씩 총 20회 비교한다. 실제 제품 코드와 DB 설정은 변경하지 않는다.
+
+- **k6:** `constant-vus`로 고정 VU를 실행하고 공통 시각 기준 5초 간격 조회. 요청별 VU·묶음 번호·예정 및 실제 시각·HTTP 시간·응답 해시 기록.
+- **Python:** 동일 입력 업로드·seed 복원·실행 순서·시간 제한·결과 동등성 검증·클라이언트/서버 요청 ID 결합.
+- **JDBC/Hikari 계측:** 연결 획득·점유 시간, SQL 실행 시간, 100ms 간격 active/idle/pending. 연결 획득 비용과 실제 대기열을 구분.
+- **PostgreSQL/OS:** `pg_stat_statements`, `pg_stat_activity`, Java/k6 CPU·RSS와 Docker 자원 표본으로 다른 병목 확인.
+
+기존 초당 요청률 실험은 `--load-model arrival`(기본값)로 유지한다. 두 방식의 지표를 같은 비교군으로 합치지 않는다. 각 요청이 늦어졌을 때 예정된 과거 요청을 연속해서 보충하지 않고 지난 구간을 건너뛰며, 실제 요청 수와 예상 횟수의 차이를 보고한다.
+
+[실험 보고서](../../docs/verification/2026-10-15-동시-사용자-조회와-업로드-트랜잭션-비교.md). 관리자·업로드 worker를 함께 1 → 2 → 4 → 8로 늘리는 조건은 계획서의 후속 검토 범위이며 이번 측정과 구분한다.
