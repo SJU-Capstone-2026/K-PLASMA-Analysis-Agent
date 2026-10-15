@@ -80,10 +80,11 @@ def make_zip(dataset, path):
 def normalize(run):
     return {key:value for key,value in run.items() if key not in {"runVersionId","registeredAt"}}
 
-def verify(base, container, dataset, scenario, golden=None):
+def verify(base, container, dataset, scenario, golden=None, historical_versions=0):
     runs=get(base,"/api/runs")
     expected=dataset.get("expected",{})
-    if len(runs)!=len(expected or dataset["runIds"]): raise AssertionError(f"Expected {len(expected)} runs, received {len(runs)}")
+    wanted=set(expected or dataset["runIds"])
+    assert {r["runId"] for r in runs}==wanted, "Unexpected Run IDs"
     full={}
     for run in runs:
         ident=run["runId"]
@@ -104,7 +105,7 @@ def verify(base, container, dataset, scenario, golden=None):
         p=int(parts[0].split("_")[1]);s=int(parts[1].split("_")[1]);b=int(parts[2].split("_")[1])
         assert source[(f"RUN-P{p:02}-S{s:03}-B{b:04}","/".join(parts[3:]))]==entry["sha256"]
     versions=int(sql(container,"select count(*) from run_version"))
-    assert versions==len(runs)*(2 if scenario=="update" else 1),(scenario,versions)
+    assert versions==len(runs)*(2 if scenario=="update" else 1)+historical_versions,(scenario,versions)
     return full
 
 def events_for(log, offset, batch):

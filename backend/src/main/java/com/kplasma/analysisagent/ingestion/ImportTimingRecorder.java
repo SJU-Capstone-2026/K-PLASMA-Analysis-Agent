@@ -25,6 +25,7 @@ public final class ImportTimingRecorder implements AutoCloseable {
             else {Files.createDirectories(path.toAbsolutePath().getParent());writer=Files.newBufferedWriter(path,StandardCharsets.UTF_8,StandardOpenOption.CREATE,StandardOpenOption.APPEND);}
         } catch(IOException e) {throw new UncheckedIOException("Cannot open import timing output",e);}
     }
+    static ImportTimingRecorder system(){return SYSTEM;}
     public static Scope trace(String kind,String id) {return SYSTEM.begin(kind,id);}
     public static Scope span(String phase) {return SYSTEM.measure(phase);}
     public static void batch(String id) {SYSTEM.bindBatch(id);}
@@ -62,6 +63,7 @@ public final class ImportTimingRecorder implements AutoCloseable {
             var event=new LinkedHashMap<String,Object>();
             event.put("kind",scope.context.kind());event.put("id",scope.context.id());
             event.put("batchId",scope.context.batch()[0]);event.put("phase",scope.phase);
+            event.putAll(scope.fields);
             event.put("startNs",scope.start);event.put("endNs",end);event.put("bytes",scope.bytes);
             writer.write(mapper.writeValueAsString(event));writer.newLine();
             if(scope.root)writer.flush();
@@ -76,9 +78,11 @@ public final class ImportTimingRecorder implements AutoCloseable {
         private final ImportTimingRecorder recorder;private final Context context,previous;
         private final String phase;private final long start;private final boolean root;
         private long bytes;private boolean closed;
+        private final Map<String,Object> fields=new LinkedHashMap<>();
         private Scope(ImportTimingRecorder recorder,Context context,String phase,long start,Context previous,boolean root) {
             this.recorder=recorder;this.context=context;this.phase=phase;this.start=start;this.previous=previous;this.root=root;
         }
+        public void field(String name,Object value){if(recorder!=null)fields.put(name,value);}
         public void bytes(long value) {if(recorder!=null)bytes+=value;}
         @Override public void close() {
             if(recorder==null||closed)return;closed=true;
