@@ -112,8 +112,8 @@ def verify(base, container, dataset, scenario, golden=None):
 def events_for(log, offset, batch):
     with log.open() as stream:
         stream.seek(offset);events=[json.loads(line) for line in stream if line.strip()]
-    requests={e["id"] for e in events if e["kind"]=="request" and e["batchId"]==batch}
-    return [e for e in events if e["batchId"]==batch or e["kind"]=="request" and e["id"] in requests]
+    contexts={(e["kind"],e["id"]) for e in events if e["batchId"]==batch}
+    return [e for e in events if (e["kind"],e["id"]) in contexts]
 
 def summarize_events(events):
     durations=collections.defaultdict(float);counts=collections.Counter();byte_counts=collections.Counter()
@@ -162,6 +162,7 @@ def restore_seed(container, storage, seed):
     with (seed/"data.sql").open("rb") as stream:
         subprocess.run(["docker","exec","-i",container,"psql","-U",DB_USER,"-d",DB_NAME,"-v","ON_ERROR_STOP=1"],stdin=stream,stdout=subprocess.DEVNULL,stderr=subprocess.PIPE,check=True)
     shutil.copytree(seed/"storage",storage,copy_function=os.link,dirs_exist_ok=True)
+    sql(container,"select pg_stat_statements_reset()")
 
 def run_batch(args, dataset, label, scenario, measured, seed=None, golden=None):
     if scenario in {"duplicate","update"}: restore_seed(args.container,args.storage,seed)
@@ -199,7 +200,8 @@ def main():
     for name in ["variant","base","container"]: parser.add_argument("--"+name,required=True)
     for name in ["manifest","timing","storage","output"]: parser.add_argument("--"+name,type=Path,required=True)
     parser.add_argument("--iterations",type=int,default=10);parser.add_argument("--warmups",type=int,default=1)
-    parser.add_argument("--timeout",type=float,default=600);parser.add_argument("--scenario",choices=["new","zip","duplicate","update"],default="new")
+    parser.add_argument("--timeout",type=float,default=600);parser.add_argument("--scenario",choices=["new","zip","duplicate","update","private"],default="new")
+    parser.add_argument("--start-index",type=int,default=0)
     parser.add_argument("--seed",type=Path);parser.add_argument("--save-seed",type=Path)
     parser.add_argument("--golden",type=Path);parser.add_argument("--no-timing",action="store_true")
     args=parser.parse_args()
@@ -207,7 +209,7 @@ def main():
     golden=json.loads(args.golden.read_text()) if args.golden and args.golden.exists() else None
     results=[]
     for i in range(args.warmups+args.iterations):
-        label=f"{args.variant}-{args.scenario}-{i-args.warmups+1:02}"
+        label=f"{args.variant}-{args.scenario}-{i-args.warmups+1+args.start_index:02}"
         try:
             result,full=run_batch(args,dataset,label,args.scenario,i>=args.warmups,args.seed,golden)
         except Exception as error:

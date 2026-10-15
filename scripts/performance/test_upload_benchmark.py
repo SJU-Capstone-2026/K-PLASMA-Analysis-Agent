@@ -40,6 +40,21 @@ class UploadBenchmarkContractTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             bench.sql("k-plasma-analysis-agent-postgres-1","truncate run cascade")
 
+    def test_job_claim_timings_before_batch_binding_are_joined_by_trace_identity(self):
+        events=[
+            {"kind":"job","id":"j1","batchId":"","phase":"db.execute"},
+            {"kind":"job","id":"j1","batchId":"b1","phase":"job"},
+            {"kind":"request","id":"r1","batchId":"","phase":"file.controller_copy"},
+            {"kind":"request","id":"r1","batchId":"b1","phase":"request"},
+            {"kind":"job","id":"j2","batchId":"b2","phase":"db.execute"},
+        ]
+        with tempfile.TemporaryDirectory() as directory:
+            path=Path(directory)/"timing.jsonl"
+            path.write_text("".join(json.dumps(e)+"\n" for e in events))
+            selected=bench.events_for(path,0,"b1")
+        self.assertEqual(len(selected),4)
+        self.assertEqual({e["id"] for e in selected},{"j1","r1"})
+
     def test_missing_required_timing_events_fail_the_measurement(self):
         with self.assertRaises(AssertionError):
             bench.summarize_events([])
