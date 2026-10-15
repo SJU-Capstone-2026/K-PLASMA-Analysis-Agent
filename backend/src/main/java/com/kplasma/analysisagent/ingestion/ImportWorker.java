@@ -10,7 +10,6 @@ import java.util.*;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -31,18 +30,29 @@ public class ImportWorker {
     private final ImportRecovery recovery;
     private final TransactionTemplate transactions;
     private final boolean enabled;
+    private final int drainLimit;
+    private volatile boolean backlog;
     public ImportWorker(JdbcTemplate jdbc,ObjectMapper mapper,SourceStore store,ImportRepository imports,RunRepository runs,
             RunRegistrationService registration,KPlasmaScalarParser scalars,KPlasmaGraphParser graphs,ImportRecovery recovery,
-            PlatformTransactionManager manager,@Value("${kplasma.worker.enabled:true}") boolean enabled) {
+            PlatformTransactionManager manager,@Value("${kplasma.worker.enabled:true}") boolean enabled,
+            @Value("${kplasma.worker.drain-limit:32}") int drainLimit) {
         this.jdbc=jdbc;this.mapper=mapper;this.store=store;this.imports=imports;this.runs=runs;this.registration=registration;
         this.scalars=scalars;this.graphs=graphs;this.recovery=recovery;this.transactions=new TransactionTemplate(manager);this.enabled=enabled;
+        if(drainLimit<1||drainLimit>1000)throw new IllegalArgumentException("Import drain limit must be between 1 and 1000");
+        this.drainLimit=drainLimit;
     }
-    @Scheduled(fixedDelayString="${kplasma.worker.poll-ms:500}",initialDelayString="${kplasma.worker.poll-ms:500}")
     public void poll() {
+        backlog=false;
         if(!enabled||!recovery.ready())return;
-        var ids=jdbc.query("select id from import_job where status='QUEUED' order by created_at,id limit 1",(rs,n)->rs.getObject(1,UUID.class));
-        if(!ids.isEmpty())process(ids.getFirst());
+        for(int i=0;i<drainLimit;i++){
+            var ids=jdbc.query("select id from import_job where status='QUEUED' order by created_at,id limit 1",(rs,n)->rs.getObject(1,UUID.class));
+            if(ids.isEmpty())return;
+            process(ids.getFirst());
+        }
+        // A full drain immediately schedules another bounded turn.
+        backlog=true;
     }
+    boolean hasBacklog(){return backlog;}
     public void process(UUID id) {
         try(var _timing=ImportTimingRecorder.trace("job",id.toString())) {
         Job job=ImportTimingRecorder.transaction("tx.claim",transactions,tx->{
