@@ -55,6 +55,10 @@ class UploadBenchmarkContractTest(unittest.TestCase):
         self.assertEqual(len(selected),4)
         self.assertEqual({e["id"] for e in selected},{"j1","r1"})
 
+    def test_second_block_warmup_cannot_overwrite_the_fifth_measured_result(self):
+        self.assertNotEqual(bench.trial_label("B","new",0,1,5),"B-new-05")
+        self.assertEqual(bench.trial_label("B","new",1,1,5),"B-new-06")
+
     def test_missing_required_timing_events_fail_the_measurement(self):
         with self.assertRaises(AssertionError):
             bench.summarize_events([])

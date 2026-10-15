@@ -64,14 +64,17 @@ public class ImportWorker {
         if(job==null)return;
         ImportTimingRecorder.batch(job.batch().toString()); ImportTimingRecorder.mark("job.claimed");
         try {
-            // Serialize attempts for a source across public process callers as well as the single scheduler.
-            ImportTimingRecorder.inTransaction("tx.process",transactions,tx->{
-                jdbc.queryForList("select id from source_set where id=? for update",job.source());
-                RunRef previous=job.reprocess()?null:runs.sourceVersion(job.source());
-                if(previous!=null) {finish(job,"DUPLICATE",previous,null,List.of());return;}
-                var source=ImportTimingRecorder.call("source.load",()->load(job));
-                var scalar=ImportTimingRecorder.call("parse.scalar",()->scalars.parse(source));
-                var graph=ImportTimingRecorder.call("parse.graph",()->graphs.parse(source,scalar));
+            var source=ImportTimingRecorder.transaction("tx.prepare",transactions,tx->{
+                if(finishDuplicate(job))return null;
+                return ImportTimingRecorder.call("source.load",()->load(job));
+            });
+            if(source==null)return;
+            // Retained originals are immutable, and PROCESSING jobs prevent managed source deletion.
+            var scalar=ImportTimingRecorder.call("parse.scalar",()->scalars.parse(source));
+            var graph=ImportTimingRecorder.call("parse.graph",()->graphs.parse(source,scalar));
+            ImportTimingRecorder.inTransaction("tx.publish",transactions,tx->{
+                // Another caller may have published this same source while we parsed without a DB connection.
+                if(finishDuplicate(job))return;
                 var ref=ImportTimingRecorder.call("run.register",()->registration.register(source,scalar,graph));
                 finish(job,"READY",ref,null,List.of());
             });
@@ -84,6 +87,14 @@ public class ImportWorker {
             failure(job,"PARSE_FAILED","Import processing failed; originals retained for reprocessing",List.of(new WorkspaceDto.Error("PROCESSING_FAILED","Import processing failed; originals retained for reprocessing",null,null,UUID.randomUUID().toString())));
         }
             }
+    }
+    /** Called only within prepare/publish transactions; source lock serializes duplicate publication. */
+    private boolean finishDuplicate(Job job) {
+        if(jdbc.queryForList("select id from source_set where id=? for update",job.source()).isEmpty())
+            throw new IllegalStateException("Retained source is unavailable");
+        RunRef previous=job.reprocess()?null:runs.sourceVersion(job.source());
+        if(previous==null)return false;
+        finish(job,"DUPLICATE",previous,null,List.of());return true;
     }
     private StoredSource load(Job job) {
         Map<String,StoredBatch.File> files=new HashMap<>();

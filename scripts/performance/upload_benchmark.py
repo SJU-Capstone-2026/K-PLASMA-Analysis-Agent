@@ -195,6 +195,11 @@ def run_batch(args, dataset, label, scenario, measured, seed=None, golden=None):
     print(json.dumps(result),flush=True)
     return result,full
 
+def trial_label(variant, scenario, index, warmups, start_index):
+    if index < warmups:
+        return f"{variant}-{scenario}-warm-{start_index}-{index+1}"
+    return f"{variant}-{scenario}-{index-warmups+1+start_index:02}"
+
 def main():
     parser=argparse.ArgumentParser()
     for name in ["variant","base","container"]: parser.add_argument("--"+name,required=True)
@@ -209,7 +214,7 @@ def main():
     golden=json.loads(args.golden.read_text()) if args.golden and args.golden.exists() else None
     results=[]
     for i in range(args.warmups+args.iterations):
-        label=f"{args.variant}-{args.scenario}-{i-args.warmups+1+args.start_index:02}"
+        label=trial_label(args.variant,args.scenario,i,args.warmups,args.start_index)
         try:
             result,full=run_batch(args,dataset,label,args.scenario,i>=args.warmups,args.seed,golden)
         except Exception as error:
