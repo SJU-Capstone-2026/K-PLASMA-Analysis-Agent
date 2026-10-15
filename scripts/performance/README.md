@@ -63,7 +63,7 @@ python3 scripts/performance/upload_benchmark.py \
 - ZIP: 같은 인자에 `--scenario zip --iterations 5`. ZIP 생성은 시간에서 제외한다.
 - 동일 원본: `--scenario duplicate --seed .local/performance/upload/seed --iterations 5`. 150개 모두 DUPLICATE, 버전 추가 없음.
 - 갱신: 생성기에 `--updated --out .local/performance/upload/synthetic-updated`를 전달한 뒤 해당 manifest와 별도 `golden-updated.json`, `--scenario update --seed ... --iterations 5`를 사용한다. 150 Run·300 버전을 검증한다.
-- 계측 off: 같은 A JAR를 `-Dkplasma.import-timing.enabled=false`로 재시작하고 **새 variant/output**과 `--no-timing`으로 실행한다. 벽시계 비교와 값 검증만 가능하다.
+- 계측 off: 같은 A JAR를 `-Dkplasma.import-timing.enabled=false`로 재시작하고 **새 variant `A0`/output**과 `--no-timing`으로 실행한다. 벽시계 비교와 값 검증만 가능하다.
 - 집계: `python3 scripts/performance/analyze_upload_benchmark.py .local/performance/upload --variants current`.
 - harness 검증: `python3 -m unittest discover -s scripts/performance -p test_upload_benchmark.py`.
 
