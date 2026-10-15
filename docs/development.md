@@ -85,6 +85,14 @@ SDK/API 기준: [Phoenix OTEL 설정](https://arize.com/docs/phoenix/tracing/how
 
 **새 대화**는 대화·활성 Run·후보 참조와 진행 중인 Agent 요청을 비운다. **데모 데이터 초기화**는 여기에 판단 기록도 비운다. 두 동작 모두 업로드 원본·Run·그래프·불변 버전을 유지한다. 공용 서버·로그인은 이번 범위 밖이다.
 
+## 업로드 처리와 성능 계측
+
+업로드 작업자는 하나이며, 기본적으로 최대 32개 작업을 연속 처리한다. 이 한도를 채우면 다음 처리를 즉시 예약하고, 최초 실행·빈 큐에서는 500ms 대기한다. `kplasma.worker.drain-limit`(1~1000)과 `kplasma.worker.poll-ms`(양수)로 조정한다. 파일 파싱은 DB 트랜잭션 밖에서 실행하고, 게시할 때 원본 중복을 다시 확인한 뒤 버전·현재 포인터·완료 상태를 함께 commit한다. 동일 원본·재처리·실패 시 이전 버전 유지 정책은 그대로다.
+
+업로드 계측은 기본 비활성이다. 별도 성능 환경의 JAR에 JVM 옵션 `-Dkplasma.import-timing.enabled=true -Dkplasma.import-timing.file=/절대/로컬/경로/timing.jsonl`을 **`-jar` 앞에** 전달하면 요청·작업·파일·파싱·JDBC 구간을 JSONL로 기록한다. 계측 로그와 입력은 Git에서 제외한 `.local/` 아래에 보관한다. 일반 Agent의 Phoenix trace와 별개이며 API 키·LLM 호출은 필요 없다.
+
+[재현 절차](../scripts/performance/README.md)와 [150 Run 측정 결과](verification/2026-10-15-파일-업로드-성능-개선.md)를 참고한다. `pg_stat_statements`와 초기화 스크립트는 전용 벤치마크 DB에만 사용한다.
+
 ## 등록한 Run 삭제
 
 **도구 및 도움말 → Run 관리**에서 Run을 선택하고 **선택 Run 삭제**를 누른다. **전체 Run 삭제**는 검색 필터와 관계없이 등록된 모든 Run을 대상으로 한다. 확인창에서 대상 개수와 범위를 확인한 후 **삭제**를 눌러야 실행된다.

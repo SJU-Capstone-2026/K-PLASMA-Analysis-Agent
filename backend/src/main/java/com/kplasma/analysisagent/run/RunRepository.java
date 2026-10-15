@@ -2,6 +2,7 @@ package com.kplasma.analysisagent.run;
 
 import com.kplasma.analysisagent.contract.RunDto;
 import com.kplasma.analysisagent.ingestion.IntakeException;
+import com.kplasma.analysisagent.ingestion.ImportTimingRecorder;
 import java.time.Instant;
 import java.util.*;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -19,7 +20,7 @@ public class RunRepository {
     }
     public void save(UUID source,RunDto.Summary summary,RunDto.Full full) {
         UUID id=UUID.fromString(full.runVersionId());
-        jdbc.update("insert into run_version(id,run_id,source_id,registered_at,summary,full_run) values (?,?,?,?,?::jsonb,?::jsonb)",id,full.runId(),source,java.sql.Timestamp.from(Instant.parse(full.registeredAt())),com.kplasma.analysisagent.ingestion.ImportTimingRecorder.call("run.serialize.summary",()->mapper.writeValueAsString(summary)),com.kplasma.analysisagent.ingestion.ImportTimingRecorder.call("run.serialize.full",()->mapper.writeValueAsString(full)));
+        jdbc.update("insert into run_version(id,run_id,source_id,registered_at,summary,full_run) values (?,?,?,?,?::jsonb,?::jsonb)",id,full.runId(),source,java.sql.Timestamp.from(Instant.parse(full.registeredAt())),ImportTimingRecorder.call("run.serialize.summary",()->mapper.writeValueAsString(summary)),ImportTimingRecorder.call("run.serialize.full",()->mapper.writeValueAsString(full)));
         jdbc.update("update run set current_version_id=? where run_id=?",id,full.runId());
     }
     public List<RunDto.Summary> searchable() {

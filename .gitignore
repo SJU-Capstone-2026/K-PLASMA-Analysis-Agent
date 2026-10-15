@@ -39,3 +39,6 @@ __pycache__/
 .DS_Store
 Thumbs.db
 .idea/
+
+# Local benchmark inputs, databases, profiles and traces
+/.local/

@@ -2,13 +2,11 @@
 """End-to-end upload benchmark. Refuses to reset any database except an isolated benchmark container."""
 import argparse
 import collections
-import hashlib
 import http.client
 import json
 import math
 import os
 import shutil
-import socket
 import statistics
 import subprocess
 import time
