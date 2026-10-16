@@ -40,6 +40,7 @@ __pycache__/
 Thumbs.db
 .idea/
 
-# Local-only benchmark datasets, snapshots and execution logs.
-.local/
+# Local performance evidence and private portfolio notes
+/.local/
+/docs/folio/
 .context/compound-engineering/ce-optimize/

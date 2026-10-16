@@ -10,7 +10,7 @@ class Backend:
         self.context_reads = 0
         self.stages = []
 
-    def context(self, refs=None):
+    def context(self, refs=None, **kwargs):
         self.context_reads += 1
         return {"runs": [], "referencedRuns": [], "context": {}}
 
@@ -43,7 +43,7 @@ def test_forward_lookup_with_watt_names_matches_the_same_saved_run(unit, written
     saved_run = run("SYNTHETIC-WATT", pressure=8, source=300, bias=600)
 
     class SavedBackend(Backend):
-        def context(self, refs=None):
+        def context(self, refs=None, **kwargs):
             self.context_reads += 1
             return {"runs": [saved_run], "referencedRuns": [], "context": {}}
 
@@ -172,7 +172,7 @@ def test_excluded_runs_are_evidence_inventory_but_never_candidate_choices():
     excluded["qualityStatus"] = "UNVERIFIED"
 
     class Catalog(Backend):
-        def context(self, refs=None):
+        def context(self, refs=None, **kwargs):
             return {"runs": [usable, excluded], "referencedRuns": [], "context": {}}
 
     model = Model(

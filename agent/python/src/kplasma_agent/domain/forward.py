@@ -6,10 +6,9 @@ from ..metric_registry import CONDITION_KEYS, NUMERIC_POLICY_VERSION, UNITS, nor
 from .common import DomainError, inputs_dict, is_usable, public_run, run_ref, scalar
 
 
-def lookup_forward(inputs, ordered_runs):
+def normalized_forward_query(inputs):
     query = ForwardInputs.model_validate(inputs_dict(inputs))
     requested = {}
-    defaulted_units: list[str] = []
     for metric in CONDITION_KEYS:
         item = getattr(query.conditions, metric)
         if item is None:
@@ -19,6 +18,11 @@ def lookup_forward(inputs, ordered_runs):
         requested[metric] = normalize_value(metric, item.value, item.unit)
     if query.context_rules:
         raise DomainError("UNRESOLVED_CONTEXT", "Apply context rules before domain execution")
+    return requested
+
+
+def lookup_forward(inputs, ordered_runs):
+    requested = normalized_forward_query(inputs)
     eligible, excluded = [], []
     for run in ordered_runs:
         ref = run_ref(run)
@@ -82,6 +86,6 @@ def lookup_forward(inputs, ordered_runs):
         "units": dict(UNITS),
         "usedRunRefs": [run_ref(selected)] if selected else [],
         "excludedRuns": excluded,
-        "defaultedUnits": defaulted_units,
+        "defaultedUnits": [],
         "numericPolicyVersion": NUMERIC_POLICY_VERSION,
     }
