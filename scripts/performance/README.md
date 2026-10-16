@@ -170,3 +170,11 @@ python3 scripts/performance/upload_query_ramp.py \
 기존 초당 요청률 실험은 `--load-model arrival`(기본값)로 유지한다. 두 방식의 지표를 같은 비교군으로 합치지 않는다. 각 요청이 늦어졌을 때 예정된 과거 요청을 연속해서 보충하지 않고 지난 구간을 건너뛰며, 실제 요청 수와 예상 횟수의 차이를 보고한다.
 
 [실험 보고서](../../docs/verification/2026-10-15-동시-사용자-조회와-업로드-트랜잭션-비교.md). 관리자·업로드 worker를 함께 1 → 2 → 4 → 8로 늘리는 조건은 계획서의 후속 검토 범위이며 이번 측정과 구분한다.
+
+### 발송 시각 통제 재검증
+
+[기존 로그 감사와 재측정 결과](../../docs/verification/2026-10-16-조회-발송-시각-통제-재검증.md)를 함께 확인한다. `upload_worker_benchmark.py`의 `--workers`, `--repeats`, `--start-index`, `--restart-each-trial`로 범위·순서·예열을 고정한다. 기본 부하 도구는 k6다.
+
+벽시계 변화에 영향받지 않는 로컬 비교에는 `--load-engine node-monotonic --upload-offset-ms 3000`을 사용한다. Node 기본 HTTP와 `performance.now()`로 100사용자/5초 동시 요청을 만들고, 같은 VU·회차는 같은 버전을 조회한다. HTTP 호출/쓰기 완료/응답 완료를 단조 시각으로 기록한다. 외부 의존성이나 제품 mock은 없다.
+
+`analyze_upload_dispatch.py <결과경로> --workers 8 --same-vu --output <감사JSON>`은 발송 오차와 실제 업로드 중첩을 분리 검증한다. 1ms 해상도의 기존 `startEpochMs`는 패킷 송신 시각이 아니며, Node의 쓰기 완료도 커널 수신 증거는 아니다. 발송·처리 단계가 다른 시행을 제외할 때 원시 결과와 제외 사유를 보존한다. 도구를 바꾼 결과를 기존 k6 평균에 섞지 않는다.

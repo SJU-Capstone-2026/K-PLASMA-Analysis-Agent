@@ -26,8 +26,13 @@ def read_clients(path):
     return [json.loads(x) for x in path.read_text().splitlines() if x.startswith('{') and x.endswith('}')]
 
 
-def schedule():
-    return [(w,v,i) for w in (1,2,4,8) for v,i in [('B',1),('C',1),('C',2),('B',2),('B',3),('C',3)]]
+def schedule(workers=(1,2,4,8), repeats=3, start_index=1):
+    if not workers or len(set(workers))!=len(workers) or any(w not in (1,2,4,8) for w in workers):
+        raise ValueError('Choose distinct worker counts from 1,2,4,8')
+    if not 1<=repeats<=5 or start_index<1 or start_index+repeats-1>5:
+        raise ValueError('Repeat indices must be between 1 and 5')
+    return [(w,v,i) for w in workers for i in range(start_index,start_index+repeats)
+            for v in (('B','C') if i%2 else ('C','B'))]
 
 
 def run(args):
@@ -39,16 +44,17 @@ def run(args):
     queries=json.loads((args.seed_artifacts/'queries.json').read_text())
     if len(dataset['expected'])!=150:raise ValueError('Exactly 150 Runs required')
     q.validate_seed(dataset,queries)
-    parts={w:partition(dataset,w) for w in (1,2,4,8)}
+    trials=schedule(args.workers,args.repeats,args.start_index)
+    parts={w:partition(dataset,w) for w in args.workers}
     (args.output/'partitions.json').write_text(json.dumps(parts,indent=2))
     measured=args.output/'measured-harness';measured.mkdir()
-    for name in ['upload_worker_benchmark.py','analyze_upload_workers.py','analyze_upload_query_benchmark.py','upload_query_benchmark.py','upload_benchmark.py','upload_query_load.js','upload_query_user_schedule.mjs']:
+    for name in ['upload_worker_benchmark.py','analyze_upload_workers.py','analyze_upload_query_benchmark.py','upload_query_benchmark.py','upload_benchmark.py','upload_query_load.js','upload_query_user_schedule.mjs','upload_query_monotonic.mjs']:
         shutil.copy2(Path(__file__).parent/name,measured/name)
     jars={v:hashlib.sha256((args.builds/(v+'.jar')).read_bytes()).hexdigest() for v in ['B','C']}
     state=dict(status='preparing',completed=[],current=None)
-    manifest=dict(pool=10,administratorsAndWorkers=[1,2,4,8],vus=100,intervalSeconds=5,totalRuns=150,
+    manifest=dict(pool=10,administratorsAndWorkers=args.workers,vus=100,intervalSeconds=5,totalRuns=150,
         files=len(dataset['entries']),bytes=sum(e['size'] for e in dataset['entries']),datasetHash=dataset['datasetHash'],
-        jarSha256=jars,schedule=schedule(),partitionCostProxy='original bytes',maxNewBatchSeconds=1800,maxSuiteSeconds=2100)
+        jarSha256=jars,schedule=trials,restartEachTrial=args.restart_each_trial,loadEngine=args.load_engine,uploadOffsetMs=args.upload_offset_ms,partitionCostProxy='original bytes',maxNewBatchSeconds=1800,maxSuiteSeconds=2100)
     (args.output/'experiment.json').write_text(json.dumps(manifest,indent=2))
     base=f'http://127.0.0.1:{args.server_port}';storage=args.builds/'active/storage'
     process=None;target=None;current=None;block=0;started=time.monotonic();owns_db=False
@@ -63,7 +69,7 @@ def run(args):
     def restore():u.restore_seed(args.container,storage,args.seed_artifacts/'seed')
     def start(variant,width):
         nonlocal process,current,block,target,owns_db
-        if current==(variant,width):return False
+        if current==(variant,width) and not args.restart_each_trial:return False
         stop_server();block+=1
         if subprocess.run(['lsof','-t',f'-iTCP:{args.server_port}','-sTCP:LISTEN'],capture_output=True,text=True).stdout.strip():raise RuntimeError('Port already occupied')
         target=args.output/'servers'/f'{variant}-w{width}-{block}';(target/'tmp').mkdir(parents=True)
@@ -99,14 +105,21 @@ def run(args):
         restore();q.validate_query_payloads(base,queries)
         timing=target/'timing.jsonl';offset=timing.stat().st_size
         meta=dict(label=label,variant=variant,workers=width,administrators=width,pool=10,index=index,
-            restarted=restarted,expectedJobs=150,batchIds=[],verified=False,errors=[])
+            restarted=restarted,loadEngine=args.load_engine,expectedJobs=150,batchIds=[],verified=False,errors=[])
         stop=threading.Event();load=None;monitor=None;executor=None
         def save_meta():(out/'result.json').write_text(json.dumps(meta,indent=2))
         try:
             env={**os.environ,'BASE_URL':base,'QUERY_MANIFEST':str((args.seed_artifacts/'queries.json').resolve()),
                  'TRIAL_ID':label,'LOAD_MODEL':'users','USER_VUS':'100','DURATION':'70s','SUMMARY_PATH':str((out/'k6-summary.json').resolve())}
+            trigger=out/'upload-trigger.json'
+            env['UPLOAD_TRIGGER_PATH']=str(trigger.resolve())
+            env['UPLOAD_OFFSET_MS']=str(args.upload_offset_ms)
             with (out/'k6.log').open('w') as log:
-                load=subprocess.Popen(['k6','run','--quiet','--log-format','raw','--console-output',str((out/'lookup.jsonl').resolve()),str(ROOT/'scripts/performance/upload_query_load.js')],env=env,stdout=log,stderr=subprocess.STDOUT)
+                if args.load_engine=='node-monotonic':
+                    with (out/'lookup.jsonl').open('w') as lookups:
+                        load=subprocess.Popen(['node',str(ROOT/'scripts/performance/upload_query_monotonic.mjs')],env=env,stdout=lookups,stderr=log)
+                else:
+                    load=subprocess.Popen(['k6','run','--quiet','--log-format','raw','--console-output',str((out/'lookup.jsonl').resolve()),str(ROOT/'scripts/performance/upload_query_load.js')],env=env,stdout=log,stderr=subprocess.STDOUT)
             monitor=threading.Thread(target=q.observe_resources,args=(SimpleNamespace(pid=process.pid,k6_pid=load.pid,container=args.container),out/'resources.jsonl',stop),daemon=True);monitor.start()
             # Anchor to the first actual synchronized cohort, not k6 process startup.
             deadline=time.monotonic()+15
@@ -114,7 +127,12 @@ def run(args):
                 if load.poll() is not None or time.monotonic()>deadline:raise RuntimeError('k6 did not start')
                 time.sleep(.05)
             first=read_clients(out/'lookup.jsonl')[0]['scheduledEpochMs']
-            time.sleep(max(0,(first+5000-time.time()*1000)/1000))
+            if args.load_engine=='node-monotonic':
+                while not trigger.exists():
+                    if load.poll() is not None or time.monotonic()>deadline:raise RuntimeError('Upload trigger missing')
+                    time.sleep(.002)
+            else:
+                time.sleep(max(0,(first+args.upload_offset_ms-time.time()*1000)/1000))
             gate=threading.Barrier(width+1);executor=concurrent.futures.ThreadPoolExecutor(max_workers=width)
             def send(part):
                 gate.wait(timeout=10);epoch=time.time()*1000
@@ -135,7 +153,7 @@ def run(args):
                 adminStartSpreadMs=max(s['startEpochMs'] for s in submitted)-min(s['startEpochMs'] for s in submitted),
                 admins=[{k:v for k,v in s.items() if k!='info'} for s in submitted])
             (out/'batches.json').write_text(json.dumps(infos,indent=2))
-            final_cohort=math.floor((end_epoch-first)/5000)+1
+            final_cohort=(max(c['cohort'] for c in read_clients(out/'lookup.jsonl'))+1 if args.load_engine=='node-monotonic' else math.floor((end_epoch-first)/5000)+1)
             deadline=time.monotonic()+15
             while sum(c['cohort']==final_cohort for c in read_clients(out/'lookup.jsonl'))<100:
                 if load.poll() is not None or time.monotonic()>deadline:raise RuntimeError('Final lookup cohort incomplete')
@@ -172,7 +190,7 @@ def run(args):
     watchdog=threading.Timer(2100,lambda:os.kill(os.getpid(),signal.SIGUSR1));watchdog.daemon=True;watchdog.start()
     try:
         state.update(status='running',startedEpoch=time.time());save()
-        for width,variant,index in schedule():
+        for width,variant,index in trials:
             if time.monotonic()-started>=1800:raise TimeoutError('30 minute new-batch cutoff')
             state['current']=dict(workers=width,variant=variant,index=index);save();print('START '+json.dumps(state['current']),flush=True)
             restarted=start(variant,width);row=trial(variant,width,index,restarted)
@@ -188,6 +206,11 @@ def run(args):
 if __name__=='__main__':
     p=argparse.ArgumentParser(description=__doc__)
     for key in ['builds','seed-artifacts','fixture','output']:p.add_argument('--'+key,type=Path,required=True)
+    p.add_argument('--workers',type=int,nargs='+',default=[1,2,4,8]);p.add_argument('--repeats',type=int,default=3)
+    p.add_argument('--start-index',type=int,default=1)
+    p.add_argument('--restart-each-trial',action='store_true')
+    p.add_argument('--load-engine',choices=['k6','node-monotonic'],default='k6')
+    p.add_argument('--upload-offset-ms',type=int,default=5000)
     p.add_argument('--container',required=True);p.add_argument('--java',default='/opt/homebrew/opt/openjdk@21/bin/java')
     p.add_argument('--server-port',type=int,default=18552);p.add_argument('--db-port',type=int,default=15452)
     run(p.parse_args())
