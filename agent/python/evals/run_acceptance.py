@@ -191,7 +191,7 @@ def attempt(case, repeat, settings):
                         {"metric": "ionFlux", "unit": "10¹⁸ m⁻²s⁻¹"},
                         {"metric": "sourcePower", "unit": "W"},
                     ]
-                    record["passed"] &= [r["runId"] for r in snapshot["result"]["candidates"]] == [
+                    record["passed"] &= [r["runId"] for r in snapshot["result"].get("commonRunRefs", snapshot["result"].get("candidates", []))] == [
                         "SYNTHETIC-2",
                         "SYNTHETIC-3",
                         "SYNTHETIC-4",

@@ -43,3 +43,4 @@ Thumbs.db
 # Local performance evidence and private portfolio notes
 /.local/
 /docs/folio/
+.context/compound-engineering/ce-optimize/

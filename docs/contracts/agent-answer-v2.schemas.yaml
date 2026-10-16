@@ -850,3 +850,59 @@ components:
       - unit
       title: UnitAssumption
       type: object
+    # Reverse result v2 is nested under the existing AnswerSnapshotV2.result.
+    # Search contracts are explicit here; the shared Python result field stays an open
+    # dictionary for legacy answers. Publication also validates references server-side.
+    CompactReverseConditionGroup:
+      type: object
+      additionalProperties: false
+      required: [objective, candidateRefs, allConstraintsGuaranteed]
+      properties:
+        objective:
+          type: object
+        candidateRefs:
+          type: array
+          uniqueItems: true
+          items:
+            $ref: '#/components/schemas/RunRef'
+        allConstraintsGuaranteed:
+          const: false
+    CompactReverseSearchResult:
+      type: object
+      additionalProperties: false
+      required: [kind, resultStatus, status, processMode, constraints, goals, objectives, totalCount, searchResultVersion, runsByVersion, commonRunRefs, commonRunIds, commonRecommendation, objectiveResults, goalResults, candidateEvaluations, usedRunRefs, excludedRuns, defaultedUnits, numericPolicyVersion]
+      properties:
+        kind: {const: reverse_search}
+        resultStatus: {enum: [MATCH, NO_MATCH]}
+        status: {enum: [MATCH, NO_MATCH]}
+        processMode: {const: RUN_SEARCH}
+        searchResultVersion: {const: 2}
+        numericPolicyVersion: {const: v1}
+        totalCount: {type: integer, minimum: 0}
+        constraints: {type: array, items: {type: object}}
+        goals: {type: array, items: {type: object}}
+        objectives: {type: array, items: {type: object}}
+        runsByVersion:
+          type: object
+          description: One scalar snapshot per immutable runVersionId; keys and references must match.
+          additionalProperties: {type: object}
+        commonRunRefs:
+          type: array
+          uniqueItems: true
+          items: {$ref: '#/components/schemas/RunRef'}
+        commonRunIds: {type: array, items: {type: string}}
+        commonRecommendation:
+          anyOf:
+          - {$ref: '#/components/schemas/RunRef'}
+          - {type: 'null'}
+        objectiveResults:
+          type: array
+          items: {$ref: '#/components/schemas/CompactReverseConditionGroup'}
+        goalResults: {type: array, maxItems: 0}
+        candidateEvaluations: {type: array, items: {type: object}}
+        usedRunRefs:
+          type: array
+          uniqueItems: true
+          items: {$ref: '#/components/schemas/RunRef'}
+        excludedRuns: {type: array, items: {type: object}}
+        defaultedUnits: {type: array, items: {type: object}}

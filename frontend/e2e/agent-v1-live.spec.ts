@@ -23,10 +23,12 @@ for(const width of widths)test(`v1 real HTTP answers four tools, clarification a
   const energy=a.metrics.meanIonEnergy!;const low=Math.max(0,energy-0.1),high=energy+0.1;
   const reverse=await askComplete(page,`Ion Flux는 높게, Mean Ion Energy는 ${low}–${high}에 가깝게 후보를 찾아줘`,'reverse_search',2);
   expect(reverse.answerSnapshot.unitAssumptions).toEqual([{metric:'meanIonEnergy',unit:'eV'}]);
-  const searched=reverse.answerSnapshot.result as unknown as {resultStatus:string;commonCandidates:{run:RunSummary}[];goalResults:unknown[]};
+  const searched=reverse.answerSnapshot.result as unknown as {resultStatus:string;searchResultVersion:number;runsByVersion:Record<string,RunSummary>;commonRunRefs:{runId:string;runVersionId:string}[];goalResults:unknown[]};
+  expect(searched.searchResultVersion).toBe(2);
+  expect(Object.keys(searched.runsByVersion).sort()).toEqual(searched.commonRunRefs.map(ref=>ref.runVersionId).sort());
   expect(searched.resultStatus).toBe('MATCH');
   expect(searched.goalResults).toEqual([]);
-  expect(searched.commonCandidates.map(candidate=>candidate.run.runId)).toEqual(usable.filter(run=>run.metrics.meanIonEnergy!==null&&run.metrics.meanIonEnergy>=low&&run.metrics.meanIonEnergy<=high).sort((x,y)=>y.metrics.ionFlux!-x.metrics.ionFlux!).map(run=>run.runId));
+  expect(searched.commonRunRefs.map(ref=>ref.runId)).toEqual(usable.filter(run=>run.metrics.meanIonEnergy!==null&&run.metrics.meanIonEnergy>=low&&run.metrics.meanIonEnergy<=high).sort((x,y)=>y.metrics.ionFlux!-x.metrics.ionFlux!).map(run=>run.runId));
   await expect(page.locator('[data-turn-id="'+reverse.id+'"] .agent-fit-card').first()).toBeVisible();
   const reverseView=page.locator(`[data-turn-id="${reverse.id}"]`);
   await expect(reverseView.getByRole('tab')).toHaveCount(2);

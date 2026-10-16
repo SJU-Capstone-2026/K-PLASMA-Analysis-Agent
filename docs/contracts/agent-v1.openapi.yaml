@@ -229,19 +229,18 @@ paths:
         historical references, without pinning the entire catalog; the exact result is
         pinned when forwardQuery is materialized. Replay cannot replace its version or query.
         forwardQuery cannot be combined with reverseQuery or referencesOnly.
-        A reverseQuery pins a small catalogRunRefs inventory and applies validated
-        canonical constraints in SQL WHERE and ordered goals in ORDER BY. The scalar
-        pool contains common matches, independent output-condition matches and
-        unavailable records needed for exclusion reasons. Only no-common-match
-        queries load the eligible pool for deterministic near-miss ranking.
-        referencesOnly fixes version inventory and returns exact reference summaries
+        A reverseQuery selects current versions in one SQL snapshot using typed scalar
+        predicates and ordered goals. Only common matches and independent output-condition
+        matches are returned, with selectedRunRefs pinning that exact pool. No global
+        catalogRunRefs or nearest-candidate pool is read or persisted. Zero matches is
+        a materialized empty result. referencesOnly pins only explicit requiredRunRefs
         with an empty runs array; it resolves context-derived bounds before reverseQuery.
         Deleted versions mentioned in previous answers are optional interpretation
         context and do not block an unrelated lookup; explicit requiredRunRefs are
         checked. A selected unavailable role must lead to a clarification.
         Later calls can append exact versions to referencedRuns but never refresh
-        a materialized query or replace existing scalar values. A scoped inventory
-        may be materialized once; replay uses the identical stored query and pool.
+        a materialized query or replace existing scalar values. A scoped query
+        is materialized once; replay uses the identical stored query and selected pool.
         Changing a materialized reverseQuery returns MANIFEST_QUERY_CONFLICT.
         Python still verifies numeric predicates and resolves full Decimal/tie order.
         generate_answer skips this API. compare_runs requires referencesOnly and an ordered
@@ -358,7 +357,8 @@ components:
               referencedRuns: { type: array, items: { type: object } }
               context: { type: object }
               createdAt: { type: string, format: date-time }
-              catalogRunRefs: { type: array, items: { $ref: '#/components/schemas/RunRef' }, description: Immutable latest-version inventory for scoped reverse queries. }
+              catalogRunRefs: { type: array, items: { $ref: '#/components/schemas/RunRef' }, description: Legacy inventory or exact forward selection; absent in new reverse queries. }
+              selectedRunRefs: { type: array, items: { $ref: '#/components/schemas/RunRef' }, description: Exact materialized reverse-query pool, including an empty array for no matches. }
               reverseQuery: { $ref: '#/components/schemas/ReverseQuery' }
   schemas:
     OutputResponse:
@@ -534,3 +534,10 @@ components:
             biasPower: { type: number, description: Canonical W including zero }
         answer: { type: object, description: Existing AgentResponse with v1 answerSnapshot. }
         limit: { type: integer, minimum: 1, maximum: 4 }
+
+# Reverse scoped-context contract (search result schema is defined in agent-answer-v2.schemas.yaml):
+# reverseQuery selects current rows and their versions in one SQL snapshot, then freezes
+# only selectedRunRefs/runs. referencesOnly freezes requiredRunRefs, not the catalog.
+# catalogMaterialized=true also represents an empty selection; retries never refresh it.
+# New reverse answers use result.searchResultVersion=2, runsByVersion/commonRunRefs and
+# objectiveResults[].candidateRefs. No near candidates or global catalogRunRefs are emitted.

@@ -71,9 +71,9 @@ public class AgentRequestService {
         var snapshot=turn.answerSnapshot();
         if(snapshot.get("result") instanceof Map<?,?> result){
             Object candidates=null;
-            if("common".equals(groupId))candidates="forward_lookup".equals(result.get("kind"))?result.get("candidates"):result.get("commonCandidates");
+            if("common".equals(groupId))candidates="forward_lookup".equals(result.get("kind"))?result.get("candidates"):result.containsKey("commonRunRefs")?result.get("commonRunRefs"):result.get("commonCandidates");
             else if(groupId.startsWith("objective-")&&result.get("objectiveResults") instanceof List<?> groups){
-                try{int index=Integer.parseInt(groupId.substring(10));if(index>=0&&index<groups.size())candidates=((Map<?,?>)groups.get(index)).get("candidates");}catch(NumberFormatException ignored){return false;}
+                try{int index=Integer.parseInt(groupId.substring(10));if(index>=0&&index<groups.size()){var group=(Map<?,?>)groups.get(index);candidates=group.containsKey("candidateRefs")?group.get("candidateRefs"):group.get("candidates");}}catch(NumberFormatException ignored){return false;}
             }else if("near".equals(groupId))candidates=result.get("nearMisses");
             if(candidates instanceof List<?> rows)for(Object value:rows){var row=(Map<?,?>)value;var run=row.get("run") instanceof Map<?,?> nested?nested:row;if(Objects.equals(run.get("runId"),ref.runId())&&Objects.equals(run.get("runVersionId"),ref.runVersionId()))return true;}
             return false;
@@ -195,11 +195,9 @@ public class AgentRequestService {
             if(scoped!=null)return scoped;
         }
         if("compare_runs".equals(row.operationKind())&&row.context()!=null&&row.context().containsKey("comparisonReference"))return comparisonContext(id,row,required,reverseQuery,referencesOnly);
+        if(reverseQuery!=null||Boolean.TRUE.equals(referencesOnly))return reverseContext(id,row,required,reverseQuery,referencesOnly);
         validate.refs(required,INVALID,false);
-        boolean only=Boolean.TRUE.equals(referencesOnly);require(!only||reverseQuery==null,"referencesOnly and reverseQuery are mutually exclusive");
-        ReverseContextQuery query=reverseQuery==null?null:new ReverseContextQuery(reverseQuery);
         Map<String,Object> manifest=row.manifest()==null?new LinkedHashMap<>():new LinkedHashMap<>(row.manifest());
-        if(manifest.get("reverseQuery")!=null&&query!=null&&!mapper.valueToTree(manifest.get("reverseQuery")).equals(mapper.valueToTree(query.normalized())))conflict("MANIFEST_QUERY_CONFLICT","A materialized reverse query cannot change");
         boolean changed=row.manifest()==null;
         if(row.manifest()==null||Boolean.TRUE.equals(manifest.remove("forwardScoped"))){
             changed=true;
@@ -207,8 +205,7 @@ public class AgentRequestService {
             var inventory=jdbc.query("select r.run_id,r.current_version_id::text from run r where r.current_version_id is not null order by r.run_id",(rs,n)->Map.of("runId",rs.getString(1),"runVersionId",rs.getString(2)));
             manifest.put("catalogRunRefs",inventory);manifest.put("runs",List.of());manifest.put("referencedRuns",List.of());manifest.put("context",row.context());manifest.put("createdAt",Instant.now().toString());
         }else if(!manifest.containsKey("catalogRunRefs")){
-            List<Map<String,Object>> inventory=new ArrayList<>();for(Object value:(List<?>)manifest.get("runs")){Map<?,?> run=(Map<?,?>)value;inventory.add(Map.of("runId",run.get("runId"),"runVersionId",run.get("runVersionId")));}
-            manifest.put("catalogRunRefs",inventory);changed=true;
+            manifest.put("catalogRunRefs",jdbc.query("select r.run_id,r.current_version_id::text from run r where r.current_version_id is not null order by r.run_id",(rs,n)->Map.of("runId",rs.getString(1),"runVersionId",rs.getString(2))));changed=true;
         }
         Set<String> refs=new LinkedHashSet<>();
         // Stored answers can outlive deleted Runs. They are interpretation context,
@@ -221,11 +218,7 @@ public class AgentRequestService {
             manifest.put("referencedRuns",historical);changed=true;
         }
         Set<String> pinned=new LinkedHashSet<>();collectVersions(manifest.get("catalogRunRefs"),pinned);
-        if(query!=null&&manifest.get("reverseQuery")==null){
-            var sql=query.select(pinned.toArray(String[]::new));
-            manifest.put("runs",jdbc.query(sql.text(),(rs,n)->scalarRow(rs.getString(1),rs.getObject(2)),sql.arguments().toArray()));
-            manifest.put("reverseQuery",query.normalized());manifest.put("catalogMaterialized",true);changed=true;
-        }else if(!only&&query==null&&!Boolean.TRUE.equals(manifest.get("catalogMaterialized"))){
+        if(!Boolean.TRUE.equals(manifest.get("catalogMaterialized"))){
             manifest.put("runs",scalarVersions(pinned.toArray(String[]::new)));manifest.put("catalogMaterialized",true);changed=true;
         }
         if(changed)jdbc.update("update agent_request set manifest=?::jsonb,updated_at=now() where id=?",requests.json(manifest),id);
@@ -273,7 +266,35 @@ public class AgentRequestService {
         jdbc.update("update agent_request set manifest=?::jsonb,updated_at=now() where id=?",requests.json(manifest),id);
         return manifest;
     }
-    private List<Map<String,Object>> scalarVersions(String[] versions){return jdbc.query("select summary::text,jsonb_array_length(full_run->'sourceFiles') from run_version where id=any(?::uuid[]) order by run_id,registration_sequence",(rs,n)->scalarRow(rs.getString(1),rs.getObject(2)),(Object)versions);}
+    private Map<String,Object> reverseContext(UUID id,AgentRequestRepository.Row row,List<RunRef> required,Map<String,Object> reverseQuery,Boolean referencesOnly){
+        boolean only=Boolean.TRUE.equals(referencesOnly);
+        require(!only||reverseQuery==null,"referencesOnly and reverseQuery are mutually exclusive");
+        ReverseContextQuery query=reverseQuery==null?null:new ReverseContextQuery(reverseQuery);
+        validate.bulkRefs(required,INVALID);
+        Map<String,Object> manifest=row.manifest()==null?new LinkedHashMap<>():new LinkedHashMap<>(row.manifest());
+        boolean changed=row.manifest()==null;
+        if(changed){
+            manifest.put("runs",List.of());manifest.put("referencedRuns",List.of());manifest.put("context",row.context());manifest.put("createdAt",Instant.now().toString());
+        }
+        if(manifest.get("reverseQuery")!=null&&query!=null&&!mapper.valueToTree(manifest.get("reverseQuery")).equals(mapper.valueToTree(query.normalized())))
+            conflict("MANIFEST_QUERY_CONFLICT","A materialized reverse query cannot change");
+        Set<String> refs=new LinkedHashSet<>();required.forEach(ref->refs.add(ref.runVersionId()));
+        Set<String> fetched=new HashSet<>();collectVersions(manifest.get("referencedRuns"),fetched);refs.removeAll(fetched);
+        if(!refs.isEmpty()){
+            List<Object> selected=new ArrayList<>((List<?>)manifest.get("referencedRuns"));selected.addAll(scalarVersions(refs.toArray(String[]::new)));
+            manifest.put("referencedRuns",selected);changed=true;
+        }
+        if(query!=null&&!Boolean.TRUE.equals(manifest.get("catalogMaterialized"))){
+            var sql=query.select();
+            var runs=jdbc.query(sql.text(),(rs,n)->scalarRow(rs.getString(1),rs.getObject(2)),sql.arguments().toArray());
+            manifest.put("runs",runs);
+            manifest.put("selectedRunRefs",runs.stream().map(run->Map.of("runId",run.get("runId"),"runVersionId",run.get("runVersionId"))).toList());
+            manifest.put("reverseQuery",query.normalized());manifest.put("catalogMaterialized",true);changed=true;
+        }
+        if(changed)jdbc.update("update agent_request set manifest=?::jsonb,updated_at=now() where id=?",requests.json(manifest),id);
+        return manifest;
+    }
+    private List<Map<String,Object>> scalarVersions(String[] versions){return jdbc.query("select summary::text,source_file_count from run_version where id=any(?::uuid[]) order by run_id,registration_sequence",(rs,n)->scalarRow(rs.getString(1),rs.getObject(2)),(Object)versions);}
     private Map<String,Object> scalarRow(String json,Object sourceFileCount){var item=scalarSummary(json);item.put("sourceFileCount",sourceFileCount);return item;}
     private Map<String,Object> comparisonContext(UUID id,AgentRequestRepository.Row row,List<RunRef> required,Map<String,Object> reverseQuery,Boolean only){
         require(Boolean.TRUE.equals(only)&&reverseQuery==null,"Comparison requires referencesOnly");
