@@ -1,0 +1,21 @@
+name: kplasma-forward-benchmark
+services:
+  postgres:
+    image: postgres:18.6-alpine3.24
+    container_name: kplasma-forward-benchmark-db
+    labels:
+      kplasma.benchmark: forward-lookup-synthetic-only
+    environment:
+      POSTGRES_DB: forward_lookup_bench
+      POSTGRES_USER: benchmark
+      POSTGRES_PASSWORD: benchmark-local-only
+    ports:
+      - '127.0.0.1:15445:5432'
+    cpus: 2
+    mem_limit: 3g
+    shm_size: 256m
+    command: ['postgres', '-c', 'shared_buffers=256MB', '-c', 'work_mem=16MB', '-c', 'max_parallel_workers_per_gather=0']
+    volumes:
+      - benchmark-data:/var/lib/postgresql
+volumes:
+  benchmark-data:

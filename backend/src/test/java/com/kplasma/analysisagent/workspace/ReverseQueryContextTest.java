@@ -25,6 +25,7 @@ class ReverseQueryContextTest extends WorkspaceTestSupport {
     }
     private Map<String,Object> body(Map<String,Object> fields) {var body=new HashMap<String,Object>(fence);body.putAll(fields);return body;}
     private JsonNode context(Map<String,Object> fields) throws Exception {
+        jdbc.queryForList("select run_search_refresh_v1(run_id) from run");
         var response=internal(path+"/context",body(fields));assertThat(response.statusCode()).describedAs(response.body()).isEqualTo(200);return json(response);
     }
     private Map<String,Object> constraint(String metric,String operator,double value) {return Map.of("metric",metric,"operator",operator,"value",value,"unit",metric.equals("pressure")?"mTorr":"eV");}
@@ -40,13 +41,13 @@ class ReverseQueryContextTest extends WorkspaceTestSupport {
         start();var q=query(List.of(range(150,160)),List.of(goal("ionFlux","maximize")));
         var manifest=context(Map.of("reverseQuery",q));
         assertThat(ids(manifest)).containsExactly("SYNTHETIC-1","SYNTHETIC-0");
-        assertThat(manifest.get("catalogRunRefs").size()).isEqualTo(4);
+        assertThat(manifest.has("catalogRunRefs")).isFalse();
         assertThat(manifest.get("reverseQuery")).isEqualTo(mapper.valueToTree(q));
         assertThat(manifest.get("runs").get(0).has("sourceFiles")).isFalse();
     }
-    @Test void retainsIndependentConditionMatchesAndUnavailableRecordsForReasons() throws Exception {
+    @Test void retainsOnlyIndependentConditionMatchesAndTheirAvailability() throws Exception {
         metric(0,"meanIonEnergy",155.0);metric(1,"meanIonEnergy",156.0);metric(2,"meanIonEnergy",20.0);metric(3,"meanIonEnergy",200.0);
-        metric(0,"iedWidth",1.0);metric(1,"iedWidth",8.0);metric(2,"iedWidth",2.0);metric(3,"ionFlux",null);
+        metric(0,"iedWidth",1.0);metric(1,"iedWidth",8.0);metric(2,"iedWidth",2.0);metric(3,"iedWidth",2.0);metric(3,"ionFlux",null);
         start();var manifest=context(Map.of("reverseQuery",query(List.of(range(150,160),constraint("iedWidth","lte",3)),List.of(goal("ionFlux","maximize")))));
         assertThat(ids(manifest)).containsExactlyInAnyOrder("SYNTHETIC-0","SYNTHETIC-1","SYNTHETIC-2","SYNTHETIC-3");
         assertThat(manifest.get("runs").size()).isEqualTo(4);
@@ -69,19 +70,19 @@ class ReverseQueryContextTest extends WorkspaceTestSupport {
         jdbc.update("update run_version set summary=jsonb_set(summary,'{units,ionFlux}',to_jsonb('m^-2 s^-1'::text)) where id=?",UUID.fromString(refs.getFirst().get("runVersionId").stringValue()));
         start();assertThat(ids(context(Map.of("reverseQuery",query(List.of(range(150,160)),List.of(goal("ionFlux","maximize"))))))).containsExactly("SYNTHETIC-0","SYNTHETIC-1");
     }
-    @Test void pressureConversionRetainsOverflowAndInvalidUnitsForWorkerExclusionReasons() throws Exception {
+    @Test void pressureConversionDoesNotReturnUnrelatedInvalidRows() throws Exception {
         jdbc.update("update run_version set summary=jsonb_set(jsonb_set(summary,'{pressure}','0.003'::jsonb),'{units,pressure}',to_jsonb('Torr'::text)) where id=?",UUID.fromString(refs.getFirst().get("runVersionId").stringValue()));
         jdbc.update("update run_version set summary=jsonb_set(summary,'{pressure}','4'::jsonb) where id=?",UUID.fromString(refs.get(1).get("runVersionId").stringValue()));
         jdbc.update("update run_version set summary=jsonb_set(jsonb_set(summary,'{pressure}','1e308'::jsonb),'{units,pressure}',to_jsonb('Torr'::text)) where id=?",UUID.fromString(refs.get(2).get("runVersionId").stringValue()));
         jdbc.update("update run_version set summary=jsonb_set(summary,'{units,pressure}',to_jsonb('Pa'::text)) where id=?",UUID.fromString(refs.get(3).get("runVersionId").stringValue()));
-        start();assertThat(ids(context(Map.of("reverseQuery",query(List.of(constraint("pressure","eq",3)),List.of()))))).containsExactly("SYNTHETIC-0","SYNTHETIC-2","SYNTHETIC-3");
+        start();assertThat(ids(context(Map.of("reverseQuery",query(List.of(constraint("pressure","eq",3)),List.of()))))).containsExactly("SYNTHETIC-0");
     }
     @Test void preservesUnusableRunsAndNullVersusZeroWithDefaultContextToo() throws Exception {
         metric(0,"meanIonEnergy",155.0);metric(1,"meanIonEnergy",20.0);metric(2,"meanIonEnergy",20.0);metric(3,"meanIonEnergy",200.0);
         jdbc.update("update run_version set summary=jsonb_set(summary,'{qualityStatus}',to_jsonb('UNVERIFIED'::text)) where id=?",UUID.fromString(refs.get(1).get("runVersionId").stringValue()));
         metric(2,"ionFlux",null);metric(3,"ionFlux",0.0);
         start();var selected=context(Map.of("reverseQuery",query(List.of(range(150,160)),List.of(goal("ionFlux","maximize")))));
-        assertThat(ids(selected)).containsExactlyInAnyOrder("SYNTHETIC-0","SYNTHETIC-1","SYNTHETIC-2");
+        assertThat(ids(selected)).containsExactly("SYNTHETIC-0");
         ok("POST","/api/agent"+path+"/cancel",Map.of(),null);start();var all=context(Map.of());
         assertThat(all.get("runs").get(2).get("metrics").get("ionFlux").isNull()).isTrue();
         assertThat(all.get("runs").get(3).get("metrics").get("ionFlux").doubleValue()).isZero();
@@ -91,20 +92,20 @@ class ReverseQueryContextTest extends WorkspaceTestSupport {
         start();var soft=Map.<String,Object>of("metric","meanIonEnergy","direction","target_range","min",-1.7e308,"max",-1.6e308,"unit","eV");
         assertThat(ids(context(Map.of("reverseQuery",query(List.of(),List.of(soft)))))).containsExactly("SYNTHETIC-1","SYNTHETIC-0","SYNTHETIC-2","SYNTHETIC-3");
     }
-    @Test void defaultContextCanMaterializeReferenceOnlyInventoryWithoutUsingNewLatestVersions() throws Exception {
+    @Test void referenceOnlyDoesNotFreezeUnrelatedCatalogVersions() throws Exception {
         start();var before=context(Map.of("referencesOnly",true));assertThat(before.get("runs").size()).isZero();
         jdbc.update("update run set current_version_id=null where run_id='SYNTHETIC-3'");
-        assertThat(context(Map.of()).get("runs").size()).isEqualTo(4);
+        assertThat(context(Map.of()).get("runs").size()).isEqualTo(3);
     }
-    @Test void referenceOnlyPinsCatalogBeforeQueryAndRepeatedQueryDoesNotRefreshVersions() throws Exception {
+    @Test void referenceOnlyPinsExplicitVersionWhileSearchUsesResolvedQueryTime() throws Exception {
         metric(0,"meanIonEnergy",155.0);metric(1,"meanIonEnergy",20.0);metric(2,"meanIonEnergy",20.0);metric(3,"meanIonEnergy",200.0);
         start();var before=context(Map.of("referencesOnly",true,"requiredRunRefs",List.of(refs.getFirst())));
-        assertThat(before.get("runs").size()).isZero();assertThat(before.get("referencedRuns").size()).isEqualTo(1);assertThat(before.get("catalogRunRefs").size()).isEqualTo(4);
+        assertThat(before.get("runs").size()).isZero();assertThat(before.get("referencedRuns").size()).isEqualTo(1);assertThat(before.has("catalogRunRefs")).isFalse();
         UUID newer=UUID.randomUUID();String old=refs.getFirst().get("runVersionId").stringValue();
         jdbc.update("insert into run_version(id,run_id,source_id,registered_at,summary,full_run) select ?,run_id,source_id,now(),jsonb_set(jsonb_set(summary,'{runVersionId}',to_jsonb(?::text)),'{metrics,meanIonEnergy}','20'::jsonb),jsonb_set(full_run,'{runVersionId}',to_jsonb(?::text)) from run_version where id=?",newer,newer.toString(),newer.toString(),UUID.fromString(old));
         jdbc.update("update run set current_version_id=? where run_id='SYNTHETIC-0'",newer);
         var q=query(List.of(range(150,160)),List.of(goal("ionFlux","maximize")));var selected=context(Map.of("reverseQuery",q));
-        assertThat(ids(selected)).containsExactly("SYNTHETIC-0");assertThat(selected.get("runs").get(0).get("runVersionId").stringValue()).isEqualTo(old);
+        assertThat(ids(selected)).isEmpty();assertThat(selected.get("referencedRuns").get(0).get("runVersionId").stringValue()).isEqualTo(old);
         assertThat(context(Map.of("reverseQuery",q))).isEqualTo(selected);
         jdbc.update("update agent_request set lease_until=now()-interval '1 second' where id=?",UUID.fromString(path.substring("/requests/".length())));
         var reclaimed=json(internal("/claim",Map.of("workerId","restarted-worker","leaseSeconds",60)));
@@ -114,9 +115,9 @@ class ReverseQueryContextTest extends WorkspaceTestSupport {
         var augmented=context(Map.of("reverseQuery",q,"requiredRunRefs",List.of(Map.of("runId","SYNTHETIC-0","runVersionId",newer.toString()))));
         assertThat(augmented.get("runs")).isEqualTo(selected.get("runs"));assertThat(augmented.get("referencedRuns").size()).isEqualTo(2);
     }
-    @Test void noCommonMatchKeepsPinnedPoolForExistingNearMatchPolicy() throws Exception {
+    @Test void noCommonMatchReturnsEmptyWithoutGlobalPool() throws Exception {
         metric(0,"ionFlux",1.0);metric(1,"ionFlux",1000.0);
-        start();assertThat(ids(context(Map.of("reverseQuery",query(List.of(range(150,160)),List.of(goal("ionFlux","maximize"))))))).containsExactly("SYNTHETIC-0","SYNTHETIC-1","SYNTHETIC-2","SYNTHETIC-3");
+        start();assertThat(ids(context(Map.of("reverseQuery",query(List.of(range(150,160)),List.of(goal("ionFlux","maximize"))))))).isEmpty();
     }
     @Test void tinySourceNumbersDoNotThrowOrDisappearBeforeWorkerNormalization() throws Exception {
         jdbc.update("update run_version set summary=jsonb_set(summary,'{metrics,meanIonEnergy}','1e-330'::jsonb) where id=?",UUID.fromString(refs.getFirst().get("runVersionId").stringValue()));

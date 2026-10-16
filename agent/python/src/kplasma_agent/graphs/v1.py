@@ -1,4 +1,4 @@
-"""v1: one native tool selection, deterministic execution, optional grounded answer."""
+"""v1: one native tool selection, deterministic comparison, optional general answer."""
 
 from copy import deepcopy
 import re
@@ -8,14 +8,15 @@ from pydantic import ValidationError
 from langgraph.graph import StateGraph, START, END
 from langgraph.types import interrupt
 from .. import tracing
+from ..comparison_catalog import comparison_plan
 from ..tools import TOOL_MODELS, SELECTION_PROMPT, GENERAL_PROMPT
 from ..model_client import ModelError
-from ..answer_contracts import AnswerSnapshotV2, GeneralAnswerResult
+from ..answer_contracts import AnswerSnapshotV2, AnswerSnapshotV3, GeneralAnswerResult
 from ..domain import lookup_forward, search_reverse, validate_result
 from ..domain.compare import compare_selected
 from ..domain.common import DomainError
 from ..domain.grounding import validate_grounding, validate_native_comparison_metrics
-from ..explanations.answers import COMPARISON_PROMPT, validate_answer, comparison_draft_model
+from ..explanations.answers import COMPARISON_PROMPT
 from ..metric_registry import CONDITION_KEYS, LABELS, UNITS, NumericError, normalize_value
 
 # Import compatibility for evaluation clients; production selection uses native tools.
@@ -38,17 +39,14 @@ class GraphState(TypedDict, total=False):
     reply: dict
     manifest: dict
     source: list
+    comparison_outputs: list
     inputs: dict
     result: dict
     verified: bool
-    evidence: dict
     draft: dict
-    repair_error: str
-    explanation_repairs: int
     model_metadata: dict
     context_provenance: dict
     answer: dict
-    comparison_answer: dict
     comparison_reference: dict
     unit_assumptions: list
 
@@ -109,6 +107,18 @@ def _context_refs(context):
     for key in ("activeRun", "selectedRunRef", "candidateReferences", "comparisonContext"):
         visit(context.get(key))
     return refs
+
+
+def _reverse_context_refs(context):
+    # Both roles may point at the same immutable experiment.
+    unique = {}
+    for key in ("activeRun", "selectedRunRef"):
+        ref = context.get(key)
+        if isinstance(ref, dict) and ref.get("runId") and ref.get("runVersionId"):
+            unique[(ref["runId"], ref["runVersionId"])] = {
+                "runId": ref["runId"], "runVersionId": ref["runVersionId"]
+            }
+    return list(unique.values())
 
 
 def _resolve(selector, manifest, context):
@@ -234,6 +244,14 @@ def build_graph(model, backend, settings, checkpointer):
         if kind == "generate_answer":
             return {"inputs": {}, "context_provenance": {}, "route": "answer"}
         if kind == "compare_runs":
+            scope_text = state["question"]
+            if state.get("pending", {}).get("reason") in ("UNSUPPORTED_COMPARISON_FEATURE", "COMPARISON_ANSWER_BUDGET"):
+                scope_text = next((item["text"] for item in reversed(state.get("input_history", [])) if item.get("text")), scope_text)
+            if re.search(r"(?<![A-Za-z0-9_])RMS(?![A-Za-z0-9_])|실효값|절댓?값\s*(?:피크|최대)|위상\s*차|고조파|상호\s*상관", scope_text, re.IGNORECASE):
+                return _request_input(
+                    state, "현재는 최댓값·최솟값·첨두간 값·반첨두간 진폭과 원본 극값 위치를 비교합니다. RMS·절댓값 피크·위상차는 아직 지원하지 않습니다. 비교할 지원 항목을 알려 주세요.",
+                    "UNSUPPORTED_COMPARISON_FEATURE",
+                )
             snapshot = (
                 state.get("comparison_reference")
                 or state.get("context", {}).get("comparisonReference")
@@ -266,6 +284,12 @@ def build_graph(model, backend, settings, checkpointer):
             entries = [e for e in all_entries if requested is None or e["key"] in requested]
             if len(entries) < 2:
                 return _picker(state, baseline_required)
+            if len(entries) * len(comparison_plan(inputs)[0]) > 80 and re.search(r"(?:모든|전체|각|every|each).*?(?:개별|하나씩|각각|설명)|(?:개별|하나씩|각각).*?설명", scope_text, re.IGNORECASE):
+                return _request_input(
+                    state, "전체 실험을 하나씩 설명하기에는 범위가 큽니다. 전체 수치·그래프를 유지한 요약을 받거나 비교할 실험을 줄여 주세요.",
+                    "COMPARISON_ANSWER_BUDGET",
+                    options=[{"label": "전체 수치와 그래프를 유지하고 요약", "input": {"text": "전체 수치와 그래프를 유지하고 요약해줘"}}],
+                )
             try:
                 validate_native_comparison_metrics(inputs, state["question"], state.get("input_history", []))
             except DomainError:
@@ -497,6 +521,7 @@ def build_graph(model, backend, settings, checkpointer):
             return {
                 "manifest": manifest,
                 "source": source,
+                "comparison_outputs": [],
                 "inputs": inputs,
                 "context_provenance": state["comparison_reference"],
                 "route": "calculate",
@@ -505,12 +530,21 @@ def build_graph(model, backend, settings, checkpointer):
             from ..domain.reverse import normalized_reverse_query
 
             manifest = (
-                backend.context(references_only=True)
+                backend.context(
+                    _reverse_context_refs(state.get("context", {})),
+                    references_only=True,
+                )
                 if inputs.get("context_rules")
                 else backend.context(reverse_query=normalized_reverse_query(inputs))
             )
         else:
-            manifest = backend.context()
+            from ..domain.forward import normalized_forward_query
+
+            manifest = (
+                backend.context(references_only=True)
+                if inputs.get("context_rules")
+                else backend.context(forward_query=normalized_forward_query(inputs))
+            )
         context = manifest.get("context", state.get("context", {}))
         source = manifest["runs"]
         provenance = {}
@@ -545,6 +579,12 @@ def build_graph(model, backend, settings, checkpointer):
             if kind == "reverse_search":
                 manifest = backend.context(reverse_query=normalized_reverse_query(inputs))
                 source = manifest["runs"]
+            elif kind == "forward_lookup":
+                manifest = backend.context(forward_query=normalized_forward_query(inputs))
+                source = manifest["runs"]
+        if kind == "reverse_search":
+            # Scalar inputs live in source; do not also serialize them inside manifest.
+            manifest = {key: value for key, value in manifest.items() if key not in ("runs", "referencedRuns")}
         return {
             "manifest": manifest,
             "source": source,
@@ -552,6 +592,16 @@ def build_graph(model, backend, settings, checkpointer):
             "context_provenance": provenance,
             "route": "calculate",
         }
+
+    def load_comparison_outputs(state):
+        from ..comparison_catalog import comparison_plan
+        _, _, plots = comparison_plan(state["inputs"])
+        backend.stage("load_comparison_outputs")
+        outputs = []
+        refs = [entry["ref"] for entry in state["source"]]
+        for start in range(0, len(refs), 25):
+            outputs.extend(backend.comparison_outputs(refs[start:start + 25], plots)["outputs"])
+        return {"comparison_outputs": outputs}
 
     def calculate(state):
         kind = state["operation"]["kind"]
@@ -563,73 +613,56 @@ def build_graph(model, backend, settings, checkpointer):
             if kind == "reverse_search"
             else compare_selected
         )
-        return {"result": fn(state["inputs"], state["source"]), "verified": False}
+        return {"result": fn(state["inputs"], state["source"], state.get("comparison_outputs", [])) if kind == "compare_runs" else fn(state["inputs"], state["source"]), "verified": False}
 
     def verify(state):
         backend.stage("validate_result")
         if state["operation"]["kind"] == "compare_runs":
-            if state["result"] != compare_selected(state["inputs"], state["source"]):
+            if state["result"] != compare_selected(state["inputs"], state["source"], state.get("comparison_outputs", [])):
                 raise DomainError("RESULT_SOURCE_MISMATCH")
-            return {"verified": True, "evidence": state["result"], "route": "answer"}
+            return {"verified": True, "route": "present"}
         if not validate_result(state["inputs"], state["result"], state["source"])["valid"]:
             raise DomainError("RESULT_SOURCE_MISMATCH")
         return {"verified": True, "route": "present"}
 
     def generate_answer(state):
         backend.stage("generate_answer")
-        general = state["operation"]["kind"] == "generate_answer"
         payload = {
             "originalQuestion": state["question"],
             "resolvedInputs": state["inputs"],
             "recentContext": state.get("context", {}).get("recentContext", {}),
             "inputHistory": state.get("input_history", []),
-            "repair_error": state.get("repair_error"),
         }
-        if not general:
-            payload["evidence"] = state["evidence"]
         tool_context = {
             "input": state["selection_payload"],
             "responseItems": state["native_items"],
             "call_id": state["tool_selection"]["call_id"],
-            "output": {} if general else state["result"],
+            "output": {},
         }
         draft, metadata = call_model(
             "explain",
-            model.answer if general else model.generate,
-            GENERAL_PROMPT if general else COMPARISON_PROMPT,
+            model.answer,
+            GENERAL_PROMPT,
             payload,
-            *([] if general else [comparison_draft_model(state["result"])]),
             tool_context=tool_context,
         )
         return {
-            "draft": {"markdown": draft} if general else draft,
+            "draft": {"markdown": draft},
             "model_metadata": {**state["model_metadata"], "answer": metadata},
         }
 
     def check_answer(state):
         backend.stage("validate_answer")
-        if state["operation"]["kind"] == "generate_answer":
-            result = GeneralAnswerResult.model_validate(
-                {
-                    "kind": "generate_answer",
-                    "resultStatus": "ANSWER_READY",
-                    "markdown": state["draft"]["markdown"],
-                    "knowledgeBasis": "LLM_GENERAL_KNOWLEDGE",
-                    "usedRunRefs": [],
-                }
-            ).model_dump()
-            return {"result": result, "verified": True, "route": "present"}
-        try:
-            answer = validate_answer(state["draft"], state["result"])
-            return {"comparison_answer": answer, "route": "present"}
-        except (DomainError, ValidationError) as error:
-            if state.get("explanation_repairs", 0) >= 1:
-                raise
-            return {
-                "repair_error": getattr(error, "code", "ANSWER_SCHEMA_INVALID"),
-                "explanation_repairs": 1,
-                "route": "repair",
+        result = GeneralAnswerResult.model_validate(
+            {
+                "kind": "generate_answer",
+                "resultStatus": "ANSWER_READY",
+                "markdown": state["draft"]["markdown"],
+                "knowledgeBasis": "LLM_GENERAL_KNOWLEDGE",
+                "usedRunRefs": [],
             }
+        ).model_dump()
+        return {"result": result, "verified": True, "route": "present"}
 
     def present(state):
         backend.stage("present")
@@ -660,21 +693,21 @@ def build_graph(model, backend, settings, checkpointer):
         snapshot = {
             "implementationId": "v1",
             "graphVersion": "v1",
-            "schemaVersion": 2,
+            "schemaVersion": 3 if "featurePolicyVersion" in result else 2,
             "kind": kind,
             "summary": summary,
             "originalQuestion": state["question"],
             "toolSelection": state["tool_selection"],
             "resolvedInputs": state["inputs"],
             "result": result,
-            "answer": state.get("comparison_answer") if kind == "compare_runs" else None,
+            "answer": None,
             "contextProvenance": state.get("context_provenance", {}) if kind != "generate_answer" else {},
             "unitAssumptions": state.get("unit_assumptions", []) if search else [],
             "inputHistory": state.get("input_history", []),
             "usedRunRefs": refs,
             "versions": settings.versions(),
         }
-        snapshot = AnswerSnapshotV2.model_validate(snapshot).model_dump()
+        snapshot = (AnswerSnapshotV3 if snapshot["schemaVersion"] == 3 else AnswerSnapshotV2).model_validate(snapshot).model_dump()
         return {
             "answer": {
                 "intent": {
@@ -685,7 +718,7 @@ def build_graph(model, backend, settings, checkpointer):
                 }[kind],
                 "status": result["resultStatus"],
                 "candidates": [
-                    {k: r[k] for k in ("runId", "runVersionId")} for r in result.get("candidates", [])
+                    {k: r[k] for k in ("runId", "runVersionId")} for r in result.get("commonRunRefs", result.get("candidates", []))
                 ]
                 if search
                 else [],
@@ -701,6 +734,7 @@ def build_graph(model, backend, settings, checkpointer):
         ("guard", guard),
         ("wait_input", wait_input),
         ("gather", gather),
+        ("load_comparison_outputs", load_comparison_outputs),
         ("calculate", calculate),
         ("validate_result", verify),
         ("generate_answer", generate_answer),
@@ -717,15 +751,12 @@ def build_graph(model, backend, settings, checkpointer):
         "wait_input", lambda s: s["route"], {"select": "select_tool", "guard": "guard", "wait": "wait_input"}
     )
     builder.add_conditional_edges(
-        "gather", lambda s: s["route"], {"wait": "wait_input", "calculate": "calculate"}
+        "gather", lambda s: "outputs" if s["route"] == "calculate" and s["operation"]["kind"] == "compare_runs" and comparison_plan(s["inputs"])[2] else s["route"], {"wait": "wait_input", "calculate": "calculate", "outputs": "load_comparison_outputs"}
     )
+    builder.add_edge("load_comparison_outputs", "calculate")
     builder.add_edge("calculate", "validate_result")
-    builder.add_conditional_edges(
-        "validate_result", lambda s: s["route"], {"present": "present", "answer": "generate_answer"}
-    )
+    builder.add_edge("validate_result", "present")
     builder.add_edge("generate_answer", "validate_answer")
-    builder.add_conditional_edges(
-        "validate_answer", lambda s: s["route"], {"present": "present", "repair": "generate_answer"}
-    )
+    builder.add_edge("validate_answer", "present")
     builder.add_edge("present", END)
     return builder.compile(checkpointer=checkpointer)

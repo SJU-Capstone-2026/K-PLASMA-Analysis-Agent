@@ -65,13 +65,18 @@ class RequestBackend:
     def attempt(self, stage):
         return self.post("attempt", stage=stage, limit=4)
 
-    def context(self, refs=None, *, reverse_query=None, references_only=False):
+    def context(self, refs=None, *, reverse_query=None, forward_query=None, references_only=False):
         fields = {"requiredRunRefs": refs or []}
         if reverse_query is not None:
             fields["reverseQuery"] = reverse_query
+        if forward_query is not None:
+            fields["forwardQuery"] = forward_query
         if references_only:
             fields["referencesOnly"] = True
         return self.post("context", **fields)
+
+    def comparison_outputs(self, refs, plots):
+        return self.post("comparison-outputs", runRefs=refs, plotIds=plots)
 
     def checkpoint(self):
         with tracing.span("backend.checkpoint.load", inputs=self.fence) as observation:

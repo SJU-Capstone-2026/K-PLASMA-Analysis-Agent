@@ -20,7 +20,7 @@ def test_input_not_mutated_and_strengthening_constraint_cannot_add_candidates():
             r["runId"]
             for r in search_reverse(
                 {"constraints": [{"metric": "pressure", "operator": "lt", "value": bound, "unit": "mTorr"}]}, runs
-            )["representativeCandidates"]
+            )["commonRunRefs"]
         }
 
     assert selected(5) <= selected(10)

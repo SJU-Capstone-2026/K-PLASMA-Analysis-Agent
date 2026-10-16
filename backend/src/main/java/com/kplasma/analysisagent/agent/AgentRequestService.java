@@ -28,7 +28,7 @@ public class AgentRequestService {
     public record Claim(String workerId,int leaseSeconds) {}
     public record Mutation(long claimGeneration,long requestRevision,Integer leaseSeconds,String stage,String operationKind,Boolean dependsOnContext,
         Map<String,Object> payload,Map<String,Object> pendingInput,Map<String,Object> error,Map<String,Object> partialResult,List<RunRef> usedRunRefs,AgentResponse answer,Integer limit,List<RunRef> requiredRunRefs,
-        Map<String,Object> reverseQuery,Boolean referencesOnly) {}
+        Map<String,Object> reverseQuery,Boolean referencesOnly,Map<String,Object> forwardQuery) {}
     private void require(boolean condition,String message){validate.require(condition,INVALID,message);}
     private void conflict(String code,String message){throw new IntakeException(code,409,message);}
     @Transactional public Map<String,Object> submit(Submission body,String key){
@@ -71,9 +71,9 @@ public class AgentRequestService {
         var snapshot=turn.answerSnapshot();
         if(snapshot.get("result") instanceof Map<?,?> result){
             Object candidates=null;
-            if("common".equals(groupId))candidates="forward_lookup".equals(result.get("kind"))?result.get("candidates"):result.get("commonCandidates");
+            if("common".equals(groupId))candidates="forward_lookup".equals(result.get("kind"))?result.get("candidates"):result.containsKey("commonRunRefs")?result.get("commonRunRefs"):result.get("commonCandidates");
             else if(groupId.startsWith("objective-")&&result.get("objectiveResults") instanceof List<?> groups){
-                try{int index=Integer.parseInt(groupId.substring(10));if(index>=0&&index<groups.size())candidates=((Map<?,?>)groups.get(index)).get("candidates");}catch(NumberFormatException ignored){return false;}
+                try{int index=Integer.parseInt(groupId.substring(10));if(index>=0&&index<groups.size()){var group=(Map<?,?>)groups.get(index);candidates=group.containsKey("candidateRefs")?group.get("candidateRefs"):group.get("candidates");}}catch(NumberFormatException ignored){return false;}
             }else if("near".equals(groupId))candidates=result.get("nearMisses");
             if(candidates instanceof List<?> rows)for(Object value:rows){var row=(Map<?,?>)value;var run=row.get("run") instanceof Map<?,?> nested?nested:row;if(Objects.equals(run.get("runId"),ref.runId())&&Objects.equals(run.get("runVersionId"),ref.runVersionId()))return true;}
             return false;
@@ -159,6 +159,10 @@ public class AgentRequestService {
     }
     private int lease(Integer seconds){int value=seconds==null||seconds==0?60:seconds;require(value>=5&&value<=300,"leaseSeconds must be 5..300");return value;}
     private AgentRequestRepository.Row fence(UUID id,long generation,long revision){var row=requests.get(id,true);boolean alive=Boolean.TRUE.equals(jdbc.queryForObject("select lease_until>clock_timestamp() from agent_request where id=?",Boolean.class,id));if(!"RUNNING".equals(row.status())||row.generation()!=generation||row.revision()!=revision||!alive)conflict("STALE_CLAIM","Worker lease, generation or request revision is no longer valid");return row;}
+    @Transactional public void authorizeOutputs(UUID id,long generation,long revision,List<RunRef> refs){
+        var row=fence(id,generation,revision);require("compare_runs".equals(row.operationKind()),"Only comparisons load outputs");
+        require(refs!=null&&!refs.isEmpty()&&entryRefs(row.context().get("comparisonReference")).containsAll(refs),"Output query must use the fixed comparison selection");
+    }
     private void epochs(AgentRequestRepository.Row row,WorkspaceView current){if(row.workspaceEpoch()!=current.stateToken().workspaceEpoch()||row.conversationEpoch()!=current.stateToken().conversationEpoch())conflict("STALE_CONTEXT","Workspace or conversation changed");}
     @Transactional public Map<String,Object> heartbeat(UUID id,Mutation body){
         var current=workspace.lock();var row=fence(id,body.claimGeneration(),body.requestRevision());epochs(row,current);if(body.stage()!=null)require(body.stage().length()<=80,"stage is too long");
@@ -178,21 +182,30 @@ public class AgentRequestService {
         return context(id,generation,revision,required,null,false);
     }
     @Transactional public Map<String,Object> context(UUID id,long generation,long revision,List<RunRef> required,Map<String,Object> reverseQuery,Boolean referencesOnly){
+        return context(id,generation,revision,required,reverseQuery,referencesOnly,null);
+    }
+    @Transactional public Map<String,Object> context(UUID id,long generation,long revision,List<RunRef> required,Map<String,Object> reverseQuery,Boolean referencesOnly,Map<String,Object> forwardQuery){
         var current=workspace.lock();var row=fence(id,generation,revision);epochs(row,current);if(required==null)required=List.of();
+        require(!Boolean.TRUE.equals(referencesOnly)||reverseQuery==null,"referencesOnly and reverseQuery are mutually exclusive");
+        require(forwardQuery==null||("forward_lookup".equals(row.operationKind())&&reverseQuery==null&&!Boolean.TRUE.equals(referencesOnly)),"forwardQuery is exclusive to a forward lookup");
+        ForwardContextQuery forward=forwardQuery==null?null:new ForwardContextQuery(forwardQuery);
+        if("forward_lookup".equals(row.operationKind())&&(forward!=null||Boolean.TRUE.equals(referencesOnly)||(row.manifest()!=null&&Boolean.TRUE.equals(row.manifest().get("forwardScoped"))))){
+            require(reverseQuery==null,"A forward manifest cannot use reverseQuery");
+            var scoped=forwardContext(id,row,required,forward);
+            if(scoped!=null)return scoped;
+        }
         if("compare_runs".equals(row.operationKind())&&row.context()!=null&&row.context().containsKey("comparisonReference"))return comparisonContext(id,row,required,reverseQuery,referencesOnly);
+        if(reverseQuery!=null||Boolean.TRUE.equals(referencesOnly))return reverseContext(id,row,required,reverseQuery,referencesOnly);
         validate.refs(required,INVALID,false);
-        boolean only=Boolean.TRUE.equals(referencesOnly);require(!only||reverseQuery==null,"referencesOnly and reverseQuery are mutually exclusive");
-        ReverseContextQuery query=reverseQuery==null?null:new ReverseContextQuery(reverseQuery);
         Map<String,Object> manifest=row.manifest()==null?new LinkedHashMap<>():new LinkedHashMap<>(row.manifest());
-        if(manifest.get("reverseQuery")!=null&&query!=null&&!mapper.valueToTree(manifest.get("reverseQuery")).equals(mapper.valueToTree(query.normalized())))conflict("MANIFEST_QUERY_CONFLICT","A materialized reverse query cannot change");
         boolean changed=row.manifest()==null;
-        if(row.manifest()==null){
+        if(row.manifest()==null||Boolean.TRUE.equals(manifest.remove("forwardScoped"))){
+            changed=true;
             // Pin identities before any context-derived numerical condition is calculated.
             var inventory=jdbc.query("select r.run_id,r.current_version_id::text from run r where r.current_version_id is not null order by r.run_id",(rs,n)->Map.of("runId",rs.getString(1),"runVersionId",rs.getString(2)));
             manifest.put("catalogRunRefs",inventory);manifest.put("runs",List.of());manifest.put("referencedRuns",List.of());manifest.put("context",row.context());manifest.put("createdAt",Instant.now().toString());
         }else if(!manifest.containsKey("catalogRunRefs")){
-            List<Map<String,Object>> inventory=new ArrayList<>();for(Object value:(List<?>)manifest.get("runs")){Map<?,?> run=(Map<?,?>)value;inventory.add(Map.of("runId",run.get("runId"),"runVersionId",run.get("runVersionId")));}
-            manifest.put("catalogRunRefs",inventory);changed=true;
+            manifest.put("catalogRunRefs",jdbc.query("select r.run_id,r.current_version_id::text from run r where r.current_version_id is not null order by r.run_id",(rs,n)->Map.of("runId",rs.getString(1),"runVersionId",rs.getString(2))));changed=true;
         }
         Set<String> refs=new LinkedHashSet<>();
         // Stored answers can outlive deleted Runs. They are interpretation context,
@@ -205,17 +218,83 @@ public class AgentRequestService {
             manifest.put("referencedRuns",historical);changed=true;
         }
         Set<String> pinned=new LinkedHashSet<>();collectVersions(manifest.get("catalogRunRefs"),pinned);
-        if(query!=null&&manifest.get("reverseQuery")==null){
-            var sql=query.select(pinned.toArray(String[]::new));
-            manifest.put("runs",jdbc.query(sql.text(),(rs,n)->scalarRow(rs.getString(1),rs.getObject(2)),sql.arguments().toArray()));
-            manifest.put("reverseQuery",query.normalized());manifest.put("catalogMaterialized",true);changed=true;
-        }else if(!only&&query==null&&!Boolean.TRUE.equals(manifest.get("catalogMaterialized"))){
+        if(!Boolean.TRUE.equals(manifest.get("catalogMaterialized"))){
             manifest.put("runs",scalarVersions(pinned.toArray(String[]::new)));manifest.put("catalogMaterialized",true);changed=true;
         }
         if(changed)jdbc.update("update agent_request set manifest=?::jsonb,updated_at=now() where id=?",requests.json(manifest),id);
         return manifest;
     }
-    private List<Map<String,Object>> scalarVersions(String[] versions){return jdbc.query("select summary::text,jsonb_array_length(full_run->'sourceFiles') from run_version where id=any(?::uuid[]) order by run_id,registration_sequence",(rs,n)->scalarRow(rs.getString(1),rs.getObject(2)),(Object)versions);}
+    private Map<String,Object> forwardContext(UUID id,AgentRequestRepository.Row row,List<RunRef> required,ForwardContextQuery query){
+        // Already captured legacy inventories keep their original versions on resume.
+        if(row.manifest()!=null&&!Boolean.TRUE.equals(row.manifest().get("forwardScoped")))return null;
+        validate.refs(required,INVALID,false);
+        Map<String,Object> manifest=row.manifest()==null?new LinkedHashMap<>():new LinkedHashMap<>(row.manifest());
+        if(manifest.get("forwardQuery") instanceof Map<?,?> previous){
+            if(query!=null&&!mapper.valueToTree(previous).equals(mapper.valueToTree(query.normalized())))conflict("MANIFEST_QUERY_CONFLICT","A materialized forward query cannot change");
+            Set<String> fetched=new HashSet<>();collectVersions(manifest.get("referencedRuns"),fetched);
+            var additional=required.stream().map(RunRef::runVersionId).filter(v->!fetched.contains(v)).toArray(String[]::new);
+            if(additional.length>0){
+                List<Object> historical=new ArrayList<>((List<?>)manifest.get("referencedRuns"));historical.addAll(scalarVersions(additional));
+                manifest.put("referencedRuns",historical);
+                jdbc.update("update agent_request set manifest=?::jsonb,updated_at=now() where id=?",requests.json(manifest),id);
+            }
+            return manifest;
+        }
+        if(query!=null){
+            String runId=query.runId();
+            var matches=runId==null?List.<Map<String,Object>>of():jdbc.query(
+                "select v.summary::text,jsonb_array_length(v.full_run->'sourceFiles') from run r join run_version v on v.id=r.current_version_id where r.run_id=?",
+                (rs,n)->scalarRow(rs.getString(1),rs.getObject(2)),runId);
+            // Preserve the existing nearest/exclusion behavior when there is no usable exact match.
+            if(matches.size()!=1||!query.matches(matches.getFirst()))return null;
+            var match=matches.getFirst();
+            manifest.put("runs",matches);
+            manifest.put("catalogRunRefs",List.of(Map.of("runId",match.get("runId"),"runVersionId",match.get("runVersionId"))));
+            manifest.put("forwardQuery",query.normalized());manifest.put("catalogMaterialized",true);
+        }
+        manifest.putIfAbsent("runs",List.of());manifest.putIfAbsent("catalogRunRefs",List.of());
+        manifest.putIfAbsent("referencedRuns",List.of());manifest.putIfAbsent("context",row.context());
+        manifest.putIfAbsent("createdAt",Instant.now().toString());manifest.put("forwardScoped",true);
+        Set<String> refs=new LinkedHashSet<>();
+        if(query==null&&row.context()!=null)for(String key:List.of("activeRun","selectedRunRef"))collectVersions(row.context().get(key),refs);
+        required.forEach(ref->refs.add(ref.runVersionId()));
+        Set<String> fetched=new HashSet<>();collectVersions(manifest.get("referencedRuns"),fetched);refs.removeAll(fetched);
+        if(!refs.isEmpty()){
+            List<Object> historical=new ArrayList<>((List<?>)manifest.get("referencedRuns"));historical.addAll(scalarVersions(refs.toArray(String[]::new)));
+            manifest.put("referencedRuns",historical);
+        }
+        jdbc.update("update agent_request set manifest=?::jsonb,updated_at=now() where id=?",requests.json(manifest),id);
+        return manifest;
+    }
+    private Map<String,Object> reverseContext(UUID id,AgentRequestRepository.Row row,List<RunRef> required,Map<String,Object> reverseQuery,Boolean referencesOnly){
+        boolean only=Boolean.TRUE.equals(referencesOnly);
+        require(!only||reverseQuery==null,"referencesOnly and reverseQuery are mutually exclusive");
+        ReverseContextQuery query=reverseQuery==null?null:new ReverseContextQuery(reverseQuery);
+        validate.bulkRefs(required,INVALID);
+        Map<String,Object> manifest=row.manifest()==null?new LinkedHashMap<>():new LinkedHashMap<>(row.manifest());
+        boolean changed=row.manifest()==null;
+        if(changed){
+            manifest.put("runs",List.of());manifest.put("referencedRuns",List.of());manifest.put("context",row.context());manifest.put("createdAt",Instant.now().toString());
+        }
+        if(manifest.get("reverseQuery")!=null&&query!=null&&!mapper.valueToTree(manifest.get("reverseQuery")).equals(mapper.valueToTree(query.normalized())))
+            conflict("MANIFEST_QUERY_CONFLICT","A materialized reverse query cannot change");
+        Set<String> refs=new LinkedHashSet<>();required.forEach(ref->refs.add(ref.runVersionId()));
+        Set<String> fetched=new HashSet<>();collectVersions(manifest.get("referencedRuns"),fetched);refs.removeAll(fetched);
+        if(!refs.isEmpty()){
+            List<Object> selected=new ArrayList<>((List<?>)manifest.get("referencedRuns"));selected.addAll(scalarVersions(refs.toArray(String[]::new)));
+            manifest.put("referencedRuns",selected);changed=true;
+        }
+        if(query!=null&&!Boolean.TRUE.equals(manifest.get("catalogMaterialized"))){
+            var sql=query.select();
+            var runs=jdbc.query(sql.text(),(rs,n)->scalarRow(rs.getString(1),rs.getObject(2)),sql.arguments().toArray());
+            manifest.put("runs",runs);
+            manifest.put("selectedRunRefs",runs.stream().map(run->Map.of("runId",run.get("runId"),"runVersionId",run.get("runVersionId"))).toList());
+            manifest.put("reverseQuery",query.normalized());manifest.put("catalogMaterialized",true);changed=true;
+        }
+        if(changed)jdbc.update("update agent_request set manifest=?::jsonb,updated_at=now() where id=?",requests.json(manifest),id);
+        return manifest;
+    }
+    private List<Map<String,Object>> scalarVersions(String[] versions){return jdbc.query("select summary::text,source_file_count from run_version where id=any(?::uuid[]) order by run_id,registration_sequence",(rs,n)->scalarRow(rs.getString(1),rs.getObject(2)),(Object)versions);}
     private Map<String,Object> scalarRow(String json,Object sourceFileCount){var item=scalarSummary(json);item.put("sourceFileCount",sourceFileCount);return item;}
     private Map<String,Object> comparisonContext(UUID id,AgentRequestRepository.Row row,List<RunRef> required,Map<String,Object> reverseQuery,Boolean only){
         require(Boolean.TRUE.equals(only)&&reverseQuery==null,"Comparison requires referencesOnly");
@@ -277,7 +356,7 @@ public class AgentRequestService {
     @Transactional public Map<String,Object> fail(UUID id,Mutation body){
         var current=workspace.lock();var row=fence(id,body.claimGeneration(),body.requestRevision());epochs(row,current);require(body.error()!=null,"error is required");String code=(String)body.error().get("code"),message=(String)body.error().get("message");validate.text(code,INVALID,"error.code");validate.text(message,INVALID,"error.message");require(code.matches("[A-Z_]{1,80}")&&message.length()<=1000,"Invalid public error");
         if(body.partialResult()!=null){
-            if(body.partialResult().get("schemaVersion") instanceof Number n&&n.intValue()==2){require("compare_runs".equals(row.operationKind()),"Only failed comparisons retain schema-2 partials");require(entryRefs(row.context().get("comparisonReference")).equals(body.usedRunRefs()),"Partial selection mismatch");validate.bulkRefs(body.usedRunRefs(),INVALID);validate.compactValidated(body.partialResult(),INVALID,new HashSet<>(body.usedRunRefs()));new AnswerV2Validator(validate).comparison(body.partialResult(),body.usedRunRefs(),true);}
+            if(body.partialResult().get("schemaVersion") instanceof Number n&&(n.intValue()==2||n.intValue()==3)){require("compare_runs".equals(row.operationKind()),"Only failed comparisons retain schema-2 partials");require(entryRefs(row.context().get("comparisonReference")).equals(body.usedRunRefs()),"Partial selection mismatch");validate.bulkRefs(body.usedRunRefs(),INVALID);validate.compactValidated(body.partialResult(),INVALID,new HashSet<>(body.usedRunRefs()));new AnswerV2Validator(validate,((Number)body.partialResult().get("schemaVersion")).intValue()==3).comparison(body.partialResult(),body.usedRunRefs(),true);}
             else{require("explain_change".equals(row.operationKind()),"Only a failed change explanation may retain legacy comparison");validatePartialComparison(body.partialResult(),body.usedRunRefs());}}
         jdbc.update("update agent_request set status='FAILED',stage='failed',error=?::jsonb,partial_result=?::jsonb,context_snapshot=null,lease_until=null,pending_input=null,updated_at=now() where id=?",requests.json(Map.of("code",code,"message",message)),requests.json(body.partialResult()),id);requests.purgeTransient(id);return requests.view(requests.get(id,false));
     }
@@ -285,10 +364,10 @@ public class AgentRequestService {
         var current=workspace.lock();var row=requests.get(id,true);epochs(row,current);require(body.answer()!=null,"answer is required");
         if("COMPLETED".equals(row.status())){if(!mapper.readTree(requests.json(row.answer())).equals(mapper.valueToTree(body.answer())))conflict("IDEMPOTENCY_CONFLICT","Completed answer cannot change");return requests.view(row);}
         row=fence(id,body.claimGeneration(),body.requestRevision());var answer=body.answer();require(INTENTS.contains(answer.intent()==null?"":answer.intent()),"Invalid answer intent");require(answer.answerSnapshot()!=null,"Answer snapshot is required");require("v1".equals(answer.answerSnapshot().get("implementationId")),"Answer must identify v1");
-        if(answer.answerSnapshot().get("schemaVersion") instanceof Number n&&n.intValue()==2){
-            validate.bulkRefs(answer.usedRunRefs(),INVALID);validate.compactValidated(answer.answerSnapshot(),INVALID,new HashSet<>(answer.usedRunRefs()));new AnswerV2Validator(validate).answer(answer,row.question());
+        if(answer.answerSnapshot().get("schemaVersion") instanceof Number n&&(n.intValue()==2||n.intValue()==3)){
+            validate.bulkRefs(answer.usedRunRefs(),INVALID);validate.compactValidated(answer.answerSnapshot(),INVALID,new HashSet<>(answer.usedRunRefs()));new AnswerV2Validator(validate,((Number)answer.answerSnapshot().get("schemaVersion")).intValue()==3).answer(answer,row.question());
             if("compare_runs".equals(answer.answerSnapshot().get("kind")))require(entryRefs(row.context().get("comparisonReference")).equals(answer.usedRunRefs()),"Completed comparison must retain exact selection");
-        }else{validate.refs(answer.usedRunRefs(),INVALID,false);validate.compact(answer.answerSnapshot(),INVALID,new HashSet<>(answer.usedRunRefs()));}
+        }else{require((answer.answerSnapshot().get("schemaVersion")==null||answer.answerSnapshot().get("schemaVersion") instanceof Number version&&version.doubleValue()==1),"Unknown answer version");validate.refs(answer.usedRunRefs(),INVALID,false);validate.compact(answer.answerSnapshot(),INVALID,new HashSet<>(answer.usedRunRefs()));}
         RunRef active=row.context()==null?null:mapper.convertValue(row.context().get("activeRun"),RunRef.class);if(active!=null&&!answer.usedRunRefs().contains(active))active=null;
         var turn=new TurnSnapshot(id.toString(),row.createdAt().toString(),row.question(),answer.intent(),active,answer.usedRunRefs(),answer.answerSnapshot(),new TurnUiSnapshot(false,List.of(),Map.of(),"common",null,false,null));
         workspace.append(turn);workspace.advance();jdbc.update("update agent_request set status='COMPLETED',stage='completed',final_answer=?::jsonb,turn_id=?,context_snapshot=null,lease_until=null,pending_input=null,updated_at=now() where id=?",requests.json(answer),id,id);requests.purgeTransient(id);return requests.view(requests.get(id,false));
