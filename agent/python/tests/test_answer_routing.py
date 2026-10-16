@@ -120,9 +120,11 @@ def test_unreferenced_comparison_interrupts_then_selection_skips_routing_llm():
         ),
         config,
     )
-    assert result["verified"] and model.calls == ["select", "compare"]
+    assert result["verified"] and model.calls == ["select"]
     assert backend.refs == [e["ref"] for e in entries]
-    assert model.payloads[-1]["originalQuestion"] == question
+    snapshot = result["answer"]["answerSnapshot"]
+    assert snapshot["originalQuestion"] == question and snapshot["answer"] is None
+    assert len(snapshot["result"]["runs"]) == 2
 
 
 def test_unrecognized_aliases_still_preserve_explicit_baseline_requirement():

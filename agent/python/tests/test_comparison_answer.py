@@ -117,46 +117,6 @@ def test_repair_feedback_identifies_empty_text_missing_evidence_and_unknown_ids(
     }
 
 
-@pytest.mark.parametrize("error_code", ["ANSWER_OBSERVATION_MISMATCH", "ANSWER_NUMERIC_RESTATEMENT"])
-def test_graph_repairs_condition_citations_without_repeating_data_lookup(error_code):
-    from test_comparison_recovery import Backend, Model, claim
-    from kplasma_agent.config import Settings
-    from kplasma_agent.graphs.v1 import build_graph
-
-    class RepairingModel(Model):
-        def generate(self, prompt, payload, cls, **kwargs):
-            self.answer_calls += 1
-            if self.answer_calls == 1:
-                ids = [] if error_code == "ANSWER_OBSERVATION_MISMATCH" else ["O1"]
-                text = "압력 조건은 같습니다." if not ids else "압력은 4 mTorr입니다."
-            else:
-                assert payload["repair_error"] == error_code
-                feedback = payload["repair_feedback"]
-                assert feedback["rejectedDraft"]["interpretations"][0]["text"]
-                if error_code == "ANSWER_OBSERVATION_MISMATCH":
-                    assert feedback["interpretationsMissingEvidence"] == [1]
-                else:
-                    assert feedback["numericRestatementFields"] == ["interpretations[0].text"]
-                ids = [o["id"] for o in payload["evidence"]["observations"]
-                       if o["source"]["metric"] == "pressure"]
-                assert len(ids) == 2
-                text = "압력 조건은 같습니다."
-            return {"observationIds": ["O1"], "interpretations": [{
-                "text": text, "observationIds": ids, "assumptions": [],
-            }], "limitations": []}, {}
-
-    backend, model = Backend(), RepairingModel()
-    request = claim()
-    state = build_graph(model, backend, Settings(), None).invoke({
-        "request_id": request["request"]["requestId"],
-        "question": request["request"]["question"], "context": request["context"], "input_history": [],
-    })
-    assert model.answer_calls == 2
-    assert model.selection_calls == backend.reads == 1
-    assert state["answer"]["answerSnapshot"]["answer"]["status"] == "COMPLETE"
-    assert state["result"]["metricIds"] == ["ionFlux"]
-
-
 @pytest.mark.parametrize(
     "text",
     [

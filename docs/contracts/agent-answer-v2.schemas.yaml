@@ -141,6 +141,7 @@ components:
           additionalProperties: true
           title: Result
           type: object
+        # New compare_runs responses use null; historical structured answers remain valid.
         answer:
           anyOf:
           - $ref: '#/components/schemas/ComparisonAnswer'

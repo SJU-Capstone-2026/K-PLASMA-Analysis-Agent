@@ -39,7 +39,7 @@ test('failed partial renders numeric evidence without a generated explanation',(
  expect(screen.getByText('선택한 실험 비교 · 2개')).toBeInTheDocument();
 });
 
-test.each([wire.general,wire.comparison])('saved general and comparison answers omit fixed introductions and interpretation details',async snapshot=>{
+test.each([wire.general,wire.comparison,{...wire.comparison,answer:null}])('saved general and comparison answers omit fixed introductions and interpretation details',async snapshot=>{
  const summary=snapshot.kind==='generate_answer'?'일반 지식에 따른 답변입니다.':'선택한 실제 실험을 비교했습니다.';
  const turn={question:'인공 질문',answerSnapshot:{...snapshot,summary},ui:{}} as unknown as TurnSnapshot;
  const {container}=render(<V1AnswerView turn={turn} onAction={()=>{}}/>);

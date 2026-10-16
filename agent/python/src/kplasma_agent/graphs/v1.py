@@ -1,4 +1,4 @@
-"""v1: one native tool selection, deterministic execution, optional grounded answer."""
+"""v1: one native tool selection, deterministic comparison, optional general answer."""
 
 from copy import deepcopy
 import re
@@ -16,7 +16,7 @@ from ..domain import lookup_forward, search_reverse, validate_result
 from ..domain.compare import compare_selected
 from ..domain.common import DomainError
 from ..domain.grounding import validate_grounding, validate_native_comparison_metrics
-from ..explanations.answers import COMPARISON_PROMPT, validate_answer, comparison_draft_model, answer_evidence, comparison_repair_feedback
+from ..explanations.answers import COMPARISON_PROMPT
 from ..metric_registry import CONDITION_KEYS, LABELS, UNITS, NumericError, normalize_value
 
 # Import compatibility for evaluation clients; production selection uses native tools.
@@ -43,15 +43,10 @@ class GraphState(TypedDict, total=False):
     inputs: dict
     result: dict
     verified: bool
-    evidence: dict
     draft: dict
-    repair_error: str
-    repair_feedback: dict
-    explanation_repairs: int
     model_metadata: dict
     context_provenance: dict
     answer: dict
-    comparison_answer: dict
     comparison_reference: dict
     unit_assumptions: list
 
@@ -607,71 +602,49 @@ def build_graph(model, backend, settings, checkpointer):
         if state["operation"]["kind"] == "compare_runs":
             if state["result"] != compare_selected(state["inputs"], state["source"], state.get("comparison_outputs", [])):
                 raise DomainError("RESULT_SOURCE_MISMATCH")
-            return {"verified": True, "evidence": state["result"], "route": "answer"}
+            return {"verified": True, "route": "present"}
         if not validate_result(state["inputs"], state["result"], state["source"])["valid"]:
             raise DomainError("RESULT_SOURCE_MISMATCH")
         return {"verified": True, "route": "present"}
 
     def generate_answer(state):
         backend.stage("generate_answer")
-        general = state["operation"]["kind"] == "generate_answer"
         payload = {
             "originalQuestion": state["question"],
             "resolvedInputs": state["inputs"],
             "recentContext": state.get("context", {}).get("recentContext", {}),
             "inputHistory": state.get("input_history", []),
-            "repair_error": state.get("repair_error"),
-            "repair_feedback": state.get("repair_feedback"),
         }
-        if not general:
-            from ..comparison_catalog import FIELD_META
-            payload["evidence"] = answer_evidence(state["evidence"])
-            payload["fieldDefinitions"] = {m:FIELD_META[m] for m in state["result"]["metricIds"]}
         tool_context = {
             "input": state["selection_payload"],
             "responseItems": state["native_items"],
             "call_id": state["tool_selection"]["call_id"],
-            "output": {} if general else payload["evidence"],
+            "output": {},
         }
         draft, metadata = call_model(
             "explain",
-            model.answer if general else model.generate,
-            GENERAL_PROMPT if general else COMPARISON_PROMPT,
+            model.answer,
+            GENERAL_PROMPT,
             payload,
-            *([] if general else [comparison_draft_model(payload["evidence"])]),
             tool_context=tool_context,
         )
         return {
-            "draft": {"markdown": draft} if general else draft,
+            "draft": {"markdown": draft},
             "model_metadata": {**state["model_metadata"], "answer": metadata},
         }
 
     def check_answer(state):
         backend.stage("validate_answer")
-        if state["operation"]["kind"] == "generate_answer":
-            result = GeneralAnswerResult.model_validate(
-                {
-                    "kind": "generate_answer",
-                    "resultStatus": "ANSWER_READY",
-                    "markdown": state["draft"]["markdown"],
-                    "knowledgeBasis": "LLM_GENERAL_KNOWLEDGE",
-                    "usedRunRefs": [],
-                }
-            ).model_dump()
-            return {"result": result, "verified": True, "route": "present"}
-        try:
-            answer = validate_answer(state["draft"], state["result"])
-            return {"comparison_answer": answer, "route": "present"}
-        except (DomainError, ValidationError) as error:
-            if state.get("explanation_repairs", 0) >= 1:
-                raise
-            code = getattr(error, "code", "ANSWER_SCHEMA_INVALID")
-            return {
-                "repair_error": code,
-                "repair_feedback": comparison_repair_feedback(state["draft"], state["result"]) if isinstance(error, DomainError) else {},
-                "explanation_repairs": 1,
-                "route": "repair",
+        result = GeneralAnswerResult.model_validate(
+            {
+                "kind": "generate_answer",
+                "resultStatus": "ANSWER_READY",
+                "markdown": state["draft"]["markdown"],
+                "knowledgeBasis": "LLM_GENERAL_KNOWLEDGE",
+                "usedRunRefs": [],
             }
+        ).model_dump()
+        return {"result": result, "verified": True, "route": "present"}
 
     def present(state):
         backend.stage("present")
@@ -709,7 +682,7 @@ def build_graph(model, backend, settings, checkpointer):
             "toolSelection": state["tool_selection"],
             "resolvedInputs": state["inputs"],
             "result": result,
-            "answer": state.get("comparison_answer") if kind == "compare_runs" else None,
+            "answer": None,
             "contextProvenance": state.get("context_provenance", {}) if kind != "generate_answer" else {},
             "unitAssumptions": state.get("unit_assumptions", []) if search else [],
             "inputHistory": state.get("input_history", []),
@@ -764,12 +737,8 @@ def build_graph(model, backend, settings, checkpointer):
     )
     builder.add_edge("load_comparison_outputs", "calculate")
     builder.add_edge("calculate", "validate_result")
-    builder.add_conditional_edges(
-        "validate_result", lambda s: s["route"], {"present": "present", "answer": "generate_answer"}
-    )
+    builder.add_edge("validate_result", "present")
     builder.add_edge("generate_answer", "validate_answer")
-    builder.add_conditional_edges(
-        "validate_answer", lambda s: s["route"], {"present": "present", "repair": "generate_answer"}
-    )
+    builder.add_edge("validate_answer", "present")
     builder.add_edge("present", END)
     return builder.compile(checkpointer=checkpointer)
