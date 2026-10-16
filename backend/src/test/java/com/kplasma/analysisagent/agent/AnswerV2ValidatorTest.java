@@ -21,6 +21,15 @@ class AnswerV2ValidatorTest {
         var inventory=refs.stream().map(r->mapper.convertValue(r,RunRef.class)).toList();
         return new AgentResponse(Map.of("compare_runs","RUN_COMPARISON","generate_answer","GENERAL_ANSWER","forward_lookup","FORWARD_LOOKUP","reverse_search","REVERSE_SEARCH").get(snapshot.get("kind")),String.valueOf(result.get("resultStatus")),List.of(),null,snapshot,inventory);
     }
+    @Test void extendedFixtureIsStrictAndDoesNotWeakenHistoricalSchema()throws Exception{
+        @SuppressWarnings("unchecked") var root=(Map<String,Object>)mapper.readValue(Files.readString(Path.of("../agent/tests/support/answer-v3-wire.json")),Map.class);
+        @SuppressWarnings("unchecked") var snapshot=(Map<String,Object>)root.get("comparison");
+        var extended=new AnswerV2Validator(new SnapshotValidator(null,null),true);
+        extended.answer(response(snapshot),"인공 파형 비교");
+        assertThatThrownBy(()->validator.answer(response(snapshot),"인공 파형 비교")).hasMessageContaining("Unknown answer version");
+        @SuppressWarnings("unchecked") var result=(Map<String,Object>)snapshot.get("result");result.put("unexpected",true);
+        assertThatThrownBy(()->extended.answer(response(snapshot),"인공 파형 비교")).hasMessageContaining("fields mismatch");
+    }
     @Test void sharedFixturePreservesZeroNullAndCompletePartial()throws Exception{
         var comparison=wire("comparison");validator.answer(response(comparison),"인공 질문");
         var general=wire("general");validator.answer(response(general),(String)general.get("originalQuestion"));
@@ -39,6 +48,18 @@ class AnswerV2ValidatorTest {
         assertThatThrownBy(()->validator.answer(response(snapshot),"인공 질문")).hasMessageContaining("Unknown answer observation");
         var second=wire("comparison");Collections.reverse((List<?>)second.get("usedRunRefs"));
         assertThatThrownBy(()->validator.answer(response(second),"인공 질문")).hasMessageContaining("inventory mismatch");
+    }
+    @Test void runConditionEvidenceIsCitableButCannotPretendToBeAnOutputSummary()throws Exception{
+        var snapshot=wire("comparison");
+        @SuppressWarnings("unchecked") var result=(Map<String,Object>)snapshot.get("result");
+        @SuppressWarnings("unchecked") var observations=(List<Map<String,Object>>)result.get("observations");
+        var source=new HashMap<String,Object>(Map.of("kind","run","key","R1","metric","pressure"));
+        observations.add(Map.of("id","condition-R1","source",source,"text","R1의 인공 압력 조건입니다."));
+        @SuppressWarnings("unchecked") var answer=(Map<String,Object>)snapshot.get("answer");
+        answer.put("interpretations",List.of(Map.of("text","압력 조건도 함께 고려합니다.","observationIds",List.of("condition-R1"),"assumptions",List.of())));
+        validator.answer(response(snapshot),"인공 질문");
+        source.put("kind","summary");
+        assertThatThrownBy(()->validator.answer(response(snapshot),"인공 질문")).hasMessageContaining("Observation metric mismatch");
     }
     @Test void savedUnitNoticeMustMatchTheSearchAndOlderSnapshotsRemainReadable()throws Exception{
         var snapshot=wire("forward");snapshot.put("unitAssumptions",List.of(Map.of("metric","pressure","unit","mTorr")));

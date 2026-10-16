@@ -14,7 +14,9 @@ public class RunController {
     private final RunRepository repository;
     private final ImportWorker imports;
     private final RunDeletionService deletion;
-    public RunController(RunQueryService query,RunRepository repository,ImportWorker imports,RunDeletionService deletion) {this.query=query;this.repository=repository;this.imports=imports;this.deletion=deletion;}
+    private final RunOutputService outputs;
+    public RunController(RunQueryService query,RunRepository repository,ImportWorker imports,RunDeletionService deletion,RunOutputService outputs) {this.query=query;this.repository=repository;this.imports=imports;this.deletion=deletion;this.outputs=outputs;}
+    @PostMapping("/run-versions/outputs") public com.kplasma.analysisagent.contract.RunOutputDto.Response outputs(@RequestBody com.kplasma.analysisagent.contract.RunOutputDto.Request request){return outputs.outputs(request,true);}
     @GetMapping("/runs") public List<RunDto.Summary> runs() {return query.listSearchable();}
     @PostMapping("/runs/delete") public RunDeletionDto.Result delete(@RequestBody RunDeletionDto.Request request) {return deletion.delete(request);}
     @GetMapping("/run-versions/{id}") public RunDto.Full version(@PathVariable String id) {return query.getVersion(uuid(id));}

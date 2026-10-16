@@ -45,14 +45,15 @@ class Settings:
         fields = {
             "graphVersion": "v1",
             "graphBuildId": self.graph_build_id,
-            "schemaVersion": "2",
-            "promptVersion": "tool-selection-2",
+            "schemaVersion": "2,3",
+            "promptVersion": "tool-selection-3",
+            "featurePolicyVersion": "source-features-1",
             "numericPolicyVersion": "v1",
-            "explanationPromptVersion": "comparison-answer-1",
+            "explanationPromptVersion": "comparison-answer-3",
             "interpretationPromptHash": hashlib.sha256(INTERPRET_PROMPT.encode()).hexdigest(),
             "explanationPromptHash": hashlib.sha256(EXPLAIN_PROMPT.encode()).hexdigest(),
             "explanationSchemaVersion": "2",
-            "evidencePolicyVersion": "observations-1",
+            "evidencePolicyVersion": "observations-2",
             "aggregationPolicyVersion": "multi-run-1",
             "toolRegistryHash": hashlib.sha256(
                 json.dumps(native_tools(), sort_keys=True).encode()

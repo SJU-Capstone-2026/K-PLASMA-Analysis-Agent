@@ -181,6 +181,13 @@ def node(name, fn):
                 observation.attribute("tool.name", kind)
                 observation.json_attribute("tool.parameters", state.get("inputs", {}))
             result = fn(state)
+            if name == "load_comparison_outputs":
+                outputs = result.get("comparison_outputs", [])
+                observation.attribute("kplasma.output_count", len(outputs))
+                observation.attribute("kplasma.selected_run_count", len(state.get("source", [])))
+                observation.attribute("kplasma.original_sample_count", sum(o["metadata"]["sourceCount"] for o in outputs))
+                observation.attribute("kplasma.unavailable_output_count", sum(o["metadata"]["status"] != "AVAILABLE" for o in outputs))
+                observation.attribute("kplasma.compact_payload_bytes", len(_json(outputs).encode()))
             observation.output(result)
             if "route" in result:
                 observation.attribute("kplasma.route", result["route"])
