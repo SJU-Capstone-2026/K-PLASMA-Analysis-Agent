@@ -18,7 +18,10 @@ class MonotonicLoadTest(unittest.TestCase):
             def do_GET(self):
                 self.send_response(200);self.send_header('Content-Length',str(len(body)));self.end_headers();self.wfile.write(body)
             def log_message(self,*_):pass
-        server=http.server.ThreadingHTTPServer(('127.0.0.1',0),Handler)
+        class BurstServer(http.server.ThreadingHTTPServer):
+            # Accept the 100-client burst without TCP retries caused by the default backlog of 5.
+            request_queue_size=128
+        server=BurstServer(('127.0.0.1',0),Handler)
         worker=threading.Thread(target=server.serve_forever,daemon=True);worker.start()
         try:
             with tempfile.TemporaryDirectory() as folder:
