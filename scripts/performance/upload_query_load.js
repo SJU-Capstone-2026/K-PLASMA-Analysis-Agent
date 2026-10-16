@@ -17,19 +17,32 @@ const durationMs=Number(duration.replace(/s$/,''))*1000;
 const arrival={executor:'constant-arrival-rate',rate,timeUnit:'1s',duration,preAllocatedVUs:60,maxVUs:60,gracefulStop:'10s'};
 export const options={scenarios:{lookup:users?{executor:'constant-vus',vus,duration,gracefulStop:'10s'}:arrival},maxRedirects:0};
 let nextSlot=0;
+let phaseRelease=null;
 export default function(){
   let cohort=null,scheduledEpochMs=null;
   if(users){
-    cohort=requestSlot(nextSlot,Date.now()-exec.scenario.startTime,5000);
-    scheduledEpochMs=exec.scenario.startTime+cohort*5000;
+    if(__ENV.PHASE_GATE_URL && nextSlot===2){
+      const gate=http.get(`${__ENV.PHASE_GATE_URL}/wait/${exec.vu.idInTest}`,{timeout:'55s',tags:{name:'local phase gate'}});
+      if(gate.status!==200)throw new Error('Eight-worker phase was not observed');
+      phaseRelease=gate.json().dispatchEpochMs;
+      cohort=2;scheduledEpochMs=phaseRelease;
+    } else if(phaseRelease!==null){
+      cohort=requestSlot(nextSlot,Date.now()-phaseRelease+10000,5000);
+      scheduledEpochMs=phaseRelease+(cohort-2)*5000;
+    } else {
+      cohort=requestSlot(nextSlot,Date.now()-exec.scenario.startTime,5000);
+      scheduledEpochMs=exec.scenario.startTime+cohort*5000;
+    }
     if(cohort*5000>=durationMs){sleep(5);return;}
     nextSlot=cohort+1;
     sleep(Math.max(0,(scheduledEpochMs-Date.now())/1000));
     // An intentional stop interrupts sleep: never issue a future slot early.
-    if(Date.now()<scheduledEpochMs)return;
+    if(__ENV.PHASE_GATE_URL){
+      while(Date.now()<scheduledEpochMs)sleep(.001);
+    } else if(Date.now()<scheduledEpochMs)return;
   }
   const sequence=exec.scenario.iterationInTest;
-  const targetIndex=users?(cohort*vus+exec.vu.idInTest-1)%targets.length:sequence%targets.length;
+  const targetIndex=users&&!__ENV.PHASE_GATE_URL?(cohort*vus+exec.vu.idInTest-1)%targets.length:sequence%targets.length;
   const target=targets[targetIndex];
   const id=`${__ENV.TRIAL_ID}-${sequence}`;
   const start=Date.now();

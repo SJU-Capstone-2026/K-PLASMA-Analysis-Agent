@@ -17,6 +17,7 @@ from types import SimpleNamespace
 import upload_benchmark as u
 import upload_query_benchmark as q
 from analyze_upload_workers import partition,summarize
+from upload_phase_gate import PhaseGate
 
 ROOT=Path(__file__).resolve().parents[2]
 
@@ -48,13 +49,13 @@ def run(args):
     parts={w:partition(dataset,w) for w in args.workers}
     (args.output/'partitions.json').write_text(json.dumps(parts,indent=2))
     measured=args.output/'measured-harness';measured.mkdir()
-    for name in ['upload_worker_benchmark.py','analyze_upload_workers.py','analyze_upload_query_benchmark.py','upload_query_benchmark.py','upload_benchmark.py','upload_query_load.js','upload_query_user_schedule.mjs','upload_query_monotonic.mjs']:
+    for name in ['upload_worker_benchmark.py','analyze_upload_workers.py','analyze_upload_query_benchmark.py','upload_query_benchmark.py','upload_benchmark.py','upload_query_load.js','upload_query_user_schedule.mjs','upload_query_monotonic.mjs','upload_phase_gate.py']:
         shutil.copy2(Path(__file__).parent/name,measured/name)
     jars={v:hashlib.sha256((args.builds/(v+'.jar')).read_bytes()).hexdigest() for v in ['B','C']}
     state=dict(status='preparing',completed=[],current=None)
     manifest=dict(pool=10,administratorsAndWorkers=args.workers,vus=100,intervalSeconds=5,totalRuns=150,
         files=len(dataset['entries']),bytes=sum(e['size'] for e in dataset['entries']),datasetHash=dataset['datasetHash'],
-        jarSha256=jars,schedule=trials,restartEachTrial=args.restart_each_trial,loadEngine=args.load_engine,uploadOffsetMs=args.upload_offset_ms,partitionCostProxy='original bytes',maxNewBatchSeconds=1800,maxSuiteSeconds=2100)
+        jarSha256=jars,schedule=trials,restartEachTrial=args.restart_each_trial,loadEngine=args.load_engine,phaseGate=args.phase_gate,uploadOffsetMs=args.upload_offset_ms,partitionCostProxy='original bytes',maxNewBatchSeconds=1800,maxSuiteSeconds=2100)
     (args.output/'experiment.json').write_text(json.dumps(manifest,indent=2))
     base=f'http://127.0.0.1:{args.server_port}';storage=args.builds/'active/storage'
     process=None;target=None;current=None;block=0;started=time.monotonic();owns_db=False
@@ -106,7 +107,7 @@ def run(args):
         timing=target/'timing.jsonl';offset=timing.stat().st_size
         meta=dict(label=label,variant=variant,workers=width,administrators=width,pool=10,index=index,
             restarted=restarted,loadEngine=args.load_engine,expectedJobs=150,batchIds=[],verified=False,errors=[])
-        stop=threading.Event();load=None;monitor=None;executor=None
+        stop=threading.Event();load=None;monitor=None;executor=None;phase_gate=None
         def save_meta():(out/'result.json').write_text(json.dumps(meta,indent=2))
         try:
             env={**os.environ,'BASE_URL':base,'QUERY_MANIFEST':str((args.seed_artifacts/'queries.json').resolve()),
@@ -114,6 +115,10 @@ def run(args):
             trigger=out/'upload-trigger.json'
             env['UPLOAD_TRIGGER_PATH']=str(trigger.resolve())
             env['UPLOAD_OFFSET_MS']=str(args.upload_offset_ms)
+            if args.phase_gate:
+                if args.load_engine!='k6' or width!=8:raise ValueError('Phase gate requires k6 and eight workers')
+                phase_gate=PhaseGate(timing,offset,out/'phase-gate.json')
+                env['PHASE_GATE_URL']=phase_gate.url
             with (out/'k6.log').open('w') as log:
                 if args.load_engine=='node-monotonic':
                     with (out/'lookup.jsonl').open('w') as lookups:
@@ -153,7 +158,7 @@ def run(args):
                 adminStartSpreadMs=max(s['startEpochMs'] for s in submitted)-min(s['startEpochMs'] for s in submitted),
                 admins=[{k:v for k,v in s.items() if k!='info'} for s in submitted])
             (out/'batches.json').write_text(json.dumps(infos,indent=2))
-            final_cohort=(max(c['cohort'] for c in read_clients(out/'lookup.jsonl'))+1 if args.load_engine=='node-monotonic' else math.floor((end_epoch-first)/5000)+1)
+            final_cohort=(max(c['cohort'] for c in read_clients(out/'lookup.jsonl'))+1 if args.load_engine=='node-monotonic' or args.phase_gate else math.floor((end_epoch-first)/5000)+1)
             deadline=time.monotonic()+15
             while sum(c['cohort']==final_cohort for c in read_clients(out/'lookup.jsonl'))<100:
                 if load.poll() is not None or time.monotonic()>deadline:raise RuntimeError('Final lookup cohort incomplete')
@@ -182,6 +187,7 @@ def run(args):
                 try:load.wait(10)
                 except subprocess.TimeoutExpired:load.kill();load.wait()
             if monitor:monitor.join(15)
+            if phase_gate:phase_gate.close()
             if executor:executor.shutdown(wait=False,cancel_futures=True)
             with timing.open('rb') as stream:stream.seek(offset);(out/'timing.jsonl').write_bytes(stream.read())
             save_meta()
@@ -209,6 +215,7 @@ if __name__=='__main__':
     p.add_argument('--workers',type=int,nargs='+',default=[1,2,4,8]);p.add_argument('--repeats',type=int,default=3)
     p.add_argument('--start-index',type=int,default=1)
     p.add_argument('--restart-each-trial',action='store_true')
+    p.add_argument('--phase-gate',action='store_true',help='Release cohort 2 when eight workers are processing files')
     p.add_argument('--load-engine',choices=['k6','node-monotonic'],default='k6')
     p.add_argument('--upload-offset-ms',type=int,default=5000)
     p.add_argument('--container',required=True);p.add_argument('--java',default='/opt/homebrew/opt/openjdk@21/bin/java')
