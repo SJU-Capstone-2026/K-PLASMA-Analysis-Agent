@@ -178,3 +178,7 @@ python3 scripts/performance/upload_query_ramp.py \
 벽시계 변화에 영향받지 않는 로컬 비교에는 `--load-engine node-monotonic --upload-offset-ms 3000`을 사용한다. Node 기본 HTTP와 `performance.now()`로 100사용자/5초 동시 요청을 만들고, 같은 VU·회차는 같은 버전을 조회한다. HTTP 호출/쓰기 완료/응답 완료를 단조 시각으로 기록한다. 외부 의존성이나 제품 mock은 없다.
 
 `analyze_upload_dispatch.py <결과경로> --workers 8 --same-vu --output <감사JSON>`은 발송 오차와 실제 업로드 중첩을 분리 검증한다. 1ms 해상도의 기존 `startEpochMs`는 패킷 송신 시각이 아니며, Node의 쓰기 완료도 커널 수신 증거는 아니다. 발송·처리 단계가 다른 시행을 제외할 때 원시 결과와 제외 사유를 보존한다. 도구를 바꾼 결과를 기존 k6 평균에 섞지 않는다.
+
+## worker 8개 처리 시점 동기화 결과
+
+[최종 보고서](../../docs/verification/2026-10-16-worker-8개-처리-시점-동기화-B-C-재측정.md)는 `--phase-gate`로 실제 파일 처리 신호에 맞춘 B/C 각 3회 전체를 집계한다. `analyze_upload_phase.py`의 `all_completed`를 대표값으로 사용하며, `phase_valid`는 이전의 엄격한 시점 기준에 대한 보조 진단이다. 원시 표본을 제외하거나 다시 측정하지 않고 집계 해석을 정리했다.
