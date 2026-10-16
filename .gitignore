@@ -39,3 +39,7 @@ __pycache__/
 .DS_Store
 Thumbs.db
 .idea/
+
+# Local performance evidence and private portfolio notes
+/.local/
+/docs/folio/
