@@ -36,7 +36,7 @@ def get(base, path):
         return json.loads(body)
     finally: connection.close()
 
-def post(base, dataset, mode, key, zip_path=None):
+def post(base, dataset, mode, key, zip_path=None, timeout=600):
     u=urlsplit(base);boundary="kplasma-benchmark-fixed-boundary-20261015"
     if mode=="ZIP":
         uploads=[("archive","original.zip",zip_path)]
@@ -53,7 +53,7 @@ def post(base, dataset, mode, key, zip_path=None):
     end=f"--{boundary}--\r\n".encode()
     parts=[(header(name,filename),path) for name,filename,path in uploads]
     length=len(manifest_header)+len(manifest_data)+2+sum(len(h)+p.stat().st_size+2 for h,p in parts)+len(end)
-    connection=http.client.HTTPConnection(u.hostname,u.port,timeout=600)
+    connection=http.client.HTTPConnection(u.hostname,u.port,timeout=timeout)
     started=time.perf_counter_ns()
     try:
         connection.putrequest("POST","/api/import-batches")

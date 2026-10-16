@@ -50,7 +50,7 @@ class ImportWorkerSchedulingTest {
     @Test void triggerReschedulesBacklogImmediatelyButWaitsForAnEmptyQueue()throws Exception {
         var batch=enqueue(3);worker.poll();assertThat(worker.hasBacklog()).isTrue();
         var tasks=new org.springframework.scheduling.config.ScheduledTaskRegistrar();
-        new ImportExecutionConfiguration().importQueueScheduling(worker,500).configureTasks(tasks);
+        new ImportExecutionConfiguration(1).importQueueScheduling(worker,500).configureTasks(tasks);
         var trigger=tasks.getTriggerTaskList().getFirst().getTrigger();
         var now=java.time.Instant.parse("2026-10-15T00:00:00Z");
         var context=new org.springframework.scheduling.support.SimpleTriggerContext(java.time.Clock.fixed(now,java.time.ZoneOffset.UTC));
@@ -60,6 +60,24 @@ class ImportWorkerSchedulingTest {
         worker.poll();assertThat(worker.hasBacklog()).isFalse();
         assertThat(intake.get(batch.batchId()).processedRuns()).isEqualTo(3);
         assertThat(trigger.nextExecution(context)).isEqualTo(now.plusMillis(500));
+    }
+    @Test void parallelSlotsHaveIndependentBacklogAndBoundedThreads() {
+        var mocked=org.mockito.Mockito.mock(ImportWorker.class);
+        org.mockito.Mockito.when(mocked.drain()).thenReturn(true,false);
+        var config=new ImportExecutionConfiguration(8);
+        assertThat(config.taskScheduler().getPoolSize()).isEqualTo(8);
+        var tasks=new org.springframework.scheduling.config.ScheduledTaskRegistrar();
+        config.importQueueScheduling(mocked,500).configureTasks(tasks);
+        assertThat(tasks.getTriggerTaskList()).hasSize(8);
+        var now=java.time.Instant.parse("2026-10-16T00:00:00Z");
+        var context=new org.springframework.scheduling.support.SimpleTriggerContext(java.time.Clock.fixed(now,java.time.ZoneOffset.UTC));
+        context.update(now,now,now);
+        tasks.getTriggerTaskList().get(0).getRunnable().run();
+        tasks.getTriggerTaskList().get(1).getRunnable().run();
+        assertThat(tasks.getTriggerTaskList().get(0).getTrigger().nextExecution(context)).isEqualTo(now);
+        assertThat(tasks.getTriggerTaskList().get(1).getTrigger().nextExecution(context)).isEqualTo(now.plusMillis(500));
+        assertThatThrownBy(()->new ImportExecutionConfiguration(0)).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(()->new ImportExecutionConfiguration(9)).isInstanceOf(IllegalArgumentException.class);
     }
     @AfterAll static void cleanup(){SourceStore.cleanup(ROOT);}
 }

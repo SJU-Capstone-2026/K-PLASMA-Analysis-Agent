@@ -15,7 +15,7 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 import tools.jackson.databind.ObjectMapper;
 
-/** One bounded scheduler consumes committed jobs; each Run publishes atomically. */
+/** Bounded workers atomically claim committed jobs; each Run publishes atomically. */
 @Service
 public class ImportWorker {
     private record Job(UUID id,UUID batch,UUID source,String root,boolean reprocess) {}
@@ -41,28 +41,40 @@ public class ImportWorker {
         if(drainLimit<1||drainLimit>1000)throw new IllegalArgumentException("Import drain limit must be between 1 and 1000");
         this.drainLimit=drainLimit;
     }
-    public void poll() {
-        backlog=false;
-        if(!enabled||!recovery.ready())return;
+    public void poll() {backlog=drain();}
+    /** Returns whether this slot consumed its full bounded turn. */
+    public boolean drain() {
+        if(!enabled||!recovery.ready())return false;
         for(int i=0;i<drainLimit;i++){
-            var ids=jdbc.query("select id from import_job where status='QUEUED' order by created_at,id limit 1",(rs,n)->rs.getObject(1,UUID.class));
-            if(ids.isEmpty())return;
-            process(ids.getFirst());
+            Job job=claim(null);
+            if(job==null)return false;
+            processClaimed(job);
         }
-        // A full drain immediately schedules another bounded turn.
-        backlog=true;
+        return true;
     }
     boolean hasBacklog(){return backlog;}
     public void process(UUID id) {
-        try(var _timing=ImportTimingRecorder.trace("job",id.toString())) {
-            Job job=ImportTimingRecorder.transaction("tx.claim",transactions,tx->{
-                var jobs=jdbc.query("select id,batch_id,source_id,source_root,reprocess from import_job where id=? and status='QUEUED' for update skip locked",(rs,n)->new Job(rs.getObject(1,UUID.class),rs.getObject(2,UUID.class),rs.getObject(3,UUID.class),rs.getString(4),rs.getBoolean(5)),id);
+        Job job=claim(Objects.requireNonNull(id));
+        if(job!=null)processClaimed(job);
+    }
+    private Job claim(UUID requested) {
+        try(var trace=ImportTimingRecorder.trace("claim",UUID.randomUUID().toString())) {
+            return ImportTimingRecorder.transaction("tx.claim",transactions,tx->{
+                String sql="select id,batch_id,source_id,source_root,reprocess from import_job where status='QUEUED'";
+                sql+=requested==null?" order by created_at,id limit 1 for update skip locked":" and id=? for update skip locked";
+                var jobs=jdbc.query(sql,(rs,n)->new Job(rs.getObject(1,UUID.class),rs.getObject(2,UUID.class),rs.getObject(3,UUID.class),rs.getString(4),rs.getBoolean(5)),requested==null?new Object[0]:new Object[]{requested});
                 if(jobs.isEmpty())return null;
-                jdbc.update("update import_job set status='PROCESSING',updated_at=now() where id=?",id);
-                refresh(jobs.getFirst().batch());return jobs.getFirst();
+                Job job=jobs.getFirst();ImportTimingRecorder.batch(job.batch().toString());
+                trace.field("jobId",job.id().toString());trace.field("workerThread",Thread.currentThread().getName());
+                jdbc.update("update import_job set status='PROCESSING',updated_at=now() where id=?",job.id());
+                refresh(job.batch());return job;
             });
-            if(job==null)return;
-            ImportTimingRecorder.batch(job.batch().toString()); ImportTimingRecorder.mark("job.claimed");
+        }
+    }
+    private void processClaimed(Job job) {
+        try(var trace=ImportTimingRecorder.trace("job",job.id().toString())) {
+            trace.field("workerThread",Thread.currentThread().getName());
+            ImportTimingRecorder.batch(job.batch().toString());ImportTimingRecorder.mark("job.claimed");
             try {
                 var source=ImportTimingRecorder.transaction("tx.prepare",transactions,tx->{
                     if(finishDuplicate(job))return null;
@@ -83,7 +95,7 @@ public class ImportWorker {
                 failure(job,failure.status(),failure.getMessage(),List.of(new WorkspaceDto.Error(failure.status(),failure.getMessage(),failure.field(),details,UUID.randomUUID().toString())));
             } catch(RuntimeException failure) {
                 // The exception may contain storage paths or SQL input, so expose only a stable safe diagnostic.
-                LoggerFactory.getLogger(ImportWorker.class).warn("Import job {} failed ({})",id,failure.getClass().getSimpleName());
+                LoggerFactory.getLogger(ImportWorker.class).warn("Import job {} failed ({})",job.id(),failure.getClass().getSimpleName());
                 failure(job,"PARSE_FAILED","Import processing failed; originals retained for reprocessing",List.of(new WorkspaceDto.Error("PROCESSING_FAILED","Import processing failed; originals retained for reprocessing",null,null,UUID.randomUUID().toString())));
             }
         }

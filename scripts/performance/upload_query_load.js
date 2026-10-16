@@ -25,6 +25,8 @@ export default function(){
     if(cohort*5000>=durationMs){sleep(5);return;}
     nextSlot=cohort+1;
     sleep(Math.max(0,(scheduledEpochMs-Date.now())/1000));
+    // An intentional stop interrupts sleep: never issue a future slot early.
+    if(Date.now()<scheduledEpochMs)return;
   }
   const sequence=exec.scenario.iterationInTest;
   const target=targets[sequence%targets.length];

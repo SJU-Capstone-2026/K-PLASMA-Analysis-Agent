@@ -87,7 +87,7 @@ SDK/API 기준: [Phoenix OTEL 설정](https://arize.com/docs/phoenix/tracing/how
 
 ## 업로드 처리와 성능 계측
 
-업로드 작업자는 하나이며, 기본적으로 최대 32개 작업을 연속 처리한다. 이 한도를 채우면 다음 처리를 즉시 예약하고, 최초 실행·빈 큐에서는 500ms 대기한다. `kplasma.worker.drain-limit`(1~1000)과 `kplasma.worker.poll-ms`(양수)로 조정한다. 파일 파싱은 DB 트랜잭션 밖에서 실행하고, 게시할 때 원본 중복을 다시 확인한 뒤 버전·현재 포인터·완료 상태를 함께 commit한다. 동일 원본·재처리·실패 시 이전 버전 유지 정책은 그대로다.
+업로드 작업자는 기본 1개이며, `kplasma.worker.concurrency`(1~8)로 같은 JVM 안의 병렬 worker 수를 지정할 수 있다. DB 연결 풀과는 별도 설정이며 사용자별 개수가 아니다. 각 worker는 `FOR UPDATE SKIP LOCKED`로 대기 작업을 원자적으로 점유하고, 기본적으로 최대 32개 작업을 연속 처리한다. 이 한도를 채우면 해당 worker의 다음 처리를 즉시 예약하고, 최초 실행·빈 큐에서는 500ms 대기한다. `kplasma.worker.drain-limit`(1~1000)과 `kplasma.worker.poll-ms`(양수)로 조정한다. 파일 파싱은 DB 트랜잭션 밖에서 실행하고, 게시할 때 원본 중복을 다시 확인한 뒤 버전·현재 포인터·완료 상태를 함께 commit한다. 동일 원본·재처리·실패 시 이전 버전 유지 정책은 그대로다.
 
 업로드 계측은 기본 비활성이다. 별도 성능 환경의 JAR에 JVM 옵션 `-Dkplasma.import-timing.enabled=true -Dkplasma.import-timing.file=/절대/로컬/경로/timing.jsonl`을 **`-jar` 앞에** 전달하면 요청·작업·파일·파싱·JDBC 구간을 JSONL로 기록한다. 계측 로그와 입력은 Git에서 제외한 `.local/` 아래에 보관한다. 일반 Agent의 Phoenix trace와 별개이며 API 키·LLM 호출은 필요 없다.
 
