@@ -1,0 +1,17 @@
+// Reuse the exact test-only M3 server from the separate benchmark checkout.
+allprojects {
+    afterEvaluate {
+        def benchmarkRoot = System.getenv('FORWARD_BENCHMARK_ROOT')
+        def output = System.getenv('FORWARD_AGENT_CLASSPATH')
+        if (!benchmarkRoot || !output) throw new GradleException('Set FORWARD_BENCHMARK_ROOT and FORWARD_AGENT_CLASSPATH')
+        sourceSets.test.java.srcDir(benchmarkRoot + '/backend/src/test/java/com/kplasma/analysisagent/performance')
+        tasks.register('forwardAgentClasspath') {
+            dependsOn testClasses
+            doLast {
+                def target = file(output)
+                target.parentFile.mkdirs()
+                target.text = sourceSets.test.runtimeClasspath.asPath
+            }
+        }
+    }
+}

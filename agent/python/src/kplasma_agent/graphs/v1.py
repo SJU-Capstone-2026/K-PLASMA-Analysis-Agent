@@ -528,7 +528,13 @@ def build_graph(model, backend, settings, checkpointer):
                 else backend.context(reverse_query=normalized_reverse_query(inputs))
             )
         else:
-            manifest = backend.context()
+            from ..domain.forward import normalized_forward_query
+
+            manifest = (
+                backend.context(references_only=True)
+                if inputs.get("context_rules")
+                else backend.context(forward_query=normalized_forward_query(inputs))
+            )
         context = manifest.get("context", state.get("context", {}))
         source = manifest["runs"]
         provenance = {}
@@ -562,6 +568,9 @@ def build_graph(model, backend, settings, checkpointer):
                 }
             if kind == "reverse_search":
                 manifest = backend.context(reverse_query=normalized_reverse_query(inputs))
+                source = manifest["runs"]
+            elif kind == "forward_lookup":
+                manifest = backend.context(forward_query=normalized_forward_query(inputs))
                 source = manifest["runs"]
         return {
             "manifest": manifest,
