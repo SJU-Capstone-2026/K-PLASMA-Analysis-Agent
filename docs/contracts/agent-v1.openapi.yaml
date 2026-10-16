@@ -217,6 +217,18 @@ paths:
       description: |
         requiredRunRefs adds exact historical versions. First successfully committed call fixes ordered
         latest scalar summaries and available acceptance refs for ordinary lookups.
+        forwardQuery contains pressure (mTorr), sourcePower (W), and biasPower (W)
+        already normalized by the worker. For forward_lookup only, the server derives
+        the integer condition Run ID and looks up its current version using the existing
+        primary key. A usable exact match pins only that Run in runs/catalogRunRefs;
+        unrelated catalog exclusions are not enumerated in this scoped exact result.
+        The actual stored conditions and status are checked before accepting the match.
+        Missing, non-integer, noncanonical or unavailable matches use the legacy catalog
+        path, preserving nearest ranking and exclusions. Previously pinned legacy manifests
+        also keep that path. Forward referencesOnly prepares just required/selected/active
+        historical references, without pinning the entire catalog; the exact result is
+        pinned when forwardQuery is materialized. Replay cannot replace its version or query.
+        forwardQuery cannot be combined with reverseQuery or referencesOnly.
         A reverseQuery pins a small catalogRunRefs inventory and applies validated
         canonical constraints in SQL WHERE and ordered goals in ORDER BY. The scalar
         pool contains common matches, independent output-condition matches and
@@ -512,5 +524,13 @@ components:
         requiredRunRefs: { type: array, items: { $ref: '#/components/schemas/RunRef' } }
         referencesOnly: { type: boolean, default: false }
         reverseQuery: { $ref: '#/components/schemas/ReverseQuery' }
+        forwardQuery:
+          type: object
+          additionalProperties: false
+          required: [pressure, sourcePower, biasPower]
+          properties:
+            pressure: { type: number, description: Canonical mTorr }
+            sourcePower: { type: number, description: Canonical W }
+            biasPower: { type: number, description: Canonical W including zero }
         answer: { type: object, description: Existing AgentResponse with v1 answerSnapshot. }
         limit: { type: integer, minimum: 1, maximum: 4 }
