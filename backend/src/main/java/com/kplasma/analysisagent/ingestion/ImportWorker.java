@@ -10,13 +10,12 @@ import java.util.*;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 import tools.jackson.databind.ObjectMapper;
 
-/** One bounded scheduler consumes committed jobs; each Run publishes atomically. */
+/** Bounded workers atomically claim committed jobs; each Run publishes atomically. */
 @Service
 public class ImportWorker {
     private record Job(UUID id,UUID batch,UUID source,String root,boolean reprocess) {}
@@ -31,45 +30,83 @@ public class ImportWorker {
     private final ImportRecovery recovery;
     private final TransactionTemplate transactions;
     private final boolean enabled;
+    private final int drainLimit;
+    private volatile boolean backlog;
     public ImportWorker(JdbcTemplate jdbc,ObjectMapper mapper,SourceStore store,ImportRepository imports,RunRepository runs,
             RunRegistrationService registration,KPlasmaScalarParser scalars,KPlasmaGraphParser graphs,ImportRecovery recovery,
-            PlatformTransactionManager manager,@Value("${kplasma.worker.enabled:true}") boolean enabled) {
+            PlatformTransactionManager manager,@Value("${kplasma.worker.enabled:true}") boolean enabled,
+            @Value("${kplasma.worker.drain-limit:32}") int drainLimit) {
         this.jdbc=jdbc;this.mapper=mapper;this.store=store;this.imports=imports;this.runs=runs;this.registration=registration;
         this.scalars=scalars;this.graphs=graphs;this.recovery=recovery;this.transactions=new TransactionTemplate(manager);this.enabled=enabled;
+        if(drainLimit<1||drainLimit>1000)throw new IllegalArgumentException("Import drain limit must be between 1 and 1000");
+        this.drainLimit=drainLimit;
     }
-    @Scheduled(fixedDelayString="${kplasma.worker.poll-ms:500}",initialDelayString="${kplasma.worker.poll-ms:500}")
-    public void poll() {
-        if(!enabled||!recovery.ready())return;
-        var ids=jdbc.query("select id from import_job where status='QUEUED' order by created_at,id limit 1",(rs,n)->rs.getObject(1,UUID.class));
-        if(!ids.isEmpty())process(ids.getFirst());
-    }
-    public void process(UUID id) {
-        Job job=transactions.execute(tx->{
-            var jobs=jdbc.query("select id,batch_id,source_id,source_root,reprocess from import_job where id=? and status='QUEUED' for update skip locked",(rs,n)->new Job(rs.getObject(1,UUID.class),rs.getObject(2,UUID.class),rs.getObject(3,UUID.class),rs.getString(4),rs.getBoolean(5)),id);
-            if(jobs.isEmpty())return null;
-            jdbc.update("update import_job set status='PROCESSING',updated_at=now() where id=?",id);
-            refresh(jobs.getFirst().batch());return jobs.getFirst();
-        });
-        if(job==null)return;
-        try {
-            // Serialize attempts for a source across public process callers as well as the single scheduler.
-            transactions.executeWithoutResult(tx->{
-                jdbc.queryForList("select id from source_set where id=? for update",job.source());
-                RunRef previous=job.reprocess()?null:runs.sourceVersion(job.source());
-                if(previous!=null) {finish(job,"DUPLICATE",previous,null,List.of());return;}
-                var source=load(job);
-                var scalar=scalars.parse(source);var graph=graphs.parse(source,scalar);
-                var ref=registration.register(source,scalar,graph);
-                finish(job,"READY",ref,null,List.of());
-            });
-        } catch(ParseFailure failure) {
-            var details=Map.<String,Object>of("path",failure.path(),"line",failure.line());
-            failure(job,failure.status(),failure.getMessage(),List.of(new WorkspaceDto.Error(failure.status(),failure.getMessage(),failure.field(),details,UUID.randomUUID().toString())));
-        } catch(RuntimeException failure) {
-            // The exception may contain storage paths or SQL input, so expose only a stable safe diagnostic.
-            LoggerFactory.getLogger(ImportWorker.class).warn("Import job {} failed ({})",id,failure.getClass().getSimpleName());
-            failure(job,"PARSE_FAILED","Import processing failed; originals retained for reprocessing",List.of(new WorkspaceDto.Error("PROCESSING_FAILED","Import processing failed; originals retained for reprocessing",null,null,UUID.randomUUID().toString())));
+    public void poll() {backlog=drain();}
+    /** Returns whether this slot consumed its full bounded turn. */
+    public boolean drain() {
+        if(!enabled||!recovery.ready())return false;
+        for(int i=0;i<drainLimit;i++){
+            Job job=claim(null);
+            if(job==null)return false;
+            processClaimed(job);
         }
+        return true;
+    }
+    boolean hasBacklog(){return backlog;}
+    public void process(UUID id) {
+        Job job=claim(Objects.requireNonNull(id));
+        if(job!=null)processClaimed(job);
+    }
+    private Job claim(UUID requested) {
+        try(var trace=ImportTimingRecorder.trace("claim",UUID.randomUUID().toString())) {
+            return ImportTimingRecorder.transaction("tx.claim",transactions,tx->{
+                String sql="select id,batch_id,source_id,source_root,reprocess from import_job where status='QUEUED'";
+                sql+=requested==null?" order by created_at,id limit 1 for update skip locked":" and id=? for update skip locked";
+                var jobs=jdbc.query(sql,(rs,n)->new Job(rs.getObject(1,UUID.class),rs.getObject(2,UUID.class),rs.getObject(3,UUID.class),rs.getString(4),rs.getBoolean(5)),requested==null?new Object[0]:new Object[]{requested});
+                if(jobs.isEmpty())return null;
+                Job job=jobs.getFirst();ImportTimingRecorder.batch(job.batch().toString());
+                trace.field("jobId",job.id().toString());trace.field("workerThread",Thread.currentThread().getName());
+                jdbc.update("update import_job set status='PROCESSING',updated_at=now() where id=?",job.id());
+                refresh(job.batch());return job;
+            });
+        }
+    }
+    private void processClaimed(Job job) {
+        try(var trace=ImportTimingRecorder.trace("job",job.id().toString())) {
+            trace.field("workerThread",Thread.currentThread().getName());
+            ImportTimingRecorder.batch(job.batch().toString());ImportTimingRecorder.mark("job.claimed");
+            try {
+                var source=ImportTimingRecorder.transaction("tx.prepare",transactions,tx->{
+                    if(finishDuplicate(job))return null;
+                    return ImportTimingRecorder.call("source.load",()->load(job));
+                });
+                if(source==null)return;
+                // Retained originals are immutable, and PROCESSING jobs prevent managed source deletion.
+                var scalar=ImportTimingRecorder.call("parse.scalar",()->scalars.parse(source));
+                var graph=ImportTimingRecorder.call("parse.graph",()->graphs.parse(source,scalar));
+                ImportTimingRecorder.inTransaction("tx.publish",transactions,tx->{
+                    // Another caller may have published this same source while we parsed without a DB connection.
+                    if(finishDuplicate(job))return;
+                    var ref=ImportTimingRecorder.call("run.register",()->registration.register(source,scalar,graph));
+                    finish(job,"READY",ref,null,List.of());
+                });
+            } catch(ParseFailure failure) {
+                var details=Map.<String,Object>of("path",failure.path(),"line",failure.line());
+                failure(job,failure.status(),failure.getMessage(),List.of(new WorkspaceDto.Error(failure.status(),failure.getMessage(),failure.field(),details,UUID.randomUUID().toString())));
+            } catch(RuntimeException failure) {
+                // The exception may contain storage paths or SQL input, so expose only a stable safe diagnostic.
+                LoggerFactory.getLogger(ImportWorker.class).warn("Import job {} failed ({})",job.id(),failure.getClass().getSimpleName());
+                failure(job,"PARSE_FAILED","Import processing failed; originals retained for reprocessing",List.of(new WorkspaceDto.Error("PROCESSING_FAILED","Import processing failed; originals retained for reprocessing",null,null,UUID.randomUUID().toString())));
+            }
+        }
+    }
+    /** Called only within prepare/publish transactions; source lock serializes duplicate publication. */
+    private boolean finishDuplicate(Job job) {
+        if(jdbc.queryForList("select id from source_set where id=? for update",job.source()).isEmpty())
+            throw new IllegalStateException("Retained source is unavailable");
+        RunRef previous=job.reprocess()?null:runs.sourceVersion(job.source());
+        if(previous==null)return false;
+        finish(job,"DUPLICATE",previous,null,List.of());return true;
     }
     private StoredSource load(Job job) {
         Map<String,StoredBatch.File> files=new HashMap<>();
@@ -81,17 +118,20 @@ public class ImportWorker {
         String hash=jdbc.queryForObject("select sha256 from source_set where id=?",String.class,job.source());
         return new StoredSource(job.source(),job.root(),files,hash);
     }
-    private void failure(Job job,String status,String reason,List<WorkspaceDto.Error> errors) {transactions.executeWithoutResult(tx->finish(job,status,null,reason,errors));}
+    private void failure(Job job,String status,String reason,List<WorkspaceDto.Error> errors) {ImportTimingRecorder.inTransaction("tx.failure",transactions,tx->finish(job,status,null,reason,errors));}
     private void finish(Job job,String status,RunRef ref,String reason,List<WorkspaceDto.Error> errors) {
         jdbc.update("update import_job set status=?,run_id=?,run_version_id=?,reason=?,errors=?::jsonb,updated_at=now() where id=?",status,ref==null?null:ref.runId(),ref==null?null:UUID.fromString(ref.runVersionId()),reason,mapper.writeValueAsString(errors),job.id());
         refresh(job.batch());
+        ImportTimingRecorder.committed("job.terminal");
     }
     void refresh(UUID batch) {
-        jdbc.queryForList("select id from import_batch where id=? for update",batch);
-        var counts=jdbc.queryForMap("select count(*) filter (where status in ('READY','DUPLICATE')) good, count(*) filter (where status not in ('QUEUED','PROCESSING')) done,count(*) filter (where status='PROCESSING') active,count(*) total from import_job where batch_id=?",batch);
-        long good=((Number)counts.get("good")).longValue(),done=((Number)counts.get("done")).longValue(),total=((Number)counts.get("total")).longValue(),active=((Number)counts.get("active")).longValue();
-        String status=done==total?(good==total?"SUCCESS":good>0?"PARTIAL_SUCCESS":"FAILED"):active>0||done>0?"PROCESSING":"QUEUED";
-        jdbc.update("update import_batch set status=?,processed_runs=? where id=?",status,(int)done,batch);
+        try(var _timing=ImportTimingRecorder.span("db.progress")) {
+            jdbc.queryForList("select id from import_batch where id=? for update",batch);
+            var counts=jdbc.queryForMap("select count(*) filter (where status in ('READY','DUPLICATE')) good, count(*) filter (where status not in ('QUEUED','PROCESSING')) done,count(*) filter (where status='PROCESSING') active,count(*) total from import_job where batch_id=?",batch);
+            long good=((Number)counts.get("good")).longValue(),done=((Number)counts.get("done")).longValue(),total=((Number)counts.get("total")).longValue(),active=((Number)counts.get("active")).longValue();
+            String status=done==total?(good==total?"SUCCESS":good>0?"PARTIAL_SUCCESS":"FAILED"):active>0||done>0?"PROCESSING":"QUEUED";
+            jdbc.update("update import_batch set status=?,processed_runs=? where id=?",status,(int)done,batch);
+        }
     }
     public BatchView reprocess(UUID id,String key) {
         if(key==null||key.isBlank()||key.length()>200)throw IntakeException.invalid("A valid idempotency key is required");

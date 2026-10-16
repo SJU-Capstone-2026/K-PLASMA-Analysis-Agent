@@ -27,69 +27,71 @@ public class SourceStore {
     public Path root() { return root; }
 
     public StoredBatch stage(UploadManifest manifest, List<UploadPart> parts) {
-        Path staging = null;
-        try {
-            validateManifest(manifest, parts);
-            Path stagingParent = safeDirectory(root.resolve("staging"));
-            UUID id = UUID.randomUUID();
-            staging = Files.createDirectory(stagingParent.resolve(id.toString()));
-            List<StoredBatch.File> files = new ArrayList<>();
-            Set<String> paths = new HashSet<>();
-            long[] total = {0}; long received;
-            Map<String, UploadPart> byName = new HashMap<>();
-            for (var part : parts) {
-                if (!Files.isRegularFile(part.path(), LinkOption.NOFOLLOW_LINKS)) throw IntakeException.invalid("Upload must be a regular file");
-                byName.put(part.partName(), part);
-            }
-            if ("FOLDER".equals(manifest.mode())) {
-                for (var entry : manifest.entries()) {
-                    String path = safeRelativePath(entry.relativePath());
-                    try (var input = Files.newInputStream(byName.get(entry.partName()).path(), LinkOption.NOFOLLOW_LINKS)) {
-                        files.add(copy(input, staging, path, paths, total));
-                    }
+        try(var _timing=ImportTimingRecorder.span("file.stage")) {
+            Path staging = null;
+            try {
+                validateManifest(manifest, parts);
+                Path stagingParent = safeDirectory(root.resolve("staging"));
+                UUID id = UUID.randomUUID(); ImportTimingRecorder.batch(id.toString());
+                staging = Files.createDirectory(stagingParent.resolve(id.toString()));
+                List<StoredBatch.File> files = new ArrayList<>();
+                Set<String> paths = new HashSet<>();
+                long[] total = {0}; long received;
+                Map<String, UploadPart> byName = new HashMap<>();
+                for (var part : parts) {
+                    if (!Files.isRegularFile(part.path(), LinkOption.NOFOLLOW_LINKS)) throw IntakeException.invalid("Upload must be a regular file");
+                    byName.put(part.partName(), part);
                 }
-                received = total[0];
-            } else {
-                var archive = parts.getFirst();
-                received = countArchive(archive.path());
-                ZipDirectoryBounds.verify(archive.path());
-                try (var zip = ZipFile.builder().setPath(archive.path()).get()) {
-                    var entries = zip.getEntries();
-                    NavigableSet<String> directoryPaths = new TreeSet<>();
-                    while (entries.hasMoreElements()) {
-                        var entry = entries.nextElement();
-                        if (entry.isUnixSymlink() || ((entry.getUnixMode() & 0170000) != 0 && (entry.getUnixMode() & 0170000) != 0100000 && (entry.getUnixMode() & 0170000) != 0040000))
-                            throw IntakeException.invalid("ZIP links and special files are not supported");
-                        String name = entry.getName();
-                        if (entry.isDirectory() && name.endsWith("/")) name = name.substring(0, name.length() - 1);
-                        String path = safeRelativePath(name);
-                        if (entry.isDirectory()) {
-                            checkDirectory(path, paths, directoryPaths); continue;
-                        }
-                        if (!zip.canReadEntryData(entry)) throw IntakeException.invalid("Unsupported ZIP entry encoding");
-                        String key = collisionKey(path), prefix = key + "/";
-                        String descendant = directoryPaths.ceiling(prefix);
-                        if (directoryPaths.contains(key) || descendant != null && descendant.startsWith(prefix))
-                            throw IntakeException.invalid("Conflicting upload paths");
-                        CRC32 crc = new CRC32();
-                        try (var input = new CheckedInputStream(zip.getInputStream(entry), crc)) {
-                            var file = copy(input, staging, path, paths, total);
-                            if (crc.getValue() != entry.getCrc() || file.size() != entry.getSize()) throw IntakeException.invalid("Corrupt ZIP entry");
-                            files.add(file);
+                if ("FOLDER".equals(manifest.mode())) {
+                    for (var entry : manifest.entries()) {
+                        String path = safeRelativePath(entry.relativePath());
+                        try (var input = Files.newInputStream(byName.get(entry.partName()).path(), LinkOption.NOFOLLOW_LINKS)) {
+                            files.add(copy(input, staging, path, paths, total));
                         }
                     }
+                    received = total[0];
+                } else {
+                    var archive = parts.getFirst();
+                    received = countArchive(archive.path());
+                    ZipDirectoryBounds.verify(archive.path());
+                    try (var zip = ZipFile.builder().setPath(archive.path()).get()) {
+                        var entries = zip.getEntries();
+                        NavigableSet<String> directoryPaths = new TreeSet<>();
+                        while (entries.hasMoreElements()) {
+                            var entry = entries.nextElement();
+                            if (entry.isUnixSymlink() || ((entry.getUnixMode() & 0170000) != 0 && (entry.getUnixMode() & 0170000) != 0100000 && (entry.getUnixMode() & 0170000) != 0040000))
+                                throw IntakeException.invalid("ZIP links and special files are not supported");
+                            String name = entry.getName();
+                            if (entry.isDirectory() && name.endsWith("/")) name = name.substring(0, name.length() - 1);
+                            String path = safeRelativePath(name);
+                            if (entry.isDirectory()) {
+                                checkDirectory(path, paths, directoryPaths); continue;
+                            }
+                            if (!zip.canReadEntryData(entry)) throw IntakeException.invalid("Unsupported ZIP entry encoding");
+                            String key = collisionKey(path), prefix = key + "/";
+                            String descendant = directoryPaths.ceiling(prefix);
+                            if (directoryPaths.contains(key) || descendant != null && descendant.startsWith(prefix))
+                                throw IntakeException.invalid("Conflicting upload paths");
+                            CRC32 crc = new CRC32();
+                            try (var input = new CheckedInputStream(zip.getInputStream(entry), crc)) {
+                                var file = copy(input, staging, path, paths, total);
+                                if (crc.getValue() != entry.getCrc() || file.size() != entry.getSize()) throw IntakeException.invalid("Corrupt ZIP entry");
+                                files.add(file);
+                            }
+                        }
+                    }
+                    if (files.isEmpty()) throw IntakeException.invalid("Archive contains no files");
                 }
-                if (files.isEmpty()) throw IntakeException.invalid("Archive contains no files");
+                return new StoredBatch(id, staging, files, total[0], received);
+            } catch (IntakeException e) {
+                cleanup(staging); throw e;
+            } catch (IOException e) {
+                cleanup(staging); throw IntakeException.invalid("Cannot read or store original upload");
+            } catch (RuntimeException e) {
+                cleanup(staging); throw e;
+            } finally {
+                if (parts != null) for (var part : parts) if (part != null && part.path() != null) cleanup(part.path());
             }
-            return new StoredBatch(id, staging, files, total[0], received);
-        } catch (IntakeException e) {
-            cleanup(staging); throw e;
-        } catch (IOException e) {
-            cleanup(staging); throw IntakeException.invalid("Cannot read or store original upload");
-        } catch (RuntimeException e) {
-            cleanup(staging); throw e;
-        } finally {
-            if (parts != null) for (var part : parts) if (part != null && part.path() != null) cleanup(part.path());
         }
     }
     private void validateManifest(UploadManifest manifest, List<UploadPart> parts) {
@@ -109,32 +111,38 @@ public class SourceStore {
         if (!actual.equals(expected)) throw IntakeException.invalid("File parts do not match manifest");
     }
     private StoredBatch.File copy(InputStream input, Path staging, String relative, Set<String> paths, long[] total) throws IOException {
-        if (paths.size() >= limits.files()) throw IntakeException.limit("Too many files");
-        String key = collisionKey(relative);
-        if (!paths.add(key)) throw IntakeException.invalid("Conflicting upload paths");
-        for (String path : paths) if (!path.equals(key) && (path.startsWith(key + "/") || key.startsWith(path + "/")))
-            throw IntakeException.invalid("Conflicting upload paths");
-        Path target = staging.resolve(relative);
-        Files.createDirectories(target.getParent());
-        long size = 0; MessageDigest digest = digest();
-        try (var output = Files.newOutputStream(target, StandardOpenOption.CREATE_NEW)) {
-            byte[] buffer = new byte[64 * 1024]; int read;
-            while ((read = input.read(buffer)) != -1) {
-                size += read; total[0] += read;
-                if (size > limits.fileBytes()) throw IntakeException.limit("File exceeds size limit");
-                if (total[0] > limits.totalBytes()) throw IntakeException.limit("Upload exceeds total byte limit");
-                digest.update(buffer, 0, read); output.write(buffer, 0, read);
+        try(var _timing=ImportTimingRecorder.span("file.staging_copy_hash")) {
+            if (paths.size() >= limits.files()) throw IntakeException.limit("Too many files");
+            String key = collisionKey(relative);
+            if (!paths.add(key)) throw IntakeException.invalid("Conflicting upload paths");
+            for (String path : paths) if (!path.equals(key) && (path.startsWith(key + "/") || key.startsWith(path + "/")))
+                throw IntakeException.invalid("Conflicting upload paths");
+            Path target = staging.resolve(relative);
+            Files.createDirectories(target.getParent());
+            long size = 0; MessageDigest digest = digest();
+            try (var output = Files.newOutputStream(target, StandardOpenOption.CREATE_NEW)) {
+                byte[] buffer = new byte[64 * 1024]; int read;
+                while ((read = input.read(buffer)) != -1) {
+                    size += read; total[0] += read;
+                    if (size > limits.fileBytes()) throw IntakeException.limit("File exceeds size limit");
+                    if (total[0] > limits.totalBytes()) throw IntakeException.limit("Upload exceeds total byte limit");
+                    digest.update(buffer, 0, read); output.write(buffer, 0, read);
+                }
             }
+            _timing.bytes(size);
+            return new StoredBatch.File(relative, target, size, HexFormat.of().formatHex(digest.digest()), kind(relative));
         }
-        return new StoredBatch.File(relative, target, size, HexFormat.of().formatHex(digest.digest()), kind(relative));
     }
     private long countArchive(Path path) throws IOException {
-        long bytes = 0;
-        try (var input = Files.newInputStream(path, LinkOption.NOFOLLOW_LINKS)) {
-            byte[] buffer = new byte[64 * 1024]; int read;
-            while ((read = input.read(buffer)) != -1) { bytes += read; if (bytes > limits.totalBytes()) throw IntakeException.limit("Archive exceeds container byte limit"); }
+        try(var _timing=ImportTimingRecorder.span("file.zip_container_scan")) {
+            long bytes = 0;
+            try (var input = Files.newInputStream(path, LinkOption.NOFOLLOW_LINKS)) {
+                byte[] buffer = new byte[64 * 1024]; int read;
+                while ((read = input.read(buffer)) != -1) { bytes += read; if (bytes > limits.totalBytes()) throw IntakeException.limit("Archive exceeds container byte limit"); }
+            }
+            _timing.bytes(bytes);
+            return bytes;
         }
-        return bytes;
     }
     static String safeRelativePath(String path) {
         if (path == null || path.isBlank() || path.length() > 1024 || path.startsWith("/") || path.contains("\\") || path.contains(":"))

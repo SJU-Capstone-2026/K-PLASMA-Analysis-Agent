@@ -1,0 +1,24 @@
+--- a/src/main/java/com/kplasma/analysisagent/ingestion/ImportWorker.java
++++ b/src/main/java/com/kplasma/analysisagent/ingestion/ImportWorker.java
+@@ -76,17 +76,11 @@
+             trace.field("workerThread",Thread.currentThread().getName());
+             ImportTimingRecorder.batch(job.batch().toString());ImportTimingRecorder.mark("job.claimed");
+             try {
+-                var source=ImportTimingRecorder.transaction("tx.prepare",transactions,tx->{
+-                    if(finishDuplicate(job))return null;
+-                    return ImportTimingRecorder.call("source.load",()->load(job));
+-                });
+-                if(source==null)return;
+-                // Retained originals are immutable, and PROCESSING jobs prevent managed source deletion.
+-                var scalar=ImportTimingRecorder.call("parse.scalar",()->scalars.parse(source));
+-                var graph=ImportTimingRecorder.call("parse.graph",()->graphs.parse(source,scalar));
+-                ImportTimingRecorder.inTransaction("tx.publish",transactions,tx->{
+-                    // Another caller may have published this same source while we parsed without a DB connection.
++                ImportTimingRecorder.inTransaction("tx.process",transactions,tx->{
+                     if(finishDuplicate(job))return;
++                    var source=ImportTimingRecorder.call("source.load",()->load(job));
++                    var scalar=ImportTimingRecorder.call("parse.scalar",()->scalars.parse(source));
++                    var graph=ImportTimingRecorder.call("parse.graph",()->graphs.parse(source,scalar));
+                     var ref=ImportTimingRecorder.call("run.register",()->registration.register(source,scalar,graph));
+                     finish(job,"READY",ref,null,List.of());
+                 });
