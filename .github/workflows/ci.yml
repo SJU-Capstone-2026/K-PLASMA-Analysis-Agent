@@ -26,6 +26,7 @@ jobs:
       - run: uv sync --project agent/python --frozen --extra tracing
       - run: uv run --project agent/python --frozen --extra tracing pytest agent/python/tests agent/python/evals
       - run: uv run --project agent/python --frozen pytest scripts/performance/forward-lookup/tests
+      - run: uv run --project agent/python --frozen pytest scripts/performance/run-selection/tests
       - run: uv run --project agent/python --frozen ruff check --select E4,E7,E9,F scripts/performance/forward-lookup
       - run: uv run --project agent/python --frozen ruff check agent/python/src agent/python/tests agent/python/evals
       - run: uv run --project agent/python --frozen mypy agent/python/src
