@@ -74,7 +74,7 @@ def _picker(state, baseline_required=False):
         "baselineRequired": baseline_required,
     }
     pending["optionsUrl"] = (
-        f"/api/agent/requests/{state['request_id']}/run-options?pendingInputId={pending['id']}"
+        f"/api/agent/requests/{state['request_id']}/run-options?format=2&pendingInputId={pending['id']}"
     )
     return {"route": "wait", "pending": pending}
 
@@ -432,7 +432,9 @@ def build_graph(model, backend, settings, checkpointer):
             if reply.get("type") != pending_type or not snapshot or len(snapshot.get("entries", [])) < 2:
                 raise DomainError("INVALID_COMPARISON_SELECTION")
             keys = [e["key"] for e in snapshot["entries"]]
-            if keys != reply.get("runKeys") or any(
+            if ("runKeys" in reply and keys != reply["runKeys"]) or (
+                "runKeys" not in reply and (not reply.get("snapshotId") or not isinstance(reply.get("selectionRevision"), int))
+            ) or any(
                 e["origin"]["pendingInputId"] != state["pending"]["id"] for e in snapshot["entries"]
             ):
                 raise DomainError("INVALID_COMPARISON_SELECTION")

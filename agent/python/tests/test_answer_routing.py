@@ -86,7 +86,11 @@ def test_general_preserves_original_question_and_has_no_experiment_dependency():
     assert backend.refs == [] and model.calls == ["select", "general"]
 
 
-def test_unreferenced_comparison_interrupts_then_selection_skips_routing_llm():
+@pytest.mark.parametrize("selection_input", [
+    {"runKeys": ["R1", "R2"], "baselineKey": None},
+    {"snapshotId": "synthetic-snapshot", "selectionRevision": 2},
+])
+def test_unreferenced_comparison_interrupts_then_selection_skips_routing_llm(selection_input):
     question = "방금거랑 아까 압력 8 mTorr일 때 플럭스 경향 차이 분석해줘"
     model, backend = Model("compare_runs", {"metrics": ["ionFlux"]}), Backend()
     graph = build_graph(model, backend, Settings(), InMemorySaver())
@@ -113,8 +117,7 @@ def test_unreferenced_comparison_interrupts_then_selection_skips_routing_llm():
         Command(
             resume={
                 "type": "run_selection",
-                "runKeys": ["R1", "R2"],
-                "baselineKey": None,
+                **selection_input,
                 "comparisonReference": {"entries": entries, "baselineKey": None},
             }
         ),

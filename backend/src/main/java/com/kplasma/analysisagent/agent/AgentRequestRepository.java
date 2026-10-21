@@ -47,7 +47,7 @@ public class AgentRequestRepository {
         item.put("input",read(rs.getString("input")));item.put("createdAt",rs.getTimestamp("created_at").toInstant().toString());return item;
     },id);}
     public Map<String,Object> latest(long workspace,long conversation,boolean failed){var rows=jdbc.query("select * from agent_request where workspace_epoch=? and conversation_epoch=? and "+(failed?"true":"status in ('QUEUED','RUNNING','NEEDS_INPUT')")+" order by created_at desc limit 1",this::row,workspace,conversation);return rows.isEmpty()||(failed&&!"FAILED".equals(rows.getFirst().status()))?null:view(rows.getFirst());}
-    public void purgeTransient(UUID id){jdbc.update("delete from agent_checkpoint where request_id=?",id);jdbc.update("update agent_request set manifest=null where id=?",id);}
+    public void purgeTransient(UUID id){jdbc.update("delete from agent_run_selection where request_id=?",id);jdbc.update("delete from agent_checkpoint where request_id=?",id);jdbc.update("update agent_request set manifest=null where id=?",id);}
     public void cancel(UUID id,String code){jdbc.update("update agent_request set status='CANCELLED',stage='cancelled',claim_generation=claim_generation+1,lease_until=null,pending_input=null,context_snapshot=null,partial_result=null,error=?::jsonb,updated_at=now() where id=? and status in ('QUEUED','RUNNING','NEEDS_INPUT')",json(Map.of("code",code,"message","요청의 문맥이 변경되거나 실행이 취소되었습니다.")),id);purgeTransient(id);}
     /** Caller holds workspace lock; cancelling rows precedes erasure so stale writers are fenced. */
     public void clearConversation(long workspace,long conversation,boolean reset){
@@ -66,6 +66,8 @@ public class AgentRequestRepository {
     public void invalidateRuns(Set<String> ids){
         var rows=jdbc.query("select * from agent_request where context_snapshot is not null or manifest is not null or partial_result is not null order by id for update",this::row);
         for(var row:rows) {
+            // A picker keeps deleted versions visible; resume validates the final selection.
+            if("NEEDS_INPUT".equals(row.status())&&row.pending()!=null&&"run_selection".equals(row.pending().get("type")))continue;
             if(Set.of("explain_concept","generate_answer").contains(String.valueOf(row.operationKind())))continue;
             Object dependency="compare_runs".equals(row.operationKind())&&row.context()!=null&&row.context().containsKey("comparisonReference")?row.context().get("comparisonReference"):row.context();
             if(containsRun(dependency,ids)||containsRun(row.manifest(),ids)||containsRun(row.partial(),ids)){

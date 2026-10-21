@@ -101,38 +101,91 @@ paths:
   /api/agent/requests/{id}/run-options:
     parameters: [{ $ref: '#/components/parameters/RequestId' }]
     get:
-      operationId: getFixedRunSelectionOptions
+      operationId: getFixedRunSelectionPage
       parameters:
-        - { name: pendingInputId, in: query, required: true, schema: { type: string } }
-      description: Frozen aliases and exact Run versions for this pending input. Deleted versions stay visible but disabled. Search/sort/selection are local. No catalog pagination or per-Run full payload fetch.
+        - { $ref: '#/components/parameters/PendingInputId' }
+        - { name: format, in: query, required: true, schema: { type: integer, enum: [2] } }
+        - { name: query, in: query, schema: { type: string, maxLength: 256 } }
+        - { name: sort, in: query, schema: { enum: [ascending, descending], default: ascending } }
+        - { name: cursor, in: query, schema: { type: string, maxLength: 4000 } }
+        - { name: pageSize, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 30 } }
+      description: Frozen aliases, exact versions and conditions; DB literal substring search and natural numeric ordering. Cursor is bound to request revision, pending input, snapshot, query and sort. Deleted versions remain visible and disabled. No workspace history or full Run payload is loaded. Legacy clients without format=2 receive CLIENT_REFRESH_REQUIRED.
       responses:
         '200':
-          description: One fixed selection inventory.
+          description: At most pageSize options, with a keyset cursor.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RunSelectionPage' }
+        '400': { description: Invalid query, cursor or page size. }
+        '409': { description: Wrong request epoch or pending input, or CLIENT_REFRESH_REQUIRED. }
+  /api/agent/requests/{id}/run-options/count:
+    parameters: [{ $ref: '#/components/parameters/RequestId' }]
+    get:
+      operationId: countFixedRunSelectionMatches
+      parameters:
+        - { $ref: '#/components/parameters/PendingInputId' }
+        - { name: query, in: query, schema: { type: string, maxLength: 256 } }
+      responses:
+        '200':
+          description: Snapshot metadata plus matchingCount (including disabled options); independent of the page request.
           content:
             application/json:
               schema:
                 type: object
-                required: [requestId, requestRevision, pendingInputId, options]
+                required: [format, requestId, requestRevision, pendingInputId, snapshotId, selectionRevision, totalCount, baselineKey, matchingCount]
                 properties:
-                  requestId: { type: string }
+                  format: { const: 2 }
+                  requestId: { type: string, format: uuid }
                   requestRevision: { type: integer }
                   pendingInputId: { type: string }
-                  options:
-                    type: array
-                    items:
-                      type: object
-                      additionalProperties: false
-                      required: [key, ref, conditions, selectable, unavailableReason]
-                      properties:
-                        key: { type: string }
-                        ref: { $ref: '#/components/schemas/RunRef' }
-                        conditions:
-                          type: object
-                          required: [pressure, sourcePower, biasPower]
-                          additionalProperties: { $ref: './agent-answer-v2.schemas.yaml#/components/schemas/ScalarDatum' }
-                        selectable: { type: boolean }
-                        unavailableReason: { type: [string, 'null'] }
-        '409': { description: Wrong request epoch, revision or pending input. }
+                  snapshotId: { type: string, format: uuid }
+                  selectionRevision: { type: integer }
+                  totalCount: { type: integer }
+                  baselineKey: { type: [string, 'null'] }
+                  matchingCount: { type: integer, minimum: 0 }
+        '409': { description: Stale pending input. }
+  /api/agent/requests/{id}/run-selection:
+    parameters: [{ $ref: '#/components/parameters/RequestId' }]
+    get:
+      operationId: getPersistedRunSelection
+      parameters:
+        - { $ref: '#/components/parameters/PendingInputId' }
+        - { name: cursor, in: query, schema: { type: string, maxLength: 4000 } }
+        - { name: pageSize, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 30 } }
+      responses:
+        '200':
+          description: Selected options only, paged in frozen ordinal order.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RunSelectionState' }
+        '409': { description: Stale pending input. }
+    post:
+      operationId: changePersistedRunSelection
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      description: Serialized revision-fenced mutation. add/remove accept 1..100 unique aliases. search/all union available exact versions with existing selection. clear removes all selections. baseline must be selected and available. Retries with the same key/body do not reapply a mutation and return current selection state. Selection is deleted atomically on resume/cancel/reset/final failure.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [pendingInputId, expectedRequestRevision, expectedSelectionRevision, operation]
+              properties:
+                pendingInputId: { type: string, maxLength: 200 }
+                expectedRequestRevision: { type: integer }
+                expectedSelectionRevision: { type: integer }
+                operation: { enum: [add, remove, search, all, clear, baseline] }
+                keys: { type: array, minItems: 1, maxItems: 100, uniqueItems: true, items: { type: string, maxLength: 80 } }
+                query: { type: string, maxLength: 256 }
+                baselineKey: { type: [string, 'null'], maxLength: 80 }
+      responses:
+        '200':
+          description: Current selection metadata and first 30 selected options.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RunSelectionState' }
+        '400': { description: Invalid aliases, baseline or unavailable Run. }
+        '409': { description: STALE_REQUEST or IDEMPOTENCY_CONFLICT. }
   /api/agent/requests/{id}/resume:
     parameters: [{ $ref: '#/components/parameters/RequestId' }]
     post:
@@ -150,7 +203,7 @@ paths:
                 pendingInputId: { type: string }
                 input:
                   type: object
-                  description: Text replies use type=text and text. Run selection uses type=run_selection, runKeys (at least two fixed aliases), baselineKey (null or selected key). Comparison options use type=comparison_options and baselineKey and/or trendAxis. Browser replies never supply comparisonReference; server enriches trusted events.
+                  description: Text replies use type=text and text. Run selection uses type=run_selection, snapshotId and selectionRevision; the server resolves at least two persisted exact references. Legacy runKeys/baselineKey replies remain accepted with their original order. Comparison options use type=comparison_options and baselineKey and/or trendAxis. Browser replies never supply comparisonReference; server enriches trusted events.
                   additionalProperties: true
       responses:
         '200': { $ref: '#/components/responses/Request' }
@@ -291,7 +344,7 @@ paths:
     post:
       operationId: suspendAgentRequest
       security: [{ workerToken: [] }]
-      description: Save interrupt checkpoint before this call. Lease is released. Resume preserves checkpoint.
+      description: Save interrupt checkpoint before this call. Lease is released. Resume preserves checkpoint. run_selection freezes the complete candidate/version inventory in the database and returns a format=2 snapshot pointer; the Python client allows 180 seconds for this O(N) preparation call only.
       requestBody: { $ref: '#/components/requestBodies/Mutation' }
       responses:
         '200': { $ref: '#/components/responses/Request' }
@@ -327,6 +380,11 @@ components:
   securitySchemes:
     workerToken: { type: apiKey, in: header, name: X-Agent-Token }
   parameters:
+    PendingInputId:
+      name: pendingInputId
+      in: query
+      required: true
+      schema: { type: string, maxLength: 200 }
     RequestId: { name: id, in: path, required: true, schema: { type: string, format: uuid } }
     IdempotencyKey: { name: Idempotency-Key, in: header, required: true, schema: { type: string, minLength: 1, maxLength: 200 } }
     Generation: { name: claimGeneration, in: query, required: true, schema: { type: integer } }
@@ -361,6 +419,44 @@ components:
               selectedRunRefs: { type: array, items: { $ref: '#/components/schemas/RunRef' }, description: Exact materialized reverse-query pool, including an empty array for no matches. }
               reverseQuery: { $ref: '#/components/schemas/ReverseQuery' }
   schemas:
+    RunSelectionPage:
+      type: object
+      required: [format, requestId, requestRevision, pendingInputId, snapshotId, selectionRevision, totalCount, baselineKey, options, hasMore, nextCursor]
+      properties:
+        format: { const: 2 }
+        requestId: { type: string, format: uuid }
+        requestRevision: { type: integer }
+        pendingInputId: { type: string }
+        snapshotId: { type: string, format: uuid }
+        selectionRevision: { type: integer }
+        totalCount: { type: integer }
+        baselineKey: { type: [string, 'null'] }
+        hasMore: { type: boolean }
+        nextCursor: { type: [string, 'null'] }
+        options:
+          type: array
+          maxItems: 100
+          items:
+            type: object
+            required: [key, ref, conditions, selectable, unavailableReason, selected]
+            properties:
+              key: { type: string }
+              ref: { $ref: '#/components/schemas/RunRef' }
+              conditions:
+                type: object
+                required: [pressure, sourcePower, biasPower]
+                additionalProperties: { $ref: './agent-answer-v2.schemas.yaml#/components/schemas/ScalarDatum' }
+              selectable: { type: boolean }
+              selected: { type: boolean }
+              unavailableReason: { type: [string, 'null'] }
+    RunSelectionState:
+      allOf:
+        - { $ref: '#/components/schemas/RunSelectionPage' }
+        - type: object
+          required: [selectedCount, unavailableCount]
+          properties:
+            selectedCount: { type: integer }
+            unavailableCount: { type: integer }
     OutputResponse:
       type: object
       additionalProperties: false

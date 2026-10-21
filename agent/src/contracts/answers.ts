@@ -22,8 +22,10 @@ export interface ComparisonResultV2 {kind:'compare_runs';resultStatus:'COMPARISO
 export interface ComparisonAnswer {kind:'comparison_answer';status:'COMPLETE';knowledgeBasis:'VERIFIED_RUNS_AND_LLM_GENERAL_KNOWLEDGE';observationIds:string[];interpretations:{text:string;observationIds:string[];assumptions:string[]}[];limitations:string[]}
 export interface GeneralAnswerResult {kind:'generate_answer';resultStatus:'ANSWER_READY';markdown:string;knowledgeBasis:'LLM_GENERAL_KNOWLEDGE';usedRunRefs:[]}
 export interface AnswerSnapshotV2 {implementationId:'v1';graphVersion:'v1';schemaVersion:2;kind:ToolName;summary:string;originalQuestion:string;toolSelection:ToolSelection;resolvedInputs:Snapshot;result:ComparisonResultV2|GeneralAnswerResult|Snapshot;answer:ComparisonAnswer|null;contextProvenance:Snapshot;unitAssumptions?:UnitAssumption[];inputHistory:Snapshot[];usedRunRefs:RunRef[];versions:Snapshot}
-export interface RunOption {key:string;ref:RunRef;conditions:Record<ConditionId,ScalarDatum>;selectable:boolean;unavailableReason:string|null}
-export interface RunOptions {requestId:string;requestRevision:number;pendingInputId:string;options:RunOption[]}
+export interface RunOption {selected?:boolean;key:string;ref:RunRef;conditions:Record<ConditionId,ScalarDatum>;selectable:boolean;unavailableReason:string|null}
+export interface RunOptions {format:2;requestId:string;requestRevision:number;pendingInputId:string;snapshotId:string;selectionRevision:number;baselineKey:string|null;totalCount:number;options:RunOption[];hasMore:boolean;nextCursor:string|null}
+export interface RunSelection extends RunOptions {selectedCount:number;unavailableCount:number}
+export interface RunSelectionChange {pendingInputId:string;expectedRequestRevision:number;expectedSelectionRevision:number;operation:'add'|'remove'|'search'|'all'|'clear'|'baseline';keys?:string[];query?:string;baselineKey?:string|null}
 
 export interface OutputMetadata {ref:RunRef;outputId:PlotId;status:'AVAILABLE'|'UNAVAILABLE';reason:string|null;sourceIntegrity:string|null;featurePolicyVersion:string;xUnit:string;yUnit:string;valueUnit:string;sourceCount:number;extrema:Record<string,{value:number;x:number;y:number|null;count:number}>}
 export interface RunOutput {metadata:OutputMetadata;features:Partial<Record<ComparisonField,ScalarDatum>>;display:{kind:'line'|'grid';samples:{x:number;y:number}[];rows:{x:number;coordinates:number[];values:number[]}[]}|null}

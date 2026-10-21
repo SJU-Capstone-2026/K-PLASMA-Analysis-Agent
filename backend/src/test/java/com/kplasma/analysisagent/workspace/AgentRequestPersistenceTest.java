@@ -51,8 +51,8 @@ class AgentRequestPersistenceTest extends WorkspaceTestSupport {
     @Test void runPickerFreezesAliasesAndResumePinsOnlySelectedVersions() throws Exception {
         var job=accepted();var claimed=claim();String path="/requests/"+job.get("requestId").stringValue();
         internal(path+"/heartbeat",mutation(claimed,"operationKind","compare_runs"));
-        internal(path+"/needs-input",mutation(claimed,"pendingInput",Map.of("type","run_selection","id","pick","message","비교할 실험을 선택해 주세요","minSelections",2,"baselineRequired",false,"optionsUrl","/api/agent"+path+"/run-options?pendingInputId=pick")));
-        var options=ok("GET","/api/agent"+path+"/run-options?pendingInputId=pick",null,null);
+        internal(path+"/needs-input",mutation(claimed,"pendingInput",Map.of("type","run_selection","id","pick","message","비교할 실험을 선택해 주세요","minSelections",2,"baselineRequired",false,"optionsUrl","/api/agent"+path+"/run-options?format=2&pendingInputId=pick")));
+        var options=ok("GET","/api/agent"+path+"/run-options?format=2&pendingInputId=pick",null,null);
         assertThat(options.get("options").size()).isEqualTo(4);
         var input=Map.of("expectedRequestRevision",0,"pendingInputId","pick","input",Map.of("type","run_selection","runKeys",List.of("R1","R3")));
         var resumed=ok("POST","/api/agent"+path+"/resume",input,"pick-input");
@@ -70,7 +70,7 @@ class AgentRequestPersistenceTest extends WorkspaceTestSupport {
         internal(path+"/heartbeat",mutation(claimed,"operationKind","compare_runs"));
         internal(path+"/needs-input",mutation(claimed,"pendingInput",Map.of("type","run_selection","id","pick","message","실험 선택","minSelections",2,"baselineRequired",false)));
         ok("POST","/api/runs/delete",Map.of("runIds",List.of("SYNTHETIC-3")),null);
-        var options=ok("GET","/api/agent"+path+"/run-options?pendingInputId=pick",null,null);
+        var options=ok("GET","/api/agent"+path+"/run-options?format=2&pendingInputId=pick",null,null);
         assertThat(options.get("options").size()).isEqualTo(4);assertThat(options.get("options").get(3).get("selectable").booleanValue()).isFalse();
         var bad=send("POST","/api/agent"+path+"/resume",Map.of("expectedRequestRevision",0,"pendingInputId","pick","input",Map.of("type","run_selection","runKeys",List.of("R1","R4"))),"deleted-option");assertThat(bad.statusCode()).isEqualTo(400);
         ok("POST","/api/agent"+path+"/resume",Map.of("expectedRequestRevision",0,"pendingInputId","pick","input",Map.of("type","run_selection","runKeys",List.of("R1","R2"))),"valid-option");
