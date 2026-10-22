@@ -36,13 +36,16 @@ class RunSelectionPaginationTest extends WorkspaceTestSupport {
     private JsonNode mutate(Map<String,Object> body,String key)throws Exception{return ok("POST",base+"/run-selection",body,key);}
 
     @Test void boundedPagesKeepAliasesAndRejectMismatchedCursor()throws Exception{
-        open();var first=page("&pageSize=2");assertThat(first.get("options").size()).isEqualTo(2);assertThat(first.get("totalCount").intValue()).isEqualTo(4);
+        open();var first=page("&pageSize=2");assertThat(first.get("options").size()).isEqualTo(2);assertThat(first.get("totalCount").isNull()).isTrue();assertThat(ok("GET",base+"/run-options/count?pendingInputId=pick",null,null).get("totalCount").intValue()).isEqualTo(4);
         assertThat(first.get("format").intValue()).isEqualTo(2);
         var cursor=URLEncoder.encode(first.get("nextCursor").stringValue(),StandardCharsets.UTF_8);
         var next=page("&pageSize=2&cursor="+cursor);assertThat(next.get("options").get(0).get("key").stringValue()).isEqualTo("R3");assertThat(next.get("hasMore").booleanValue()).isFalse();
         assertThat(send("GET",base+"/run-options?format=2&pendingInputId=pick&query=other&cursor="+cursor,null,null).statusCode()).isEqualTo(400);
         assertThat(page("&query=%25").get("options").size()).isZero();
         assertThat(page("&query=SYNTHETIC-2").get("options").get(0).get("key").stringValue()).isEqualTo("R3");
+        assertThat(page("&query=R1").get("options").get(0).get("key").stringValue()).isEqualTo("R1");
+        var descending=page("&sort=descending&pageSize=2");assertThat(descending.get("options").get(0).get("key").stringValue()).isEqualTo("R4");
+        var descendingNext=page("&sort=descending&pageSize=2&cursor="+URLEncoder.encode(descending.get("nextCursor").stringValue(),StandardCharsets.UTF_8));assertThat(descendingNext.get("options").get(0).get("key").stringValue()).isEqualTo("R2");assertThat(descendingNext.get("hasMore").booleanValue()).isFalse();
         assertThat(send("GET",base+"/run-options?pendingInputId=pick",null,null).statusCode()).isEqualTo(409);
         String context=jdbc.queryForObject("select context_snapshot::text from agent_request where id=?::uuid",String.class,pending.get("requestId").stringValue());
         assertThat(context).doesNotContain("conditions","unavailableReason");
@@ -70,38 +73,58 @@ class RunSelectionPaginationTest extends WorkspaceTestSupport {
         mutate(command(2,"all"),"all");assertThat(selection().get("selectedCount").intValue()).isEqualTo(4);
         ok("POST","/api/runs/delete",Map.of("runIds",List.of("SYNTHETIC-3")),null);
         var selected=selection();assertThat(selected.get("selectedCount").intValue()).isEqualTo(4);assertThat(selected.get("unavailableCount").intValue()).isEqualTo(1);
-        assertThat(page("&query=SYNTHETIC-3").get("options").get(0).get("selectable").booleanValue()).isFalse();
+        assertThat(page("&query=SYNTHETIC-3").get("options").size()).isZero();
         var body=Map.of("expectedRequestRevision",0,"pendingInputId","pick","input",Map.of("type","run_selection","snapshotId",selected.get("snapshotId").stringValue(),"selectionRevision",3));
         assertThat(send("POST",base+"/resume",body,"bad").statusCode()).isEqualTo(400);
         mutate(command(3,"clear"),"clear");assertThat(selection().get("selectedCount").intValue()).isZero();
         ok("POST",base+"/cancel",Map.of(),"cancel");assertThat(jdbc.queryForObject("select count(*) from agent_run_selection_option",Integer.class)).isZero();
     }
 
-    @Test void laterUpdatesAndNewRunsDoNotChangeTheFrozenCatalogue()throws Exception{
-        open();var before=page("").get("options");String old=before.get(0).get("ref").get("runVersionId").stringValue();UUID newer=UUID.randomUUID();
+    @Test void latestCatalogueChangesWhileSelectedVersionsStayPinned()throws Exception{
+        open();var before=page("").get("options");String old=before.get(0).get("ref").get("runVersionId").stringValue();var add=command(0,"add");add.put("keys",List.of("R1","R3"));mutate(add,"pin");var baseline=command(1,"baseline");baseline.put("baselineKey","R1");mutate(baseline,"baseline");UUID newer=UUID.randomUUID();
         jdbc.update("insert into run_version(id,run_id,source_id,registered_at,summary,full_run) select ?,run_id,source_id,now(),summary||jsonb_build_object('runVersionId',?::text,'pressure',999),full_run from run_version where id=?::uuid",newer,newer.toString(),old);
         jdbc.update("update run set current_version_id=? where run_id='SYNTHETIC-0'",newer);
         jdbc.update("insert into run(run_id) values ('SYNTHETIC-10')");UUID added=UUID.randomUUID();
         jdbc.update("insert into run_version(id,run_id,source_id,registered_at,summary,full_run) select ?,'SYNTHETIC-10',source_id,now(),summary||jsonb_build_object('runId','SYNTHETIC-10','runVersionId',?::text),full_run from run_version where id=?::uuid",added,added.toString(),old);
         jdbc.update("update run set current_version_id=? where run_id='SYNTHETIC-10'",added);
-        assertThat(page("").get("options")).isEqualTo(before);assertThat(page("&query=999").get("options").size()).isZero();
-        // After ending this picker the next picker observes the newer catalogue.
-        ok("POST",base+"/cancel",Map.of(),"cancel");open();var next=page("").get("options");
-        assertThat(next.size()).isEqualTo(5);assertThat(next.get(4).get("ref").get("runId").stringValue()).isEqualTo("SYNTHETIC-10");
-        assertThat(next.get(0).get("ref").get("runVersionId").stringValue()).isEqualTo(newer.toString());
+        var latest=page("");assertThat(ok("GET",base+"/run-options/count?pendingInputId=pick",null,null).get("totalCount").intValue()).isEqualTo(5);
+        assertThat(latest.get("options").get(0).get("ref").get("runVersionId").stringValue()).isEqualTo(newer.toString());
+        assertThat(page("&query=999%20mTorr").get("options").size()).isEqualTo(1);
+        var selected=selection();assertThat(selected.get("selectedCount").intValue()).isEqualTo(2);
+        assertThat(selected.get("baselineKey").stringValue()).isEqualTo("R1");
+        assertThat(selected.get("options").get(0).get("ref").get("runVersionId").stringValue()).isEqualTo(old);
+        assertThat(selected.get("options").get(0).get("conditions")).isEqualTo(before.get(0).get("conditions"));
     }
 
-    @Test void legacyJsonIsConvertedWithoutRefreezingAndLegacyKeyOrderStillResumes()throws Exception{
+    @Test void legacyInventoryIsNotCopiedAndOldAliasesCannotSelectOtherVersions()throws Exception{
         open();var original=page("").get("options");String id=pending.get("requestId").stringValue();
         jdbc.update("delete from agent_run_selection where request_id=?::uuid",id);
         jdbc.update("update agent_request set context_snapshot=jsonb_set(context_snapshot,'{comparisonOptions}',?::jsonb) where id=?::uuid",mapper.writeValueAsString(Map.of("pendingInputId","pick","options",original)),id);
         jdbc.update("update run_version set summary=jsonb_set(summary,'{pressure}','999')");
-        assertThat(page("").get("options")).isEqualTo(original);
+        assertThat(page("&query=999%20mTorr").get("options").size()).isEqualTo(4);
+        assertThat(jdbc.queryForObject("select count(*) from agent_run_selection_option",Integer.class)).isZero();
         var input=Map.of("expectedRequestRevision",0,"pendingInputId","pick","input",Map.of("type","run_selection","runKeys",List.of("R3","R1")));
-        var resumed=ok("POST",base+"/resume",input,"legacy");
-        var entries=resumed.get("inputEvents").get(0).get("input").get("comparisonReference").get("entries");
-        assertThat(entries.get(0).get("key").stringValue()).isEqualTo("R3");
-        assertThat(entries.get(1).get("key").stringValue()).isEqualTo("R1");
+        assertThat(send("POST",base+"/resume",input,"legacy").statusCode()).isEqualTo(400);
+    }
+
+    @Test void openingPagingAndSearchingDoNotCopyCandidates()throws Exception{
+        open();assertThat(jdbc.queryForObject("select count(*) from agent_run_selection_option",Integer.class)).isZero();
+        page("&pageSize=2");page("&query=SYNTHETIC-2");selection();
+        assertThat(jdbc.queryForObject("select count(*) from agent_run_selection_option",Integer.class)).isZero();
+        var add=command(0,"add");add.put("keys",List.of("R1","R3"));mutate(add,"two");
+        assertThat(jdbc.queryForObject("select count(*) from agent_run_selection_option",Integer.class)).isEqualTo(2);
+        var remove=command(1,"remove");remove.put("keys",List.of("R1"));mutate(remove,"remove");
+        assertThat(jdbc.queryForObject("select count(*) from agent_run_selection_option",Integer.class)).isEqualTo(1);
+        mutate(command(2,"clear"),"empty");assertThat(jdbc.queryForObject("select count(*) from agent_run_selection_option",Integer.class)).isZero();
+    }
+
+    @Test void selectionPinsTheDisplayedVersionEvenIfTheCatalogueUpdatesBeforeTheClick()throws Exception{
+        open();String old=page("").get("options").get(0).get("ref").get("runVersionId").stringValue();UUID newer=UUID.randomUUID();
+        jdbc.update("insert into run_version(id,run_id,source_id,registered_at,summary,full_run) select ?,run_id,source_id,now(),summary,full_run from run_version where id=?::uuid",newer,old);
+        jdbc.update("update run set current_version_id=? where run_id='SYNTHETIC-0'",newer);
+        var add=command(0,"add");add.put("keys",List.of("R1"));mutate(add,"displayed-version");
+        assertThat(selection().get("options").get(0).get("ref").get("runVersionId").stringValue()).isEqualTo(old);
+        assertThat(page("").get("options").get(0).get("ref").get("runVersionId").stringValue()).isEqualTo(newer.toString());
     }
 
     @Test void concurrentSelectionWritesDoNotOverwriteEachOther()throws Exception{
@@ -122,7 +145,7 @@ class RunSelectionPaginationTest extends WorkspaceTestSupport {
         jdbc.update("update run set current_version_id=? where run_id='SYNTHETIC-0'",current);
         var ref=Map.of("runId","SYNTHETIC-0","runVersionId",old.toString());
         open(Map.of("entries",List.of(Map.of("key","R1","ref",ref))));
-        var all=page("");assertThat(all.get("totalCount").intValue()).isEqualTo(5);
+        var all=page("");assertThat(ok("GET",base+"/run-options/count?pendingInputId=pick",null,null).get("totalCount").intValue()).isEqualTo(5);
         Set<String> aliases=new HashSet<>();int historical=0;
         for(var option:all.get("options")){
             assertThat(aliases.add(option.get("key").stringValue())).isTrue();
@@ -136,10 +159,11 @@ class RunSelectionPaginationTest extends WorkspaceTestSupport {
             cursor=result.get("hasMore").booleanValue()?"&cursor="+URLEncoder.encode(result.get("nextCursor").stringValue(),StandardCharsets.UTF_8):"";
         }while(!cursor.isEmpty());
         assertThat(versions).hasSize(5);
-        var add=command(0,"add");add.put("keys",List.of("R1","R2"));mutate(add,"historical");
+        String currentKey="";for(var option:all.get("options"))if(option.get("ref").get("runVersionId").stringValue().equals(current.toString()))currentKey=option.get("key").stringValue();
+        var add=command(0,"add");add.put("keys",List.of("R1",currentKey));mutate(add,"historical");
         ok("POST","/api/runs/delete",Map.of("runIds",List.of("SYNTHETIC-0")),null);
         assertThat(selection().get("unavailableCount").intValue()).isEqualTo(2);
-        assertThat(page("&query=SYNTHETIC-0").get("options").size()).isEqualTo(2);
+        assertThat(page("&query=SYNTHETIC-0").get("options").size()).isEqualTo(1);
         ok("POST","/api/workspace/new-conversation",Map.of("stateToken",token()),"new");
         assertThat(jdbc.queryForObject("select count(*) from agent_run_selection",Integer.class)).isZero();
         assertThat(send("GET",base+"/run-options?format=2&pendingInputId=pick",null,null).statusCode()).isEqualTo(409);

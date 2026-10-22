@@ -33,15 +33,15 @@ public class RunSelectionService {
         if(rows.isEmpty())stale("실험 선택 요청이 변경되었습니다. 화면을 새로고침해 주세요.");
         var session=options.find(id,pending);
         if(session==null){
-            // One-time conversion of an old frozen JSON list. Never refreeze from today's catalogue.
+            // Convert the request handle; never copy its old full inventory again.
             lock(id);var row=requests.get(id,false);
             if(!"NEEDS_INPUT".equals(row.status())||!Objects.equals(row.pending().get("id"),pending))stale("Selection changed");
             require(row.context()!=null&&row.context().get("comparisonOptions") instanceof Map<?,?> old&&old.get("options") instanceof List<?>,"Frozen options are unavailable");
-            session=freeze(id,pending,row.context());
+            session=prepare(id,pending,row.context());
         }
         return new Scope(id,pending,((Number)rows.getFirst().get("request_revision")).longValue(),session);
     }
-    public RunSelectionRepository.Session freeze(UUID id,String pending,Map<String,Object> context){
+    public RunSelectionRepository.Session prepare(UUID id,String pending,Map<String,Object> context){
         var session=options.create(id,pending,context==null?Map.of():context);
         Map<String,Object> updated=new LinkedHashMap<>(context==null?Map.of():context);
         updated.put("comparisonOptions",Map.of("format",2,"snapshotId",session.id().toString(),"pendingInputId",pending));
@@ -50,7 +50,7 @@ public class RunSelectionService {
     private Map<String,Object> metadata(Scope scope){
         var s=scope.session();Map<String,Object> result=new LinkedHashMap<>();
         result.put("format",2);result.put("requestId",scope.request().toString());result.put("requestRevision",scope.revision());result.put("pendingInputId",scope.pending());
-        result.put("snapshotId",s.id().toString());result.put("selectionRevision",s.revision());result.put("baselineKey",s.baseline());result.put("totalCount",s.total());return result;
+        result.put("snapshotId",s.id().toString());result.put("selectionRevision",s.revision());result.put("baselineKey",s.baseline());result.put("totalCount",null);return result;
     }
     private List<?> decode(String encoded,Scope scope,String query,String sort,boolean selected){
         if(encoded==null||encoded.isEmpty())return null;
@@ -74,7 +74,7 @@ public class RunSelectionService {
         var result=metadata(scope);result.put("options",rows);result.put("hasMore",more);result.put("nextCursor",next);return result;
     }
     @Transactional(isolation=Isolation.REPEATABLE_READ) public Map<String,Object> page(UUID id,String pending,String query,String sort,String cursor,int size){return page(scope(id,pending),query(query),sort,cursor,size,false);}
-    @Transactional(isolation=Isolation.REPEATABLE_READ) public Map<String,Object> count(UUID id,String pending,String query){var scope=scope(id,pending);var result=metadata(scope);String q=query(query);result.put("matchingCount",q.isEmpty()?scope.session().total():options.count(scope.session().id(),q));return result;}
+    @Transactional(isolation=Isolation.REPEATABLE_READ) public Map<String,Object> count(UUID id,String pending,String query){var scope=scope(id,pending);var result=metadata(scope);String q=query(query);long total=options.count(scope.session().id(),"");result.put("totalCount",total);result.put("matchingCount",q.isEmpty()?total:options.count(scope.session().id(),q));return result;}
     @Transactional(isolation=Isolation.REPEATABLE_READ) public Map<String,Object> selected(UUID id,String pending,String cursor,int size){
         var scope=scope(id,pending);var result=page(scope,"","ascending",cursor,size,true);result.putAll(options.selectedCounts(scope.session().id()));return result;
     }
@@ -94,14 +94,10 @@ public class RunSelectionService {
                 var keys=change.keys();require(keys!=null&&!keys.isEmpty()&&keys.size()<=100&&new HashSet<>(keys).size()==keys.size()&&keys.stream().allMatch(k->k!=null&&k.length()<=80),"Choose 1..100 unique aliases");
                 var found=options.chosen(s.id(),keys);require(found.size()==keys.size(),"Unknown Run alias");
                 if(operation.equals("add"))require(found.stream().allMatch(o->Boolean.TRUE.equals(o.get("selectable"))),"Run is unavailable");
-                jdbc.update("update agent_run_selection_option set selected=? where snapshot_id=? and alias=any(?::text[])",operation.equals("add"),s.id(),keys.toArray(String[]::new));
+                if(operation.equals("add"))options.pin(s.id(),found);else options.remove(s.id(),keys);
             }
-            case "search","all" -> jdbc.update("""
-                update agent_run_selection_option o set selected=true where snapshot_id=? and not selected and selectable
-                and exists(select 1 from run_version v where v.id=o.run_version_id)
-                and search_text like ? escape E'\\\\'
-                """,s.id(),RunSelectionRepository.pattern(operation.equals("all")?"":q));
-            case "clear" -> jdbc.update("update agent_run_selection_option set selected=false where snapshot_id=? and selected",s.id());
+            case "search","all" -> options.selectAll(s.id(),operation.equals("all")?"":q);
+            case "clear" -> options.clear(s.id());
             case "baseline" -> {
                 String baseline=change.baselineKey();if(baseline!=null){require(baseline.length()<=80,"Invalid baseline");var found=options.chosen(s.id(),List.of(baseline));require(found.size()==1&&Boolean.TRUE.equals(found.getFirst().get("selected"))&&Boolean.TRUE.equals(found.getFirst().get("selectable")),"Baseline must be a selected available Run");}
                 jdbc.update("update agent_run_selection set baseline_key=? where id=?",baseline,s.id());

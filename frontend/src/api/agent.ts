@@ -9,6 +9,6 @@ export const cancelAgentRequest=(id:string,signal?:AbortSignal)=>request<AgentRe
 export interface PickerQuery {query?:string;sort?:string;cursor?:string|null;pageSize?:number}
 function pickerParams(pendingId:string,params:PickerQuery={}){const search=new URLSearchParams({pendingInputId:pendingId,format:'2'});for(const [key,value] of Object.entries(params))if(value!=null)search.set(key,String(value));return search.toString();}
 export const fetchRunOptions=(id:string,pendingId:string,params:PickerQuery={},signal?:AbortSignal)=>request<RunOptions>(`${base}/${encodeURIComponent(id)}/run-options?${pickerParams(pendingId,params)}`,{signal});
-export const fetchRunOptionCount=(id:string,pendingId:string,query:string,signal?:AbortSignal)=>request<{matchingCount:number}>(`${base}/${encodeURIComponent(id)}/run-options/count?${pickerParams(pendingId,{query})}`,{signal});
+export const fetchRunOptionCount=(id:string,pendingId:string,query:string,signal?:AbortSignal)=>request<{matchingCount:number;totalCount:number}>(`${base}/${encodeURIComponent(id)}/run-options/count?${pickerParams(pendingId,{query})}`,{signal});
 export const fetchRunSelection=(id:string,pendingId:string,cursor:string|null=null,signal?:AbortSignal)=>request<RunSelection>(`${base}/${encodeURIComponent(id)}/run-selection?${pickerParams(pendingId,{cursor})}`,{signal});
 export const changeRunSelection=(id:string,body:RunSelectionChange,key:string)=>request<RunSelection>(`${base}/${encodeURIComponent(id)}/run-selection`,post(body,key));

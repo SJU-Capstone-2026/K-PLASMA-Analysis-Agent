@@ -15,9 +15,9 @@ export function RunPicker({request,sending,onResume,onError}:Props){
  const [draft,setDraft]=useState(''),[query,setQuery]=useState(''),[sort,setSort]=useState('ascending');
  const [cursors,setCursors]=useState<(string|null)[]>([null]),[selectedCursors,setSelectedCursors]=useState<(string|null)[]>([null]);
  const [loading,setLoading]=useState(true),[error,setError]=useState(''),[saveError,setSaveError]=useState(''),[saving,setSaving]=useState(0),[reload,setReload]=useState(0);
- const [matching,setMatching]=useState<number|null>(null),[expanded,setExpanded]=useState(false);
+ const [matching,setMatching]=useState<number|null>(null),[catalogueTotal,setCatalogueTotal]=useState<number|null>(null),[expanded,setExpanded]=useState(false);
  const [optimistic,setOptimistic]=useState<Record<string,{value:boolean;option:RunOption;sequence:number}>>({});
- const sequence=useRef(0),countCache=useRef(new Map<string,number>());
+ const sequence=useRef(0);
  const failed=useRef<{body:RunSelectionChange;key:string}|null>(null),alive=useRef(true);
  const cursor=cursors.at(-1)??null,selectedCursor=selectedCursors.at(-1)??null;
  const snapshotReady=pending.optionsFormat===2||page!==null;
@@ -39,7 +39,7 @@ export function RunPicker({request,sending,onResume,onError}:Props){
   return()=>controller.abort();
  },[request.requestId,request.requestRevision,pending.id,query,sort,cursor,reload]);
  useEffect(()=>{
-  // An older pending request must finish its one-time snapshot conversion first.
+  // An older pending request must establish its lightweight selection session first.
   if(!snapshotReady)return;
   const controller=new AbortController();
   fetchRunSelection(request.requestId,pending.id,selectedCursor,controller.signal).then(result=>{if(!controller.signal.aborted)accept(result);}).catch(e=>{if(!controller.signal.aborted)setSaveError(message(e));});
@@ -49,12 +49,11 @@ export function RunPicker({request,sending,onResume,onError}:Props){
  useEffect(()=>{
   if(!snapshotReady)return;
   const controller=new AbortController();
-  if(countCache.current.has(query)){setMatching(countCache.current.get(query)!);return;}
   setMatching(null);fetchRunOptionCount(request.requestId,pending.id,query,controller.signal).then(result=>{
    if(controller.signal.aborted)return;
-   if(countCache.current.size>=20)countCache.current.clear();countCache.current.set(query,result.matchingCount);setMatching(result.matchingCount);
+   setMatching(result.matchingCount);setCatalogueTotal(result.totalCount);
   }).catch(()=>{});return()=>controller.abort();
- },[request.requestId,pending.id,query,snapshotReady]);
+ },[request.requestId,pending.id,query,sort,cursor,reload,snapshotReady]);
 
  function enqueue(operation:Operation,option?:RunOption,retry?:{body:RunSelectionChange;key:string}){
   if(!current.current)return;
@@ -96,10 +95,10 @@ export function RunPicker({request,sending,onResume,onError}:Props){
   </div>
   <div className="v1-card-actions">
    <button type="button" className="button button--ghost button--small" disabled={busy||stale||!selection||!page?.options.some(o=>o.selectable)} onClick={()=>enqueue({operation:'add',keys:page!.options.filter(o=>o.selectable).map(o=>o.key)})}>현재 페이지 선택</button>
-   <button type="button" className="button button--ghost button--small" disabled={busy||stale||!selection||matching===0} onClick={()=>enqueue({operation:'search',query})}>검색 결과 전체 선택</button>
+   <button type="button" className="button button--ghost button--small" disabled={busy||stale||!selection||matching===null||matching===0} onClick={()=>enqueue({operation:'search',query})}>검색 결과 전체 선택</button>
    <button type="button" className="button button--ghost button--small" disabled={busy||!selection} onClick={()=>enqueue({operation:'all'})}>전체 실험 선택</button>
    <button type="button" className="button button--ghost button--small" disabled={busy||!selectedCount} onClick={()=>enqueue({operation:'clear'})}>선택 해제</button>
-   <span role="status">선택 {selectedCount}개 · 검색 {matching??'…'}개 / 전체 {page?.totalCount??'…'}개{saving>0?' · 저장 중':''}</span>
+   <span role="status">선택 {selectedCount}개 · 검색 {matching??'…'}개 / 전체 {catalogueTotal??page?.totalCount??'…'}개{saving>0?' · 저장 중':''}</span>
   </div>
   {saveError&&<div role="alert"><p>{saveError}</p><button className="button button--ghost button--small" disabled={busy} onClick={()=>failed.current?enqueue(failed.current.body,undefined,failed.current):setReload(v=>v+1)}>선택 저장 다시 시도</button></div>}
   <div className="v1-picker-chips" aria-label="선택한 실험">
@@ -114,7 +113,7 @@ export function RunPicker({request,sending,onResume,onError}:Props){
   </fieldset>
   <div className="v1-card-actions"><button className="button button--ghost button--small" disabled={stale||cursors.length<2} onClick={()=>setCursors(v=>v.slice(0,-1))}>이전 페이지</button><span>{cursors.length}페이지 · {page?.options.length??0}개 표시</span><button className="button button--ghost button--small" disabled={stale||!page?.hasMore} onClick={()=>setCursors(v=>[...v,page!.nextCursor])}>다음 페이지</button></div>
   <label className="v1-baseline">비교 기준 {pending.baselineRequired?'(필수)':'(선택)'}<select disabled={busy||!selection} value={baseline} onChange={e=>enqueue({operation:'baseline',baselineKey:e.target.value||null})}><option value="">기준 없이 값·절대 차이·범위 비교</option>{baseline&&!chosen.has(baseline)&&<option value={baseline}>{baseline} · 선택한 기준 실험</option>}{chosenRows.filter(o=>o.selectable).map(o=><option key={o.key} value={o.key}>{o.key} · {o.ref.runId}</option>)}</select></label>
-  <p className="v1-limitation">화면을 처음 열었을 때의 실험 버전으로 비교합니다. 검색·페이지를 바꿔도 선택은 유지됩니다.</p>
+  <p className="v1-limitation">목록은 최신 실험을 보여줍니다. 선택한 실험은 선택 당시 버전으로 유지됩니다.</p>
   <button type="button" className="button button--primary" disabled={sending||!valid} onClick={()=>onResume({type:'run_selection',snapshotId:selection!.snapshotId,selectionRevision:selection!.selectionRevision}).catch(onError)}>선택한 실험으로 계속</button>
  </div>;
 }

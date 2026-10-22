@@ -30,7 +30,7 @@ public abstract class WorkspaceTestSupport {
     @BeforeEach void seed() throws Exception {
         var state=send("GET","/api/workspace",null,null);assertThat(state.statusCode()).isEqualTo(200);
         ok("POST","/api/workspace/reset",Map.of("stateToken",json(state).get("stateToken")),null);
-        jdbc.execute("truncate import_batch, source_set, run cascade");
+        jdbc.execute("truncate import_batch, source_set, run restart identity cascade");
         refs=new ArrayList<>();
         var template=mapper.readTree(Files.readString(Path.of("../agent/tests/support/contract-wire.json"))).get("on");
         for(int i=0;i<4;i++) {

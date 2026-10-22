@@ -23,7 +23,7 @@ export interface ComparisonAnswer {kind:'comparison_answer';status:'COMPLETE';kn
 export interface GeneralAnswerResult {kind:'generate_answer';resultStatus:'ANSWER_READY';markdown:string;knowledgeBasis:'LLM_GENERAL_KNOWLEDGE';usedRunRefs:[]}
 export interface AnswerSnapshotV2 {implementationId:'v1';graphVersion:'v1';schemaVersion:2;kind:ToolName;summary:string;originalQuestion:string;toolSelection:ToolSelection;resolvedInputs:Snapshot;result:ComparisonResultV2|GeneralAnswerResult|Snapshot;answer:ComparisonAnswer|null;contextProvenance:Snapshot;unitAssumptions?:UnitAssumption[];inputHistory:Snapshot[];usedRunRefs:RunRef[];versions:Snapshot}
 export interface RunOption {selected?:boolean;key:string;ref:RunRef;conditions:Record<ConditionId,ScalarDatum>;selectable:boolean;unavailableReason:string|null}
-export interface RunOptions {format:2;requestId:string;requestRevision:number;pendingInputId:string;snapshotId:string;selectionRevision:number;baselineKey:string|null;totalCount:number;options:RunOption[];hasMore:boolean;nextCursor:string|null}
+export interface RunOptions {format:2;requestId:string;requestRevision:number;pendingInputId:string;snapshotId:string;selectionRevision:number;baselineKey:string|null;totalCount:number|null;options:RunOption[];hasMore:boolean;nextCursor:string|null}
 export interface RunSelection extends RunOptions {selectedCount:number;unavailableCount:number}
 export interface RunSelectionChange {pendingInputId:string;expectedRequestRevision:number;expectedSelectionRevision:number;operation:'add'|'remove'|'search'|'all'|'clear'|'baseline';keys?:string[];query?:string;baselineKey?:string|null}
 

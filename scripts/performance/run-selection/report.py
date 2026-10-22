@@ -9,8 +9,8 @@ def aggregate(rows):
     successful=[r for r in rows if r.get('ok') and r.get('index',0)>=0]
     failures=[r for r in rows if not r.get('ok')]
     result={'samples':len(successful),'failures':failures}
-    for key in ('prepareMs','fetchMs','firstMs','searchMs','domNodes','responseBytes','returnedRows'):
-        values=[r[key] for r in successful if key in r]
+    for key in ('prepareMs','fetchMs','prepareAndFetchMs','requestOwnedRows','firstMs','searchMs','domNodes','responseBytes','returnedRows'):
+        values=[r[key] for r in successful if r.get(key) is not None]
         if values:result[key]=mean(values)
     return result
 

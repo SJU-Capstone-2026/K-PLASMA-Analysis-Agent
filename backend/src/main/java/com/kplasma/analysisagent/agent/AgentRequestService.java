@@ -318,7 +318,7 @@ public class AgentRequestService {
         var pending=new LinkedHashMap<>(body.pendingInput());
         if("run_selection".equals(pending.get("type"))){
             require(((String)pending.get("id")).length()<=200,"pendingInput.id is too long");
-            var session=selections.freeze(id,(String)pending.get("id"),row.context());pending.put("snapshotId",session.id().toString());pending.put("optionsFormat",2);
+            var session=selections.prepare(id,(String)pending.get("id"),row.context());pending.put("snapshotId",session.id().toString());pending.put("optionsFormat",2);
         }
         jdbc.update("update agent_request set status='NEEDS_INPUT',stage='wait_input',pending_input=?::jsonb,lease_until=null,updated_at=now() where id=?",requests.json(pending),id);return requests.view(requests.get(id,false));
     }

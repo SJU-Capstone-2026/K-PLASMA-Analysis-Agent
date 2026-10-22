@@ -27,7 +27,7 @@ function pickerServer(){
    if(body.operation==='clear')chosen.clear();if(body.operation==='baseline')baseline=body.baselineKey;revision++;
   }
   const query=url.searchParams.get('query')??'';const filtered=options.filter(o=>(!isSelected||chosen.has(o.key))&&o.ref.runId.toLowerCase().includes(query.toLowerCase()));
-  if(url.pathname.endsWith('/count'))return Response.json({matchingCount:filtered.length});
+  if(url.pathname.endsWith('/count'))return Response.json({matchingCount:filtered.length,totalCount:150});
   const offset=Number(url.searchParams.get('cursor')??0);const page=filtered.slice(offset,offset+30).map(o=>({...o,selected:chosen.has(o.key)}));
   return Response.json({format:2,requestId:'request',requestRevision:2,pendingInputId:'pending',snapshotId:'snapshot',selectionRevision:revision,baselineKey:baseline,totalCount:150,options:page,hasMore:filtered.length>offset+30,nextCursor:filtered.length>offset+30?String(offset+30):null,selectedCount:chosen.size,unavailableCount:0});
  });vi.stubGlobal('fetch',fetch);return fetch;

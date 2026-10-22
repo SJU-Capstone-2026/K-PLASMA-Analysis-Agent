@@ -55,11 +55,7 @@ class RequestBackend:
         # The opaque saver is already represented by readable node state spans.
         inputs = body if path != "checkpoint" else {"versions": fields.get("payload", {}).get("versions")}
         with tracing.span(f"backend.{path}", inputs=inputs) as observation:
-            # Freezing all candidate versions is O(N), even though later pages are bounded.
-            options = {}
-            if path == "needs-input" and fields.get("pendingInput", {}).get("type") == "run_selection":
-                options["timeout"] = httpx.Timeout(180, connect=10, pool=10)
-            result = self.client.call("POST", self.prefix + path, json=body, **options)
+            result = self.client.call("POST", self.prefix + path, json=body)
             observation.output(result)
             return result
 

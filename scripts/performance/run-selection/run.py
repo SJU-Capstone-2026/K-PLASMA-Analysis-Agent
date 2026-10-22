@@ -88,7 +88,7 @@ def main():
         evidence=directory/'sessions.jsonl'
         if evidence.exists():
             raise RuntimeError('Refusing to overwrite '+str(evidence))
-        (directory/'environment.json').write_text(json.dumps({'javaHeapMax':args.heap,'javaHeapInitial':'512m','postgresMemoryLimit':'6g','jarSha256':hashlib.sha256(args.jar.read_bytes()).hexdigest(),'variant':args.variant,'size':size,'sessions':args.sessions,'jar':str(args.jar.resolve())}))
+        (directory/'environment.json').write_text(json.dumps({'pickerPolicy':'live_original_catalogue' if args.variant!='A' else 'legacy_full_inventory','javaHeapMax':args.heap,'javaHeapInitial':'512m','postgresMemoryLimit':'6g','jarSha256':hashlib.sha256(args.jar.read_bytes()).hexdigest(),'variant':args.variant,'size':size,'sessions':args.sessions,'jar':str(args.jar.resolve())}))
         proc, log=start_server(args.jar.resolve(),directory.resolve(),args.heap)
         try:
             (directory/'dataset.json').write_text(json.dumps(seed(size)))
@@ -99,7 +99,7 @@ def main():
                     if args.variant!='A':path+='&format=2'
                     options,fetch_ms,byte_count=request(path)
                     if index>=0:
-                        append(evidence,{'jarSha256':hashlib.sha256(args.jar.read_bytes()).hexdigest(),'variant':args.variant,'size':size,'index':index,'ok':True,'prepareMs':prepare_ms,'fetchMs':fetch_ms,'prepareAndFetchMs':prepare_ms+fetch_ms,'responseBytes':byte_count,'returnedRows':len(options['options'])})
+                        append(evidence,{'jarSha256':hashlib.sha256(args.jar.read_bytes()).hexdigest(),'variant':args.variant,'size':size,'index':index,'ok':True,'prepareMs':prepare_ms,'fetchMs':fetch_ms,'prepareAndFetchMs':prepare_ms+fetch_ms,'responseBytes':byte_count,'returnedRows':len(options['options']),'requestOwnedRows':None if args.variant=='A' else int(sql('select count(*) from agent_run_selection_option;'))})
                     print(args.variant,size,index,round(prepare_ms,1),round(fetch_ms,1),byte_count,flush=True)
                     (directory/'request.json').write_text(json.dumps({'request':job,'path':path}))
                     if index<args.sessions-1:

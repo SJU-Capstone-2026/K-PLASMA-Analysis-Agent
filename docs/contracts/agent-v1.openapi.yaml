@@ -109,7 +109,7 @@ paths:
         - { name: sort, in: query, schema: { enum: [ascending, descending], default: ascending } }
         - { name: cursor, in: query, schema: { type: string, maxLength: 4000 } }
         - { name: pageSize, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 30 } }
-      description: Frozen aliases, exact versions and conditions; DB literal substring search and natural numeric ordering. Cursor is bound to request revision, pending input, snapshot, query and sort. Deleted versions remain visible and disabled. No workspace history or full Run payload is loaded. Legacy clients without format=2 receive CLIENT_REFRESH_REQUIRED.
+      description: Latest catalogue pages and exact selected versions; DB literal substring search and natural numeric ordering. Cursor is bound to request revision, pending input, snapshot, query and sort. Selected or explicitly attached deleted versions remain visible and disabled in selected/attached state; unselected deleted Runs disappear from the live catalogue. No workspace history or full Run payload is loaded. Legacy clients without format=2 receive CLIENT_REFRESH_REQUIRED.
       responses:
         '200':
           description: At most pageSize options, with a keyset cursor.
@@ -127,7 +127,7 @@ paths:
         - { name: query, in: query, schema: { type: string, maxLength: 256 } }
       responses:
         '200':
-          description: Snapshot metadata plus matchingCount (including disabled options); independent of the page request.
+          description: Selection session metadata plus matchingCount (including disabled options); independent of the page request.
           content:
             application/json:
               schema:
@@ -154,7 +154,7 @@ paths:
         - { name: pageSize, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 30 } }
       responses:
         '200':
-          description: Selected options only, paged in frozen ordinal order.
+          description: Selected exact versions only, paged in stable ordinal order.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/RunSelectionState' }
@@ -162,7 +162,7 @@ paths:
     post:
       operationId: changePersistedRunSelection
       parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
-      description: Serialized revision-fenced mutation. add/remove accept 1..100 unique aliases. search/all union available exact versions with existing selection. clear removes all selections. baseline must be selected and available. Retries with the same key/body do not reapply a mutation and return current selection state. Selection is deleted atomically on resume/cancel/reset/final failure.
+      description: Serialized revision-fenced mutation. add/remove accept 1..100 unique aliases. search/all capture currently matching exact versions and union them with existing selection. Catalogue reads never persist unselected candidates. clear removes all selections. baseline must be selected and available. Retries with the same key/body do not reapply a mutation and return current selection state. Selection is deleted atomically on resume/cancel/reset/final failure.
       requestBody:
         required: true
         content:
@@ -344,7 +344,7 @@ paths:
     post:
       operationId: suspendAgentRequest
       security: [{ workerToken: [] }]
-      description: Save interrupt checkpoint before this call. Lease is released. Resume preserves checkpoint. run_selection freezes the complete candidate/version inventory in the database and returns a format=2 snapshot pointer; the Python client allows 180 seconds for this O(N) preparation call only.
+      description: Save interrupt checkpoint before this call. Lease is released. Resume preserves checkpoint. run_selection creates a small selection session and retains only explicit attached references. Lists are read directly from current catalogue rows with keyset pagination; only selected exact versions are persisted. snapshotId identifies selection state, not a full catalogue snapshot.
       requestBody: { $ref: '#/components/requestBodies/Mutation' }
       responses:
         '200': { $ref: '#/components/responses/Request' }
@@ -429,7 +429,9 @@ components:
         pendingInputId: { type: string }
         snapshotId: { type: string, format: uuid }
         selectionRevision: { type: integer }
-        totalCount: { type: integer }
+        totalCount:
+          type: [integer, 'null']
+          description: Null on page/selection reads; use the independent count endpoint for current catalogue totals.
         baselineKey: { type: [string, 'null'] }
         hasMore: { type: boolean }
         nextCursor: { type: [string, 'null'] }

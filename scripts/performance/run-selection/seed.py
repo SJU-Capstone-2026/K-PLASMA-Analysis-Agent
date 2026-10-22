@@ -21,7 +21,7 @@ def seed(size):
     start = time.perf_counter()
     sql(f"""
 BEGIN;
-TRUNCATE import_batch, source_set, run, agent_request, conversation_turn, workspace_idempotency, decision CASCADE;
+TRUNCATE import_batch, source_set, run, agent_request, conversation_turn, workspace_idempotency, decision RESTART IDENTITY CASCADE;
 UPDATE workspace SET active_run=null,candidate_reference=null,revision=0,workspace_epoch=workspace_epoch+1,conversation_epoch=conversation_epoch+1;
 CREATE TEMP TABLE seed_rows ON COMMIT DROP AS
 SELECT i, 'RUN-P'||lpad((i/20000+1)::text,2,'0')||'-S'||lpad(((i/200%100+1)*5)::text,3,'0')||'-B'||lpad((i%200*50)::text,4,'0') AS run_id,
@@ -34,7 +34,7 @@ SELECT version_id,run_id,source_id,'2000-01-01',summary,summary FROM
 'units',jsonb_build_object('pressure','mTorr','sourcePower','W','biasPower','W','ionFlux','10¹⁸ m⁻²s⁻¹','meanIonEnergy','eV','iedWidth','eV'),
 'metrics',jsonb_build_object('ionFlux',i%900,'meanIonEnergy',i%600,'iedWidth',i%300),
 'catalogStatus',case when i%101=100 then 'UNAVAILABLE' else 'READY' end,'qualityStatus','VERIFIED','convergenceStatus','CONVERGED',
-'registeredAt','2000-01-01T00:00:00Z','note','Artificial picker benchmark','analysis','{{}}'::jsonb) AS summary FROM seed_rows) t;
+'registeredAt','2000-01-01T00:00:00Z','note','Artificial picker benchmark','analysis','{{}}'::jsonb) AS summary FROM seed_rows) t ORDER BY i;
 UPDATE run r SET current_version_id=v.id FROM run_version v WHERE v.run_id=r.run_id;
 COMMIT;
 VACUUM (ANALYZE) run; VACUUM (ANALYZE) run_version;

@@ -6,7 +6,7 @@ from pathlib import Path
 import shutil
 import zipfile
 
-INDEX='BOOT-INF/classes/db/migration/V9__run_selection_search_indexes.sql'
+INDEX='BOOT-INF/classes/db/migration/V11__live_run_selection_indexes.sql'
 p=argparse.ArgumentParser();p.add_argument('jar',type=Path);p.add_argument('output',type=Path);args=p.parse_args()
 for variant in ('B','C'):(args.output/variant).mkdir(parents=True,exist_ok=True)
 b=args.output/'B'/'backend.jar';c=args.output/'C'/'backend.jar'
