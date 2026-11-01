@@ -80,8 +80,8 @@ try{
   const other=runs.find(item=>item.runVersionId!==run.runVersionId&&item.catalogStatus==='READY'&&item.qualityStatus==='VERIFIED'&&item.convergenceStatus==='CONVERGED');assert.ok(other);
   const comparison=await submit(`${run.runId}를 기준으로 ${other.runId}의 평균 이온 에너지와 이온 플럭스를 비교해줘`);
   const picker=await terminal(comparison.requestId);assert.equal(picker.status,'NEEDS_INPUT');assert.equal(picker.pendingInput.type,'run_selection');
-  const optionsPath=`/api/agent/requests/${comparison.requestId}/run-options?pendingInputId=${encodeURIComponent(picker.pendingInput.id)}`;
-  const options=await request(optionsPath);
+  const optionsPath=`/api/agent/requests/${comparison.requestId}/run-options?format=2&pendingInputId=${encodeURIComponent(picker.pendingInput.id)}`;
+  const options=await request(optionsPath);assert.equal(options.format,2);assert.equal(options.snapshotId,picker.pendingInput.snapshotId);assert.ok(options.options.length<=30);
   const exited=new Promise(resolve=>worker.once('exit',resolve));worker.kill('SIGKILL');await exited;
   await environment.restartBackend();
   assert.deepEqual(await request(optionsPath),options);assert.deepEqual(await request(`/api/agent/requests/${comparison.requestId}`),picker);

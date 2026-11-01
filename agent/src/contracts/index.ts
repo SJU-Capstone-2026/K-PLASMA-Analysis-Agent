@@ -98,7 +98,7 @@ export interface CatalogView { runs: RunSummary[]; jobs: JobView[]; sourceFilesB
 /** Durable v1 request metadata; a completed answer is saved by the server exactly once. */
 export type AgentOperationKind = 'forward_lookup' | 'reverse_search' | 'compare_runs' | 'generate_answer' | 'explain_change' | 'explain_concept';
 export type AgentRequestStatus = 'QUEUED' | 'RUNNING' | 'NEEDS_INPUT' | 'COMPLETED' | 'FAILED' | 'CANCELLED';
-export interface AgentPendingInput { id: string; message: string; type?:'text'|'run_selection'|'comparison_options'; fields?: string[]; options?: {label:string;input:Snapshot}[]; minSelections?:number;baselineRequired?:boolean;optionsUrl?:string;allowedRunKeys?:string[];allowedTrendAxes?:import('./answers.js').ConditionId[] }
+export interface AgentPendingInput { id: string; message: string; type?:'text'|'run_selection'|'comparison_options'; fields?: string[]; options?: {label:string;input:Snapshot}[]; minSelections?:number;baselineRequired?:boolean;optionsUrl?:string;optionsFormat?:2;snapshotId?:string;allowedRunKeys?:string[];allowedTrendAxes?:import('./answers.js').ConditionId[] }
 export interface AgentRequestView {
   requestId:string; requestRevision:number; status:AgentRequestStatus; stage:string; graphVersion:'v1'; question:string;
   pendingInput:AgentPendingInput|null; error:{code:string;message:string}|null; partialResult:Snapshot|null;

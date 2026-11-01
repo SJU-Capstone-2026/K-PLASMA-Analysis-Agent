@@ -1,5 +1,5 @@
 import {expect,test,type APIRequestContext,type Page} from '@playwright/test';
-import type {AgentRequestView,RunSummary,TurnSnapshot,WorkspaceView} from 'agent';
+import type {AgentRequestView,RunOptions,RunSummary,TurnSnapshot,WorkspaceView} from 'agent';
 
 const api=process.env.KPLASMA_E2E_API;
 if(!api)throw new Error('The v1 live gate requires an isolated backend and running Python worker via KPLASMA_E2E_API.');
@@ -38,8 +38,9 @@ for(const width of widths)test(`v1 real HTTP answers four tools, clarification a
   const acceptedCompare=await ask(page,`${a.runId}를 기준으로 ${b.runId}의 평균 이온 에너지와 이온 플럭스를 비교해줘`);
   const selection=await terminal(request,acceptedCompare.requestId);expect(selection.status).toBe('NEEDS_INPUT');expect(selection.pendingInput?.type).toBe('run_selection');
   await expect(page.getByRole('button',{name:'선택한 실험으로 계속'})).toBeDisabled();
-  const optionResponse=await request.get(`${api}/api/agent/requests/${acceptedCompare.requestId}/run-options?pendingInputId=${encodeURIComponent(selection.pendingInput!.id)}`);expect(optionResponse.status()).toBe(200);
-  const options=(await optionResponse.json()).options as {key:string;ref:{runId:string;runVersionId:string}}[];
+  const optionResponse=await request.get(`${api}/api/agent/requests/${acceptedCompare.requestId}/run-options?format=2&pendingInputId=${encodeURIComponent(selection.pendingInput!.id)}`);expect(optionResponse.status()).toBe(200);
+  const optionPage=await optionResponse.json() as RunOptions;expect(optionPage.format).toBe(2);expect(optionPage.snapshotId).toBe(selection.pendingInput!.snapshotId);expect(optionPage.options.length).toBeLessThanOrEqual(30);
+  const options=optionPage.options;
   const keyA=options.find(o=>o.ref.runVersionId===a.runVersionId)!.key;const keyB=options.find(o=>o.ref.runVersionId===b.runVersionId)!.key;
   await page.reload();await expect(page.getByRole('checkbox',{name:`${keyA} · ${a.runId} · ${a.runVersionId}`})).toBeVisible();
   // Check actual picker geometry: generic full-width input CSS once squeezed
@@ -52,7 +53,8 @@ for(const width of widths)test(`v1 real HTTP answers four tools, clarification a
   expect(geometry.textWidth).toBeGreaterThan(geometry.rowWidth*.65);expect(geometry.rowHeight).toBeLessThan(180);
   await page.getByRole('checkbox',{name:`${keyA} · ${a.runId} · ${a.runVersionId}`}).check();await page.getByRole('checkbox',{name:`${keyB} · ${b.runId} · ${b.runVersionId}`}).check();
   await page.locator('.v1-run-selection').screenshot({path:info.outputPath(`picker-artificial-${width}.png`)});
-  await page.getByLabel('비교 기준 (필수)').selectOption(keyA);const picked=page.waitForResponse(r=>new URL(r.url()).pathname.endsWith(`/${acceptedCompare.requestId}/resume`)&&r.request().method()==='POST');await page.getByRole('button',{name:'선택한 실험으로 계속'}).click();expect((await picked).status()).toBe(200);
+  await page.getByLabel('비교 기준 (필수)').selectOption(keyA);const picked=page.waitForResponse(r=>new URL(r.url()).pathname.endsWith(`/${acceptedCompare.requestId}/resume`)&&r.request().method()==='POST');await page.getByRole('button',{name:'선택한 실험으로 계속'}).click();const pickedResponse=await picked;expect(pickedResponse.status()).toBe(200);
+  expect(pickedResponse.request().postDataJSON().input).toEqual({type:'run_selection',snapshotId:optionPage.snapshotId,selectionRevision:expect.any(Number)});
   const compared=await terminal(request,acceptedCompare.requestId,1);expect(compared.status,compared.error?.code).toBe('COMPLETED');await expect(page.locator('.agent-turn')).toHaveCount(3);
   const compare=(await workspace(request)).conversation.turns.at(-1)!;expect(compare.answerSnapshot).toMatchObject({kind:'compare_runs',result:{baselineKey:keyA,runs:expect.arrayContaining([{key:keyA,ref:{runId:a.runId,runVersionId:a.runVersionId},conditions:expect.any(Object),metrics:expect.any(Object),quality:expect.any(Object)}])}});
   await page.locator(`[data-turn-id="${compare.id}"] .v1-comparison`).screenshot({path:info.outputPath(`comparison-artificial-${width}.png`)});
