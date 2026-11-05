@@ -75,6 +75,10 @@ class RequestBackend:
             fields["referencesOnly"] = True
         return self.post("context", **fields)
 
+    def decision_records(self):
+        # The backend pins the first read in the request manifest; call after context().
+        return self.post("decision-records")["records"]
+
     def comparison_outputs(self, refs, plots):
         return self.post("comparison-outputs", runRefs=refs, plotIds=plots)
 

@@ -339,6 +339,26 @@ paths:
       responses:
         '200': { description: Object with attempt and limit. }
         '409': { description: STALE_CLAIM or MODEL_ATTEMPT_LIMIT }
+  /internal/agent/requests/{id}/decision-records:
+    parameters: [{ $ref: '#/components/parameters/RequestId' }]
+    post:
+      operationId: readDecisionRecordsForReuse
+      security: [{ workerToken: [] }]
+      description: |
+        Only for operationKind decision_records or reverse_search, after context()
+        has created the request manifest. The first read pins the records, in save
+        order, as manifest.decisionRecords; retries and resumes return the same
+        array. Records carry only reviewId, id, version, targetRunId, targetRunRef,
+        decision, comment, overallComment, question, queryText, createdAt, isDemo,
+        candidates[runId, runVersionId, decision, note, conditions] and
+        runSnapshots[runId, runVersionId, conditions]. Authors, objectives and
+        metrics are omitted. Notes are user text: workers classify them locally and
+        must not send them to a model or an external trace.
+      requestBody: { $ref: '#/components/requestBodies/Mutation' }
+      responses:
+        '200': { description: Object with records. }
+        '400': { description: Unsupported operationKind or missing request manifest }
+        '409': { $ref: '#/components/responses/StaleClaim' }
   /internal/agent/requests/{id}/needs-input:
     parameters: [{ $ref: '#/components/parameters/RequestId' }]
     post:
@@ -612,7 +632,7 @@ components:
         requestRevision: { type: integer }
         leaseSeconds: { type: integer, minimum: 5, maximum: 300 }
         stage: { type: string }
-        operationKind: { enum: [forward_lookup, reverse_search, compare_runs, generate_answer, explain_change, explain_concept, unsupported] }
+        operationKind: { enum: [forward_lookup, reverse_search, compare_runs, generate_answer, decision_records, explain_change, explain_concept, unsupported] }
         dependsOnContext: { type: boolean }
         payload: { type: object, description: Opaque bounded checkpoint envelope. }
         pendingInput: { type: object, required: [id, message] }
