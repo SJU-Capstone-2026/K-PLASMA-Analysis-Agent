@@ -2,6 +2,7 @@ package com.kplasma.analysisagent.agent;
 
 import com.kplasma.analysisagent.contract.RunDto.RunRef;
 import com.kplasma.analysisagent.contract.WorkspaceDto.*;
+import com.kplasma.analysisagent.decision.DecisionRepository;
 import com.kplasma.analysisagent.ingestion.IntakeException;
 import com.kplasma.analysisagent.workspace.*;
 import java.time.Instant;
@@ -22,7 +23,8 @@ public class AgentRequestService {
     private final JdbcTemplate jdbc;
     private final ObjectMapper mapper;
     private final RunSelectionService selections;
-    public AgentRequestService(AgentRequestRepository requests,WorkspaceRepository workspace,SnapshotValidator validate,JdbcTemplate jdbc,ObjectMapper mapper,RunSelectionService selections){this.requests=requests;this.workspace=workspace;this.validate=validate;this.jdbc=jdbc;this.mapper=mapper;this.selections=selections;}
+    private final DecisionRepository decisions;
+    public AgentRequestService(AgentRequestRepository requests,WorkspaceRepository workspace,SnapshotValidator validate,JdbcTemplate jdbc,ObjectMapper mapper,RunSelectionService selections,DecisionRepository decisions){this.requests=requests;this.workspace=workspace;this.validate=validate;this.jdbc=jdbc;this.mapper=mapper;this.selections=selections;this.decisions=decisions;}
     public record ReferenceOrigin(RunRef ref,String kind,String turnId,String groupId) {}
     public record Submission(String text,StateToken stateToken,RunRef selectedRunRef,RunRef baseline,List<RunRef> candidateReferences,List<RunRef> attachedRunRefs,List<ReferenceOrigin> referenceOrigins) {}
     public record Resume(long expectedRequestRevision,String pendingInputId,Map<String,Object> input) {}
@@ -162,7 +164,7 @@ public class AgentRequestService {
     private void epochs(AgentRequestRepository.Row row,WorkspaceView current){if(row.workspaceEpoch()!=current.stateToken().workspaceEpoch()||row.conversationEpoch()!=current.stateToken().conversationEpoch())conflict("STALE_CONTEXT","Workspace or conversation changed");}
     @Transactional public Map<String,Object> heartbeat(UUID id,Mutation body){
         var current=workspace.lock();var row=fence(id,body.claimGeneration(),body.requestRevision());epochs(row,current);if(body.stage()!=null)require(body.stage().length()<=80,"stage is too long");
-        if(body.operationKind()!=null)require(Set.of("forward_lookup","reverse_search","compare_runs","generate_answer","explain_change","explain_concept","unsupported").contains(body.operationKind()),"Unknown operationKind");
+        if(body.operationKind()!=null)require(Set.of("forward_lookup","reverse_search","compare_runs","generate_answer","decision_records","explain_change","explain_concept","unsupported").contains(body.operationKind()),"Unknown operationKind");
         if(body.operationKind()!=null&&row.context()!=null&&row.context().get("invalidationReason") instanceof String reason){
             boolean depends=body.dependsOnContext()==null?row.dependsOnContext():body.dependsOnContext();
             if(depends){requests.cancel(id,reason);return requests.view(requests.get(id,false));}
@@ -290,6 +292,26 @@ public class AgentRequestService {
         if(changed)jdbc.update("update agent_request set manifest=?::jsonb,updated_at=now() where id=?",requests.json(manifest),id);
         return manifest;
     }
+    @Transactional public Map<String,Object> decisionRecords(UUID id,long generation,long revision){
+        var current=workspace.lock();var row=fence(id,generation,revision);epochs(row,current);
+        require(Set.of("decision_records","reverse_search").contains(String.valueOf(row.operationKind())),"Only record reuse reads decisions");
+        require(row.manifest()!=null,"Load the Run context before decision records");
+        Map<String,Object> manifest=new LinkedHashMap<>(row.manifest());
+        // Pin the first read so a resumed or retried worker classifies the same records.
+        if(!(manifest.get("decisionRecords") instanceof List<?>)){
+            manifest.put("decisionRecords",decisions.recordsInSaveOrder().stream().map(requests::read).map(this::reuseEvidence).toList());
+            jdbc.update("update agent_request set manifest=?::jsonb,updated_at=now() where id=?",requests.json(manifest),id);
+        }
+        return Map.of("records",manifest.get("decisionRecords"));
+    }
+    /** Only the fields the reuse rules read; authors, objectives and metrics stay out of the Agent context. */
+    private Map<String,Object> reuseEvidence(Map<String,Object> record){
+        Map<String,Object> result=pick(record,List.of("reviewId","id","version","targetRunId","targetRunRef","decision","comment","overallComment","question","queryText","createdAt","isDemo"));
+        for(String key:List.of("candidates","runSnapshots"))if(record.get(key) instanceof List<?> rows)
+            result.put(key,rows.stream().map(value->pick((Map<?,?>)value,key.equals("candidates")?List.of("runId","runVersionId","decision","note","conditions"):List.of("runId","runVersionId","conditions"))).toList());
+        return result;
+    }
+    private static Map<String,Object> pick(Map<?,?> source,List<String> keys){Map<String,Object> result=new LinkedHashMap<>();for(String key:keys)if(source.containsKey(key))result.put(key,source.get(key));return result;}
     private List<Map<String,Object>> scalarVersions(String[] versions){return jdbc.query("select summary::text,source_file_count from run_version where id=any(?::uuid[]) order by run_id,registration_sequence",(rs,n)->scalarRow(rs.getString(1),rs.getObject(2)),(Object)versions);}
     private Map<String,Object> scalarRow(String json,Object sourceFileCount){var item=scalarSummary(json);item.put("sourceFileCount",sourceFileCount);return item;}
     private Map<String,Object> comparisonContext(UUID id,AgentRequestRepository.Row row,List<RunRef> required,Map<String,Object> reverseQuery,Boolean only){

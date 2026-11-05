@@ -13,6 +13,8 @@ _tracer = None
 _secrets: tuple[str, ...] = ()
 _session: ContextVar[str | None] = ContextVar("kplasma_trace_session", default=None)
 _credential_keys = {"apikey", "authorization", "password", "token", "workertoken", "xagenttoken"}
+# Decision notes are kept out of external traces even though they are not credentials.
+_private_keys = {"decisionrecords", "note", "comment", "overallcomment", "sharedcomment"}
 
 
 def _register(**kwargs):
@@ -66,7 +68,7 @@ def shutdown():
 def _scrub(value):
     if isinstance(value, dict):
         return {
-            key: "[REDACTED]" if rekey(key) in _credential_keys else _scrub(item)
+            key: "[REDACTED]" if rekey(key) in _credential_keys | _private_keys else _scrub(item)
             for key, item in value.items()
         }
     if isinstance(value, (list, tuple)):

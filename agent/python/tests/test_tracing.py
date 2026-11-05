@@ -147,3 +147,28 @@ def test_backend_context_records_normalized_query_and_response_without_auth(trac
     assert json.loads(child.attributes["output.value"])["runs"][0]["ionFlux"] == 0
     assert child.parent.span_id == spans["parent"].context.span_id
     assert "test-private-key" not in str(child.attributes)
+
+
+def test_decision_notes_are_redacted_from_node_and_backend_spans(trace_capture):
+    import httpx
+    from kplasma_agent.backend_client import BackendClient
+
+    secret = "synthetic-private-note"
+    records = [{"reviewId": "EXP-1", "overallComment": secret, "candidates": [{"runId": "A", "note": secret}]}]
+    backend = BackendClient(Settings(), transport=httpx.MockTransport(
+        lambda request: httpx.Response(200, json={"records": records})
+    )).bind({"request": {"requestId": "synthetic"}, "claimGeneration": 1, "requestRevision": 1})
+    assert backend.decision_records() == records
+    observed = tracing.node("gather", lambda state: {"result": {"entries": [{"note": secret, "sharedComment": secret}]}})
+    observed({"manifest": {"decisionRecords": records}, "comment": secret})
+    spans = trace_capture.get_finished_spans()
+    assert {s.name for s in spans} == {"backend.decision-records", "graph.gather"}
+    assert secret not in json.dumps([dict(s.attributes) for s in spans], ensure_ascii=False)
+
+
+def test_decision_notes_are_redacted_in_serialized_trace_values():
+    secret = "synthetic-private-note"
+    state = {"manifest": {"decisionRecords": [{"note": secret}]}, "entries": [{"note": secret, "Shared_Comment": secret}],
+             "overallComment": secret, "comment": secret, "question": "인공 질문"}
+    serialized = tracing._json(state)
+    assert secret not in serialized and "인공 질문" in serialized
