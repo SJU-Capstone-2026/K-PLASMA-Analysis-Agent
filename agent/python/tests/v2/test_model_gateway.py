@@ -1,5 +1,6 @@
 import json
 import httpx
+import pytest
 
 from kplasma_agent.config import Settings
 from kplasma_agent.metric_registry import UNITS, normalize_value
@@ -94,6 +95,84 @@ def test_writer_schema_puts_complete_evidence_before_text():
     for name in ("Interpretation", "Limitation"):
         fields = list(schema["$defs"][name]["properties"])
         assert fields.index("evidence_ids") < fields.index("text")
+
+
+def test_plan_review_has_condition_questions_in_one_request_and_preserves_low_confidence_choice():
+    from .test_plan_review import answers, example_context
+
+    guarded = []
+    payload = example_context()
+
+    def transport(request):
+        body = json.loads(request.content)
+        assert request.url.path == "/v1/decisions"
+        assert body["input"][0]["content"][0]["data"] == payload
+        assert [q["name"] for q in body["questions"]] == [s["name"] for s in payload["check_specs"]]
+        assert all({"match", "unclear"} <= {c["value"] for c in q["choices"]} for q in body["questions"])
+        rows = answers()
+        rows[1] = answers("missing")[1]
+        return httpx.Response(200, json={"answers": rows, "usage": {"input_tokens": 100}})
+
+    with httpx.Client(transport=httpx.MockTransport(transport)) as client:
+        gateway = V2ModelGateway(V2Settings.from_env(Settings()), client,
+                                 lambda body, role: guarded.append((body, role)))
+        result, usage = gateway.review_plan(payload)
+    assert result["status"] == "ISSUE"
+    assert result["checks"][1]["choice"] == "missing"
+    assert result["checks"][1]["confidence"] == 0.05
+    assert usage == {"input_tokens": 100}
+    assert len(guarded) == 1 and guarded[0][1] == "plan_review"
+
+
+@pytest.mark.parametrize("failure,reason", [
+    ("timeout", "DECISIONS_TIMEOUT"), ("connection", "DECISIONS_CONNECTION"),
+    ("rate_limit", "DECISIONS_HTTP_429"), ("missing", "DECISIONS_INVALID_RESPONSE"),
+])
+def test_plan_review_outage_is_unavailable_and_never_retries(failure, reason):
+    from .test_plan_review import example_context
+
+    calls = []
+
+    def transport(request):
+        calls.append(request)
+        if failure == "timeout":
+            raise httpx.ReadTimeout("private message", request=request)
+        if failure == "connection":
+            raise httpx.ConnectError("private message", request=request)
+        return httpx.Response(429 if failure == "rate_limit" else 200, json={"answers": []})
+
+    with httpx.Client(transport=httpx.MockTransport(transport)) as client:
+        gateway = V2ModelGateway(V2Settings.from_env(Settings()), client, lambda *_: None)
+        result, usage = gateway.review_plan(example_context())
+    assert len(calls) == 1
+    assert result["status"] == "UNAVAILABLE" and result["reason"] == reason
+    assert usage is None
+    assert "private message" not in json.dumps(result)
+
+
+def test_plan_review_is_opt_in_until_quality_gate_passes(monkeypatch):
+    monkeypatch.delenv("AGENT_V2_PLAN_REVIEW_ENABLED", raising=False)
+    assert V2Settings.from_env(Settings()).plan_review_enabled is False
+    monkeypatch.setenv("AGENT_V2_PLAN_REVIEW_ENABLED", "true")
+    assert V2Settings.from_env(Settings()).plan_review_enabled is True
+    monkeypatch.setenv("AGENT_V2_PLAN_REVIEW_ENABLED", "false")
+    assert V2Settings.from_env(Settings()).plan_review_enabled is False
+
+
+def test_oversized_plan_review_never_reaches_the_provider():
+    from kplasma_agent.model_client import ModelError
+    from .test_plan_review import example_context
+
+    def reject(*_):
+        raise ValueError("v2 input budget exceeded")
+
+    def transport(_):
+        raise AssertionError("invalid review input reached provider")
+
+    with httpx.Client(transport=httpx.MockTransport(transport)) as client:
+        gateway = V2ModelGateway(V2Settings.from_env(Settings()), client, reject)
+        with pytest.raises(ModelError, match="PLAN_REVIEW_INPUT_INVALID"):
+            gateway.review_plan(example_context())
 
 
 def test_gateway_streams_safe_prose_before_provider_completion_with_one_writer_request():

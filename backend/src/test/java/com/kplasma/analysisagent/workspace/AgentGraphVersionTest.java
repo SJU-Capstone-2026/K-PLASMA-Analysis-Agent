@@ -15,6 +15,43 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 @TestPropertySource(properties="kplasma.agent.worker-token=synthetic-worker-token")
 class AgentGraphVersionTest extends WorkspaceTestSupport {
+    @Test void planReviewsAreDurableAndLimitedToThreePerRequest() throws Exception {
+        var request = ok("POST", "/api/agent/requests",
+            Map.of("text", "조건에 맞는 Run 조회", "stateToken", token(), "graphVersion", "v2"), "plan-review-limit");
+        var claim = claim(Map.of("workerId", "review-worker", "leaseSeconds", 60,
+            "supportedGraphVersions", List.of("v2")));
+        String path = "/requests/" + request.get("requestId").asString() + "/model-attempts";
+        var body = new LinkedHashMap<String,Object>(Map.of("claimGeneration", claim.get("claimGeneration"),
+            "requestRevision", claim.get("requestRevision"), "kind", "PLAN_REVIEW", "key", "review:1"));
+        var first = internal(path, body);
+        assertThat(first.get("callAllowed").asBoolean()).isTrue();
+        var outcome = Map.of("data", Map.of("status", "PASS", "plan_digest", "synthetic-digest"));
+        internal(path + "/" + first.get("attemptId").asString() + "/complete",
+            Map.of("claimGeneration", claim.get("claimGeneration"), "requestRevision", claim.get("requestRevision"),
+                "payload", outcome));
+        var replay = internal(path, body);
+        assertThat(replay.get("callAllowed").asBoolean()).isFalse();
+        assertThat(replay.path("outcome").path("data").path("plan_digest").asString()).isEqualTo("synthetic-digest");
+        for(int i=2;i<=3;i++){body.put("key", "review:"+i);assertThat(internal(path,body).get("callAllowed").asBoolean()).isTrue();}
+        body.put("key", "review:4");
+        assertThat(sendInternal(path,body).statusCode()).isEqualTo(409);
+    }
+
+    @Test void planReviewsConsumeTheExistingGlobalModelBudget() throws Exception {
+        var request = ok("POST", "/api/agent/requests",
+            Map.of("text", "Run 조회", "stateToken", token(), "graphVersion", "v2"), "plan-review-total");
+        var claim = claim(Map.of("workerId", "review-worker", "leaseSeconds", 60,
+            "supportedGraphVersions", List.of("v2")));
+        String path = "/requests/" + request.get("requestId").asString() + "/model-attempts";
+        var kinds = List.of("PLAN_REVIEW", "PLAN_REVIEW", "PLAN_REVIEW", "PLAN_INITIAL", "REPLAN", "REPLAN",
+            "COMPOSE", "COMPOSE", "COMPOSE", "ANSWER_REWRITE", "PARTIAL_COMPOSE", "REVIEW", "REVIEW");
+        for(int i=0;i<kinds.size();i++)assertThat(internal(path,
+            Map.of("claimGeneration", claim.get("claimGeneration"), "requestRevision", claim.get("requestRevision"),
+                "kind", kinds.get(i), "key", "budget:"+i)).get("callAllowed").asBoolean()).isTrue();
+        assertThat(sendInternal(path, Map.of("claimGeneration",claim.get("claimGeneration"),
+            "requestRevision",claim.get("requestRevision"),"kind","REVIEW","key","over-budget")).statusCode()).isEqualTo(409);
+    }
+
     @Test void catalogTagRequiresSavedSelectionAndKeepsItsVersion() throws Exception {
         var ref = refs.getFirst();
         var origin = new LinkedHashMap<String, Object>();

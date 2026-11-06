@@ -67,3 +67,26 @@ guarantee future model outputs. A domain expert should review causal explanation
 separately. General answers are LLM knowledge, with no reviewed-literature/RAG
 claim. See [implementation verification](../../../docs/verification/agent-v1-tool-calling-and-answers.md)
 for the exercised HTTP, UI, database and recovery scope.
+
+## v2 plan meaning and end-to-end evaluation
+
+`plan_review_cases.py` contains 13 human-labelled correct/incorrect plan pairs,
+all on artificial identities. Both variants pass the code validator. Three
+repeats make 78 Decisions requests; no planner is called in this experiment.
+The grader reports false acceptance, false rejection, unclear and API failure
+separately. Its labels never come from Decisions itself. Synthetic probes such
+as 9999.5 distinguish a range from equality even if both return no real Runs.
+
+```sh
+PYTHONPATH=src:. .venv/bin/python -m evals.run_plan_review --output /private/tmp/kplasma-plan-review
+PYTHONPATH=src:. .venv/bin/python -m evals.run_plan_review --live --env-file /path/to/local.env --output /private/tmp/kplasma-plan-review
+PYTHONPATH=src:. .venv/bin/python -m evals.run_v2 --live --plan-review off --output /private/tmp/kplasma-v2-before
+PYTHONPATH=src:. .venv/bin/python -m evals.run_v2 --live --plan-review on --output /private/tmp/kplasma-v2-after
+```
+
+The existing v2 graph harness retains initial provider output, accepted plan
+revisions, each plan verdict, final execution/answer failures, bounded replan
+count, role call counts and elapsed provider times. Turning plan review off
+records SKIPPED; it does not fake PASS. Different live planner outputs mean
+before/after graph runs alone cannot isolate reviewer quality. Browser/DB tests
+exercise persistence and HITL independently of the in-memory harness.
