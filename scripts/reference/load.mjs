@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { createReadStream } from 'node:fs';
+import { createInterface } from 'node:readline';
 import { readdir, readFile, realpath, lstat } from 'node:fs/promises';
 import { isAbsolute, join, relative, resolve } from 'node:path';
 
@@ -51,4 +52,59 @@ export async function loadReference(root) {
   const actual = (await Promise.all(['prototype', 'raw', 'tests'].map(async kind => (await listFiles(join(root, kind))).map(path => `${kind}/${path}`)))).flat().sort();
   if (JSON.stringify(actual) !== JSON.stringify(Object.keys(manifest.files).sort())) throw new Error('Reference contains unlisted files');
   return { root, version: manifest.version, prototypeRoot: join(root, 'prototype'), rawRoot: join(root, 'raw'), testsRoot: join(root, 'tests'), manifest };
+}
+
+/** Replace the prototype display samples with the verified original graph rows. */
+export async function withFullReferenceGraphs(reference, run) {
+  const read = async (type, columns, visit) => {
+    const file = run.sourceFiles.find(row => row.type === type && (type !== 'LOG' || row.name === 'residual.log'));
+    const key = `raw/${file?.path}`;
+    if (!file || !Object.hasOwn(reference.manifest.files, key)) throw new Error(`Missing reference graph: ${type}`);
+    const reader = createInterface({input: createReadStream(join(reference.root, key), 'utf8'), crlfDelay: Infinity});
+    let count = 0;
+    for await (const raw of reader) {
+      const line = raw.trim();
+      if (!line || line.startsWith('#')) continue;
+      const values = line.split(/\s+#/, 1)[0].split(/\s+/).map(Number);
+      if (values.length !== columns || values.some(value => !Number.isFinite(value)))
+        throw new Error(`Invalid reference graph row: ${type}`);
+      visit(values);
+      count++;
+    }
+    if (!count) throw new Error(`Empty reference graph: ${type}`);
+  };
+  const points = async type => {
+    const result = [];
+    await read(type, 2, row => result.push(row));
+    return result;
+  };
+  const waveform = async type => {
+    const rows = await points(type);
+    return {points: rows, phaseRange: [rows[0][0], rows.at(-1)[0]], sourceCount: rows.length};
+  };
+  const residualTrace = [];
+  await read('LOG', 6, ([iteration, ...residuals]) => residualTrace.push([iteration, Math.max(...residuals.map(Math.abs))]));
+  const analysis = {...run.analysis, residualTrace};
+  if (!analysis.hasDistribution) return {...run, analysis};
+
+  const iedDistribution = (await points('IED')).map(([energy, intensity]) => ({energy, intensity}));
+  analysis.iad = await points('IAD');
+  analysis.current = await waveform('CURRENT');
+  analysis.potential = await waveform('POTENTIAL');
+  const angles = [], energies = [], values = [];
+  await read('IEAD', 3, ([angle, energy, intensity]) => {
+    if (angles.at(-1) !== angle) angles.push(angle);
+    if (angles.length === 1) energies.push(energy);
+    values.push(intensity);
+  });
+  analysis.iead = {angles, energies, values, sourceShape: [angles.length, energies.length],
+    angleRange: [angles[0], angles.at(-1)]};
+  const rows = [];
+  await read('DENSITY', 3, ([phase, distance, density]) => {
+    if (rows.at(-1)?.[0] !== phase) rows.push([phase, [], []]);
+    rows.at(-1)[1].push(distance);
+    rows.at(-1)[2].push(density);
+  });
+  analysis.density = {rows, sourceShape: [rows.length, rows[0][1].length]};
+  return {...run, iedDistribution, analysis};
 }
