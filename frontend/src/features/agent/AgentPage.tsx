@@ -6,6 +6,7 @@ import {ReferenceTray} from '../../components/ReferenceTray';
 import {RunColorsProvider} from '../../components/RunColors';
 import {AnswerView} from './AnswerView';
 import {PendingRequest} from './PendingRequest';
+import {RunMentionComposer} from './RunMentionComposer';
 import type {ConversationController} from './useConversation';
 export interface AgentPageProps {conversation:ConversationController;records:DecisionRecord[];notify:(text:string,tone?:string)=>void;onDetail:(ref:RunRef,turn:TurnSnapshot)=>void;onRecord:(turn:TurnSnapshot,source?:V2RecordSource,target?:RunRef)=>void;onEvidence:(turn:TurnSnapshot,runId:string)=>void;onDemo:()=>Promise<void>}
 import {appendRunReferences,candidateRefs,displayAnswer,removeRunReference,resolveCandidateRef} from './references';
@@ -118,5 +119,5 @@ export function AgentPage({conversation,notify,onDetail,onRecord,onEvidence,onDe
  {conversation.activeRequest&&<PendingRequest request={conversation.activeRequest} hideQuestion sending={conversation.sending} onResume={conversation.resume} onCancel={conversation.cancel} onError={catchError}/>}
  {conversation.provisionalMessage&&!conversation.sending&&!conversation.activeRequest&&<div className="v1-card-actions"><span>{conversation.provisionalMessage.status==='SEND_UNCERTAIN'?'전송 수락 여부를 확인하지 못했습니다.':'아직 전송하지 않은 질문입니다.'}</span><button type="button" className="button button--ghost button--small" onClick={()=>void run(conversation.provisionalMessage!.question)}>같은 질문 다시 보내기</button></div>}
  {conversation.error&&<div className="alert alert--danger" role="alert">{conversation.error}</div>}<div className="agent-composer-dock">
-  <form id="agent-query-form" className="agent-composer panel" onSubmit={event=>{event.preventDefault();void run(text);}}>{composer&&<ReferenceTray references={composer.runs} onRemove={()=>void clear()} onRemoveRun={ref=>void conversation.setReference(state=>removeRunReference(state,ref)).catch(catchError)}/>}<div><textarea id="agent-query" name="queryText" rows={3} required aria-label="공정 데이터에 질문하기" placeholder="조건, 목표, 변화 이유 또는 기본 개념을 질문하세요" value={text} onChange={event=>setText(event.target.value)}/><button className="button button--primary" type="submit" disabled={pending||!conversation.ready}>분석</button></div></form></div></section></div></RunColorsProvider>;
+  <form id="agent-query-form" className="agent-composer panel" onSubmit={event=>{event.preventDefault();void run(text);}}>{composer&&<ReferenceTray references={composer.runs} onRemove={()=>void clear()} onRemoveRun={ref=>void conversation.setReference(state=>removeRunReference(state,ref)).catch(catchError)}/>}<RunMentionComposer text={text} onText={setText} add={ref=>addRunTag(ref,'catalog')} disabled={pending||!conversation.ready}/></form></div></section></div></RunColorsProvider>;
 }

@@ -2756,19 +2756,12 @@ p.manual-limit { margin-bottom: 0; color: #826947; font-size: 9px; line-height: 
   margin-bottom: 9px;
   background: transparent;
 }
-.reference-tray-label,
-.agent-user-message .reference-tray-label {
-  display: block;
-  margin: 0 0 6px;
-  padding: 0 32px 0 1px;
-  color: #49638f;
-  background: transparent;
-  font-size: 10px;
-  font-weight: 800;
-  letter-spacing: 0;
-  line-height: 1.2;
-  text-transform: none;
+.agent-user-message .reference-tray-runs,
+.agent-user-message .reference-tray-more-grid {
+  display: flex;
+  flex-wrap: wrap;
 }
+.agent-user-message .reference-tray-more { flex-basis: 100%; }
 .reference-tray-runs {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -2778,7 +2771,7 @@ p.manual-limit { margin-bottom: 0; color: #826947; font-size: 9px; line-height: 
   overflow: visible;
   box-sizing: border-box;
 }
-.reference-tray.is-single:has(.reference-tray-clear) .reference-tray-runs { padding-right: 36px; }
+.reference-tray:has(.reference-tray-clear) .reference-tray-runs { padding-right: 36px; }
 .reference-tray .run-context-chip,
 .agent-composer > .reference-tray .run-context-chip,
 .agent-user-message .reference-tray .run-context-chip {
@@ -2818,6 +2811,10 @@ p.manual-limit { margin-bottom: 0; color: #826947; font-size: 9px; line-height: 
   text-overflow: ellipsis;
   text-transform: none;
   white-space: nowrap;
+}
+.agent-user-message .reference-tray .run-context-chip {
+  flex: 0 1 auto;
+  width: fit-content;
 }
 .reference-tray-more {
   grid-column: 1 / -1;
@@ -3057,16 +3054,104 @@ p.manual-limit { margin-bottom: 0; color: #826947; font-size: 9px; line-height: 
 .agent-v2-answer .comparison-detail .button:hover { background: #e7e9ed; color: #20252d; }
 .v2-result-pages { flex-direction: row; align-items: center; justify-content: flex-end; gap: 6px; margin-block: 4px; }
 
+.run-mention-suggestions {
+  position: absolute;
+  inset-inline: 0;
+  bottom: calc(100% + 4px);
+  z-index: 1;
+  box-sizing: border-box;
+  max-height: 10rem;
+  overflow: auto;
+  overscroll-behavior: contain;
+  border: 1px solid #dce0e5;
+  border-radius: 6px;
+  background: #f7f7f8;
+  color: #374151;
+  font-size: 12px;
+  line-height: 1.35;
+}
+.run-mention-suggestions ul { margin: 0; padding: 2px; list-style: none; }
+.run-mention-suggestions [role="option"] {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 8px;
+  padding: 4px 6px;
+  border-radius: 3px;
+  cursor: pointer;
+}
+.run-mention-suggestions [role="option"]:hover,
+.run-mention-suggestions [aria-selected="true"] { background: #e7e9ed; }
+.run-mention-suggestions strong { font-weight: 600; }
+.run-mention-suggestions span { color: #555e6a; font-size: 11px; }
+.run-mention-suggestions p { margin: 4px 6px; }
+
 .agent-help { margin: 0 0 10px; color: #55647a; font-size: 12px; }
 .agent-help > summary { width: fit-content; cursor: pointer; }
 .agent-help > summary:hover { color: #29466e; }
 .agent-help .v1-unit-help { margin-top: 8px; }
+
+.view-root:has(> .agent-page--wide) {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  margin: 0;
+  min-height: calc(100dvh - var(--topbar-height));
+  padding-bottom: max(16px, env(safe-area-inset-bottom));
+}
 .agent-page--wide,
 .agent-conversation--wide {
   display: flex;
   flex: 1 0 auto;
   flex-direction: column;
 }
+.agent-composer-dock {
+  position: sticky;
+  z-index: 5;
+  bottom: max(16px, env(safe-area-inset-bottom));
+  margin-top: auto;
+  padding-top: 32px;
+}
+.agent-composer.panel {
+  position: relative;
+  bottom: auto;
+  margin-top: 0;
+  padding: 5px 8px;
+  border: 1px solid #d5dce6;
+  border-radius: 22px;
+  background: #fff;
+  box-shadow: none;
+}
+.agent-composer > .agent-composer-input {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 4px;
+}
+.agent-composer .agent-composer-input textarea {
+  field-sizing: content;
+  min-height: 36px;
+  max-height: 12rem;
+  resize: none;
+  padding: 7px 8px;
+  border: 0;
+  background: transparent;
+  font-size: 14px;
+}
+.agent-composer .agent-composer-input textarea:placeholder-shown { field-sizing: fixed; }
+.agent-composer .agent-send {
+  display: inline-grid;
+  place-items: center;
+  width: 36px;
+  min-width: 36px;
+  height: 36px;
+  min-height: 36px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: #334967;
+  color: #fff;
+}
+.agent-composer .agent-send:hover:not(:disabled) { background: #243955; }
 .agent-v2-answer .v1-comparison-table thead th {
   background: #e6eef9;
   color: #2e4563;
