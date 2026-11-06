@@ -3061,6 +3061,12 @@ p.manual-limit { margin-bottom: 0; color: #826947; font-size: 9px; line-height: 
 .agent-help > summary { width: fit-content; cursor: pointer; }
 .agent-help > summary:hover { color: #29466e; }
 .agent-help .v1-unit-help { margin-top: 8px; }
+.agent-page--wide,
+.agent-conversation--wide {
+  display: flex;
+  flex: 1 0 auto;
+  flex-direction: column;
+}
 .agent-v2-answer .v1-comparison-table thead th {
   background: #e6eef9;
   color: #2e4563;
