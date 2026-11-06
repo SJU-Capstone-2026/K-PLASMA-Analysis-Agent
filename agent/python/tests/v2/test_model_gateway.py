@@ -153,8 +153,10 @@ def test_plan_review_outage_is_unavailable_and_never_retries(failure, reason):
     assert "private message" not in json.dumps(result)
 
 
-def test_new_requests_default_to_plan_review_with_explicit_rollback_flag(monkeypatch):
+def test_plan_review_is_opt_in_until_quality_gate_passes(monkeypatch):
     monkeypatch.delenv("AGENT_V2_PLAN_REVIEW_ENABLED", raising=False)
+    assert V2Settings.from_env(Settings()).plan_review_enabled is False
+    monkeypatch.setenv("AGENT_V2_PLAN_REVIEW_ENABLED", "true")
     assert V2Settings.from_env(Settings()).plan_review_enabled is True
     monkeypatch.setenv("AGENT_V2_PLAN_REVIEW_ENABLED", "false")
     assert V2Settings.from_env(Settings()).plan_review_enabled is False

@@ -74,6 +74,24 @@ def test_completed_steps_do_not_send_waveforms_or_candidate_inventories():
     assert context["completed_steps"] == {"compare": {"status": "verified", "execution_id": "saved"}}
 
 
+def test_review_contract_explains_nullable_range_operands_and_comparison_inputs():
+    tools = example_context()["tool_contracts"]
+    assert "min" in tools["reverse_search"]["condition_inputs"]["between"]
+    assert "max" in tools["reverse_search"]["condition_inputs"]["between"]
+    assert "value:null" in tools["reverse_search"]["condition_inputs"]["between"]
+    assert "candidate_group" in tools["compare_runs"]["input_semantics"]["runs"]
+    assert "plot_ids" in tools["compare_runs"]["input_semantics"]
+
+
+def test_execution_view_is_derived_from_actual_inputs_not_requirement_prose():
+    context = example_context()
+    view, = context["execution_view"]
+    assert view["action"] == "reverse_search"
+    rule, = view["inputs"]["constraints"]
+    assert rule["operator"] == "gt" and rule["value"]["value"] == 0
+    assert "150–160" in context["plan"]["requirements"][0]["text"]
+
+
 @pytest.mark.parametrize("choice,status", [("match", "PASS"), ("mismatch", "ISSUE"), ("unclear", "UNCLEAR")])
 def test_choice_drives_verdict_even_when_confidence_is_low_and_answers_arrive_out_of_order(choice, status):
     from kplasma_agent.v2.plan_review import parse_plan_review, plan_review_feedback

@@ -122,7 +122,7 @@ class V2Settings:
     writer: Settings
     decisions_model: str
     decisions_url: str
-    plan_review_enabled: bool = True
+    plan_review_enabled: bool = False
 
     @classmethod
     def from_env(cls, base: Settings) -> "V2Settings":
@@ -137,7 +137,7 @@ class V2Settings:
                            reasoning_effort=os.getenv("AGENT_V2_ANSWER_REASONING_EFFORT", base.reasoning_effort)),
             decisions_model=os.getenv("AGENT_V2_DECISIONS_MODEL", "gpt-6-luna"),
             decisions_url=url + "/decisions",
-            plan_review_enabled=os.getenv("AGENT_V2_PLAN_REVIEW_ENABLED", "true").lower() not in {"false", "0"},
+            plan_review_enabled=os.getenv("AGENT_V2_PLAN_REVIEW_ENABLED", "false").lower() not in {"false", "0"},
         )
 
 
