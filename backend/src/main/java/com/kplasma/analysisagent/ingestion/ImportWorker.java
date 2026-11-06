@@ -83,11 +83,12 @@ public class ImportWorker {
                 if(source==null)return;
                 // Retained originals are immutable, and PROCESSING jobs prevent managed source deletion.
                 var scalar=ImportTimingRecorder.call("parse.scalar",()->scalars.parse(source));
-                var graph=ImportTimingRecorder.call("parse.graph",()->graphs.parse(source,scalar));
+                var runRef=registration.newRef(scalar);
+                var graph=ImportTimingRecorder.call("parse.graph",()->graphs.parse(source,scalar,runRef));
                 ImportTimingRecorder.inTransaction("tx.publish",transactions,tx->{
                     // Another caller may have published this same source while we parsed without a DB connection.
                     if(finishDuplicate(job))return;
-                    var ref=ImportTimingRecorder.call("run.register",()->registration.register(source,scalar,graph));
+                    var ref=ImportTimingRecorder.call("run.register",()->registration.register(source,scalar,graph,runRef));
                     finish(job,"READY",ref,null,List.of());
                 });
             } catch(ParseFailure failure) {

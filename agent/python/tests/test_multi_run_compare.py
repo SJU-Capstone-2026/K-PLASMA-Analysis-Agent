@@ -1,6 +1,9 @@
+from copy import deepcopy
+
 import pytest
 from fixtures import run
 from kplasma_agent.domain.compare import compare_selected
+from kplasma_agent.domain.validation import validate_result
 
 
 def selected(*runs):
@@ -30,6 +33,20 @@ def test_without_baseline_no_signed_percent_and_no_dropped_runs():
     assert result["comparisons"][0]["percentChange"] is None
     overview = compare_selected({"metrics": ["ionFlux"]}, selected(run("A"), run("B"), run("C")))
     assert overview["mode"] == "overview" and overview["summaries"][0]["minimumKeys"] == ["R1", "R2", "R3"]
+
+
+def test_selected_comparison_replay_rejects_changed_difference_unit_and_order():
+    entries = selected(run("A", pressure=6), run("B", pressure=4))
+    inputs = {"comparison_fields": ["pressure"]}
+    result = compare_selected(inputs, entries)
+    source = {"entries": entries, "outputs": []}
+    assert validate_result(inputs, result, source)["valid"]
+    for key, value in (("value", 9), ("unit", "Torr")):
+        corrupted = deepcopy(result)
+        corrupted["comparisons"][0]["difference"][key] = value
+        assert not validate_result(inputs, corrupted, source)["valid"]
+    reordered = {**result, "runs": result["runs"][::-1]}
+    assert not validate_result(inputs, reordered, source)["valid"]
 
 
 def test_duplicate_axis_and_single_available_do_not_invent_trends_or_range():

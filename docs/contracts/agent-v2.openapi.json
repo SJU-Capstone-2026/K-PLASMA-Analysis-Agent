@@ -1,0 +1,526 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "K-PLASMA Graph v2 additions",
+    "version": "1.0.0",
+    "description": "Graph v2 uses the shared additive public event, SSE/JSON replay, preview and executionSummary contract in agent-v1.openapi.yaml. A results.ready binding contains only saved, verified current-graph tool executions; old versioned bindings remain immutable. Replaying events never re-executes a model or tool."
+  },
+  "paths": {
+    "/internal/agent/requests/{id}/plans": {
+      "post": {
+        "summary": "Accept a checked plan revision",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "security": [
+          {
+            "WorkerToken": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "claimGeneration",
+                  "requestRevision",
+                  "payload"
+                ],
+                "properties": {
+                  "claimGeneration": {
+                    "type": "integer"
+                  },
+                  "requestRevision": {
+                    "type": "integer"
+                  },
+                  "payload": {
+                    "$ref": "agent-v2.plan.schema.json"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Fenced v2 result"
+          },
+          "409": {
+            "description": "Stale fence, conflict or exhausted budget"
+          }
+        }
+      }
+    },
+    "/internal/agent/requests/{id}/steps": {
+      "post": {
+        "summary": "Reserve a step",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "security": [
+          {
+            "WorkerToken": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "claimGeneration",
+                  "requestRevision",
+                  "planRevision",
+                  "stepId",
+                  "payload"
+                ],
+                "properties": {
+                  "claimGeneration": {
+                    "type": "integer"
+                  },
+                  "requestRevision": {
+                    "type": "integer"
+                  },
+                  "planRevision": {
+                    "type": "integer"
+                  },
+                  "stepId": {
+                    "type": "string"
+                  },
+                  "payload": {
+                    "type": "object"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Fenced v2 result"
+          },
+          "409": {
+            "description": "Stale fence, conflict or exhausted budget"
+          }
+        }
+      }
+    },
+    "/internal/agent/requests/{id}/steps/{executionId}/context": {
+      "post": {
+        "summary": "Get the frozen step source",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "executionId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "security": [
+          {
+            "WorkerToken": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "claimGeneration",
+                  "requestRevision"
+                ],
+                "properties": {
+                  "claimGeneration": {
+                    "type": "integer"
+                  },
+                  "requestRevision": {
+                    "type": "integer"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Fenced v2 result"
+          },
+          "409": {
+            "description": "Stale fence, conflict or exhausted budget"
+          }
+        }
+      }
+    },
+    "/internal/agent/requests/{id}/steps/{executionId}/comparison-outputs": {
+      "post": {
+        "summary": "Load outputs for the confirmed comparison",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "executionId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "security": [
+          {
+            "WorkerToken": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "claimGeneration",
+                  "requestRevision",
+                  "runRefs",
+                  "plotIds"
+                ],
+                "properties": {
+                  "claimGeneration": {
+                    "type": "integer"
+                  },
+                  "requestRevision": {
+                    "type": "integer"
+                  },
+                  "runRefs": {
+                    "type": "array"
+                  },
+                  "plotIds": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Fenced v2 result"
+          },
+          "409": {
+            "description": "Stale fence, conflict or exhausted budget"
+          }
+        }
+      }
+    },
+    "/internal/agent/requests/{id}/steps/{executionId}/result": {
+      "post": {
+        "summary": "Store an immutable step result",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "executionId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "security": [
+          {
+            "WorkerToken": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "claimGeneration",
+                  "requestRevision",
+                  "payload"
+                ],
+                "properties": {
+                  "claimGeneration": {
+                    "type": "integer"
+                  },
+                  "requestRevision": {
+                    "type": "integer"
+                  },
+                  "payload": {
+                    "type": "object"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Fenced v2 result"
+          },
+          "409": {
+            "description": "Stale fence, conflict or exhausted budget"
+          }
+        }
+      }
+    },
+    "/internal/agent/requests/{id}/model-attempts": {
+      "post": {
+        "summary": "Reserve a model call",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "security": [
+          {
+            "WorkerToken": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "claimGeneration",
+                  "requestRevision",
+                  "kind",
+                  "key"
+                ],
+                "properties": {
+                  "claimGeneration": {
+                    "type": "integer"
+                  },
+                  "requestRevision": {
+                    "type": "integer"
+                  },
+                  "kind": {
+                    "type": "string"
+                  },
+                  "key": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Fenced v2 result"
+          },
+          "409": {
+            "description": "Stale fence, conflict or exhausted budget"
+          }
+        }
+      }
+    },
+    "/internal/agent/requests/{id}/model-attempts/{attemptId}/complete": {
+      "post": {
+        "summary": "Store a model outcome",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "attemptId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "security": [
+          {
+            "WorkerToken": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "claimGeneration",
+                  "requestRevision",
+                  "payload"
+                ],
+                "properties": {
+                  "claimGeneration": {
+                    "type": "integer"
+                  },
+                  "requestRevision": {
+                    "type": "integer"
+                  },
+                  "payload": {
+                    "type": "object"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Fenced v2 result"
+          },
+          "409": {
+            "description": "Stale fence, conflict or exhausted budget"
+          }
+        }
+      }
+    },
+    "/api/agent/requests": {
+      "post": {
+        "summary": "Submit a question and optionally select its new conversation graph",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "text",
+                  "stateToken"
+                ],
+                "properties": {
+                  "text": {
+                    "type": "string"
+                  },
+                  "stateToken": {
+                    "type": "object"
+                  },
+                  "graphVersion": {
+                    "type": "string",
+                    "enum": [
+                      "v1",
+                      "v2"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Request accepted"
+          },
+          "409": {
+            "description": "Stale workspace or pinned graph mismatch"
+          }
+        }
+      }
+    },
+    "/api/agent/requests/{id}/events": {
+      "$ref": "agent-v1.openapi.yaml#/paths/~1api~1agent~1requests~1{id}~1events"
+    },
+    "/api/agent/requests/{id}/results": {
+      "$ref": "agent-v1.openapi.yaml#/paths/~1api~1agent~1requests~1{id}~1results"
+    },
+    "/internal/agent/requests/{id}/events": {
+      "$ref": "agent-v1.openapi.yaml#/paths/~1internal~1agent~1requests~1{id}~1events"
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "WorkerToken": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-Agent-Token"
+      }
+    },
+    "schemas": {
+      "GraphV2AnswerSnapshotV1": {
+        "$ref": "agent-v2.answer.schema.json"
+      },
+      "PublicEvent": {
+        "$ref": "agent-v1.openapi.yaml#/components/schemas/PublicEvent"
+      },
+      "PublicEventPage": {
+        "$ref": "agent-v1.openapi.yaml#/components/schemas/PublicEventPage"
+      },
+      "ProgressSnapshot": {
+        "$ref": "agent-v1.openapi.yaml#/components/schemas/ProgressSnapshot"
+      },
+      "ExecutionSummary": {
+        "$ref": "agent-v1.openapi.yaml#/components/schemas/ExecutionSummary"
+      },
+      "RequestView": {
+        "$ref": "agent-v1.openapi.yaml#/components/schemas/RequestView"
+      }
+    }
+  }
+}

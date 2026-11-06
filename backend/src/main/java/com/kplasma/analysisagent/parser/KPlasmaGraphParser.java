@@ -1,6 +1,8 @@
 package com.kplasma.analysisagent.parser;
 
 import com.kplasma.analysisagent.contract.RunDto;
+import com.kplasma.analysisagent.contract.RunDto.RunRef;
+import com.kplasma.analysisagent.contract.RunOutputDto.Output;
 import com.kplasma.analysisagent.ingestion.StoredSource;
 import java.io.IOException;
 import java.math.BigDecimal;
@@ -12,9 +14,10 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.regex.Pattern;
 import org.springframework.stereotype.Component;
 
-/** Validates supported source grids and selects original rows without inventing coordinates. */
+/** Validates every source row and extracts full graphs for version registration. */
 @Component
 public class KPlasmaGraphParser {
     public static final String IED = "0d_result/output/IED/Ar+.txt";
@@ -23,9 +26,7 @@ public class KPlasmaGraphParser {
     public static final String CURRENT = "0d_result/output/CUR/J0h_h.txt";
     public static final String POTENTIAL = "0d_result/output/POT/pot.txt";
     public static final String DENSITY = "0d_result/output/DEN/Ar+.txt";
-    private static final String BIAS_OFF = "Bias-off Run에는 해당 쉬스 분포 출력이 저장되지 않았습니다.";
     private record Header(String value, int line) {}
-    private record Row(double x, double y) {}
     record Spec(String type, String gtype, String x, String y, int columns, boolean residual) {}
     static Spec spec(String id) { return switch(id) {case "ied"->IED_SPEC;case "iad"->IAD_SPEC;case "iead"->IEAD_SPEC;case "current"->CURRENT_SPEC;case "potential"->POTENTIAL_SPEC;case "density"->DENSITY_SPEC;case "residual"->RESIDUAL_SPEC;default->throw new IllegalArgumentException("Unknown output");}; }
     public static String path(String id) { return switch(id) {case "ied"->IED;case "iad"->IAD;case "iead"->IEAD;case "current"->CURRENT;case "potential"->POTENTIAL;case "density"->DENSITY;case "residual"->KPlasmaScalarParser.RESIDUAL;default->throw new IllegalArgumentException("Unknown output");}; }
@@ -36,101 +37,34 @@ public class KPlasmaGraphParser {
     private static final Spec IEAD_SPEC = new Spec("IEAD", "2D", "angle (degrees)", "energy (eV)", 3, false);
     private static final Spec DENSITY_SPEC = new Spec("DENSITY", "2D", "time (rf cycle)", "distance (cm)", 3, false);
     private static final Spec RESIDUAL_SPEC = new Spec("residual", "1D", "iteration (#)", "residual (a.u.)", 6, true);
+    private static final Pattern INLINE_COMMENT = Pattern.compile("\\s+#.*$");
+    private static final Pattern WHITESPACE = Pattern.compile("\\s+");
 
-    public GraphBundle parse(StoredSource source, ParsedScalars scalars) {
-        var residual = pairs(sample(one(source, KPlasmaScalarParser.RESIDUAL, RESIDUAL_SPEC), 81));
-        if (!scalars.biasOn()) {
-            var reasons = Map.of("iedDistribution", BIAS_OFF, "iad", BIAS_OFF, "iead", BIAS_OFF,
-                    "current", BIAS_OFF, "potential", BIAS_OFF, "density", BIAS_OFF);
-            return new GraphBundle(List.of(), null, null, null, null, null, residual, null, false,
-                    reasons, sourceFiles(source, scalars, false));
-        }
-        var rawIed = one(source, IED, IED_SPEC);
-        double width = IedWidthCalculator.iedWidth(rawIed.stream().map(r -> new GraphBundle.Point(r.x(), r.y())).toList());
-        var ied = sample(rawIed, 161).stream().map(r -> new RunDto.IedPoint(r.x(), r.y())).toList();
-        var iad = pairs(sample(one(source, IAD, IAD_SPEC), 101));
-        var ieadGrid = grid(source, IEAD, IEAD_SPEC, 31, 61);
-        var iead = new RunDto.Iead(ieadGrid.x(), ieadGrid.y(), ieadGrid.values(),
-                new RunDto.Pair(ieadGrid.nx(), ieadGrid.ny()), ieadGrid.range());
-        var current = waveform(one(source, CURRENT, CURRENT_SPEC));
-        var potential = waveform(one(source, POTENTIAL, POTENTIAL_SPEC));
-        var densityGrid = grid(source, DENSITY, DENSITY_SPEC, 41, Integer.MAX_VALUE);
-        List<RunDto.DensityRow> rows = new ArrayList<>();
-        for (int i = 0; i < densityGrid.x().size(); i++) rows.add(new RunDto.DensityRow(densityGrid.x().get(i),
-                densityGrid.rowY().get(i), List.copyOf(densityGrid.values().subList(i * densityGrid.ny(), (i + 1) * densityGrid.ny()))));
-        var density = new RunDto.Density(List.copyOf(rows), new RunDto.Pair(densityGrid.nx(), densityGrid.ny()));
-        return new GraphBundle(ied, iad, iead, current, potential, density, residual, width, true,
-                Map.of(), sourceFiles(source, scalars, true));
+    private final ComparisonFeatureExtractor extractor;
+
+    public KPlasmaGraphParser(ComparisonFeatureExtractor extractor) {
+        this.extractor = extractor;
     }
-    private static RunDto.Waveform waveform(List<Row> raw) {
-        return new RunDto.Waveform(pairs(sample(raw, 121)), new RunDto.Pair(raw.getFirst().x(), raw.getLast().x()), raw.size());
-    }
-    private static List<RunDto.Pair> pairs(List<Row> raw) { return raw.stream().map(r -> new RunDto.Pair(r.x(), r.y())).toList(); }
-    private static <T> List<T> sample(List<T> raw, int limit) {
-        List<T> result = new ArrayList<>();
-        for (int index : SourceGridSampler.sampleIndices(raw.size(), limit)) result.add(raw.get(index));
-        return List.copyOf(result);
-    }
-    private static List<Row> one(StoredSource source, String path, Spec spec) {
-        List<Row> rows = new ArrayList<>();
-        read(source, path, spec, new Sink() {
-            public void start(int nx, int ny) {}
-            public void row(int ordinal, double[] columns, int line) {
-                double x = columns[0], y = columns[1];
-                if (!rows.isEmpty() && x <= rows.getLast().x() || spec.residual() && (x <= 0 || x != Math.rint(x)))
-                    throw malformed(path, line, "x", "Source axis must increase; iterations must be positive integers");
-                if (spec.residual()) { y = 0; for (int i = 1; i < columns.length; i++) y = Math.max(y, Math.abs(columns[i])); }
-                if ((spec == IED_SPEC || spec == IAD_SPEC) && y < 0) throw malformed(path, line, "intensity", "Negative distribution intensity");
-                rows.add(new Row(x, y));
+
+    public GraphBundle parse(StoredSource source, ParsedScalars scalars, RunRef ref) {
+        boolean biasOn = scalars.biasOn();
+        List<Output> outputs = new ArrayList<>();
+        Double width = null;
+        for (var id : ComparisonFeatureExtractor.IDS.stream().sorted().toList()) {
+            if (!biasOn && !id.equals("residual")) continue;
+            var output = extractor.extract(source, ref, id, biasOn);
+            if (!output.metadata().status().equals("AVAILABLE")) {
+                throw ParseFailure.incomplete(path(id), "file", "Required source evidence file is missing");
             }
-        });
-        return List.copyOf(rows);
-    }
-    private record Grid(int nx, int ny, List<Double> x, List<Double> y, List<Double> values, List<List<Double>> rowY, RunDto.Pair range) {}
-    private static Grid grid(StoredSource source, String path, Spec spec, int maxX, int maxY) {
-        class GridSink implements Sink {
-            int nx, ny, selectedX, selectedY;
-            int[] xs, ys;
-            double[] xAxis, yAxis;
-            List<Double> values = new ArrayList<>();
-            List<List<Double>> rowY = new ArrayList<>();
-            public void start(int nx, int ny) {
-                if (spec == DENSITY_SPEC && ny != 31) throw malformed(path, 0, "ny", "Supported density grid requires 31 original distances");
-                this.nx = nx; this.ny = ny;
-                xs = SourceGridSampler.sampleIndices(nx, maxX); ys = SourceGridSampler.sampleIndices(ny, maxY);
-                xAxis = new double[nx]; yAxis = new double[ny];
-            }
-            public void row(int ordinal, double[] columns, int line) {
-                int a = ordinal / ny, e = ordinal % ny;
-                if (a >= nx) throw malformed(path, line, "shape", "More numeric rows than the declared shape");
-                if (e == 0) {
-                    xAxis[a] = columns[0];
-                    if (a > 0 && xAxis[a] <= xAxis[a - 1]) throw malformed(path, line, "x", "Outer source axis must increase");
-                } else if (columns[0] != xAxis[a]) throw malformed(path, line, "x", "Outer coordinate changed within a block");
-                if (a == 0 || spec == DENSITY_SPEC) {
-                    yAxis[e] = columns[1];
-                    if (e > 0 && yAxis[e] <= yAxis[e - 1]) throw malformed(path, line, "y", "Inner source axis must increase");
-                } else if (columns[1] != yAxis[e]) throw malformed(path, line, "y", "Inner source coordinates differ between blocks");
-                if (selectedX < xs.length && a == xs[selectedX] && selectedY < ys.length && e == ys[selectedY]) {
-                    values.add(columns[2]); selectedY++;
-                }
-                if (e == ny - 1 && selectedX < xs.length && a == xs[selectedX]) {
-                    if (spec == DENSITY_SPEC) {
-                        List<Double> distances = new ArrayList<>();
-                        for (int index : ys) distances.add(yAxis[index]);
-                        rowY.add(List.copyOf(distances));
-                    }
-                    selectedX++; selectedY = 0;
-                }
-            }
-            Grid result() {
-                List<Double> x = new ArrayList<>(), y = new ArrayList<>();
-                for (int index : xs) x.add(xAxis[index]); for (int index : ys) y.add(yAxis[index]);
-                return new Grid(nx, ny, List.copyOf(x), List.copyOf(y), List.copyOf(values), List.copyOf(rowY), new RunDto.Pair(xAxis[0], xAxis[nx - 1]));
+            outputs.add(output);
+            if (id.equals("ied")) {
+                width = IedWidthCalculator.iedWidth(output.display().samples().stream()
+                    .map(point -> new GraphBundle.Point(point.x(), point.y())).toList());
             }
         }
-        var sink = new GridSink(); read(source, path, spec, sink); return sink.result();
+        return new GraphBundle(List.copyOf(outputs), width, biasOn, sourceFiles(source, scalars, biasOn));
     }
+
     interface Sink { void start(int nx, int ny); void row(int ordinal, double[] columns, int line); }
     static void read(StoredSource source, String path, Spec spec, Sink sink) {
         Map<String, Header> metadata = new HashMap<>();
@@ -160,7 +94,8 @@ public class KPlasmaGraphParser {
                     }
                     sink.start(nx, ny); started = true;
                 }
-                String[] tokens = text.replaceFirst("\\s+#.*$", "").split("\\s+");
+                if (text.indexOf('#') >= 0) text = INLINE_COMMENT.matcher(text).replaceFirst("");
+                String[] tokens = WHITESPACE.split(text);
                 if (tokens.length != spec.columns()) throw malformed(path, line, "columns", "Numeric row has the wrong number of columns");
                 double[] columns = new double[tokens.length];
                 for (int i = 0; i < tokens.length; i++) columns[i] = IniReader.finite(tokens[i], path, line, "column[" + i + "]");

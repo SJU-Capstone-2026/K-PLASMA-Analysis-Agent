@@ -164,7 +164,14 @@ class RunSelectionPaginationTest extends WorkspaceTestSupport {
         ok("POST","/api/runs/delete",Map.of("runIds",List.of("SYNTHETIC-0")),null);
         assertThat(selection().get("unavailableCount").intValue()).isEqualTo(2);
         assertThat(page("&query=SYNTHETIC-0").get("options").size()).isEqualTo(1);
+        long conversation=token().get("conversationEpoch").longValue();
+        var before=selection();
         ok("POST","/api/workspace/new-conversation",Map.of("stateToken",token()),"new");
+        assertThat(jdbc.queryForObject("select count(*) from agent_run_selection",Integer.class)).isEqualTo(1);
+        assertThat(selection()).isEqualTo(before);
+        ok("POST","/api/workspace/conversations/"+conversation+"/activate",Map.of("stateToken",token()),null);
+        assertThat(selection()).isEqualTo(before);
+        ok("POST","/api/workspace/reset",Map.of("stateToken",token()),null);
         assertThat(jdbc.queryForObject("select count(*) from agent_run_selection",Integer.class)).isZero();
         assertThat(send("GET",base+"/run-options?format=2&pendingInputId=pick",null,null).statusCode()).isEqualTo(409);
     }

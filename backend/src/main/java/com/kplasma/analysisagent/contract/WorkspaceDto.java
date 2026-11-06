@@ -15,11 +15,20 @@ public final class WorkspaceDto {
             boolean lookupExpanded, String selectedCandidateRunId) {}
     public record TurnSnapshot(String id, String askedAt, String question, String intent,
             RunRef context, List<RunRef> answerRunRefs, Map<String, Object> answerSnapshot, TurnUiSnapshot ui) {}
-    public record ReferenceState(String kind, List<RunRef> runs) {}
-    public record Conversation(int version, RunRef activeRun, List<TurnSnapshot> turns) {}
-    public record AgentMessage(String requestId,String clientMessageId,String createdAt,String question,List<RunRef> submittedRunRefs,String status,String turnId) {}
+    public record V2Reference(RunRef ref, V2RecordSource source) {}
+    public record ReferenceState(String kind, List<RunRef> runs,
+            @JsonInclude(JsonInclude.Include.NON_NULL) List<V2Reference> v2Origins,
+            @JsonInclude(JsonInclude.Include.NON_NULL) List<RunRef> catalogRefs) {}
+    public record Conversation(int version, RunRef activeRun, List<TurnSnapshot> turns, String agentGraphVersion) {}
+    public record AgentMessage(String requestId,String clientMessageId,String createdAt,String question,List<RunRef> submittedRunRefs,String status,String turnId,
+        @JsonInclude(JsonInclude.Include.NON_NULL) Map<String,Object> executionSummary) {
+        public AgentMessage(String requestId,String clientMessageId,String createdAt,String question,List<RunRef> refs,String status,String turnId){this(requestId,clientMessageId,createdAt,question,refs,status,turnId,null);}
+    }
+    public record ConversationSummary(long conversationEpoch, String title, String createdAt, String updatedAt) {}
     public record WorkspaceView(StateToken stateToken, Conversation conversation, ReferenceState candidateReference,
-            Map<String,Object> activeAgentRequest,Map<String,Object> failedAgentRequest,List<AgentMessage> agentMessages) {
+            Map<String,Object> activeAgentRequest,Map<String,Object> failedAgentRequest,List<AgentMessage> agentMessages,
+            List<ConversationSummary> conversations) {
+        public WorkspaceView(StateToken token,Conversation conversation,ReferenceState reference,Map<String,Object> active,Map<String,Object> failed,List<AgentMessage> messages){this(token,conversation,reference,active,failed,messages,List.of());}
         public WorkspaceView(StateToken token,Conversation conversation,ReferenceState reference,Map<String,Object> active,Map<String,Object> failed){this(token,conversation,reference,active,failed,List.of());}
         public WorkspaceView(StateToken stateToken,Conversation conversation,ReferenceState candidateReference){this(stateToken,conversation,candidateReference,null,null,List.of());}
     }
@@ -34,6 +43,7 @@ public final class WorkspaceDto {
             Metrics metrics, SupportingMetrics supportingMetrics) {}
     public record CandidateSnapshot(String runId, String runVersionId, String decision, String note,
             Conditions conditions, Metrics metrics, List<Map<String, Object>> objectiveEvaluations) {}
+    public record V2RecordSource(String turnId, String executionId, String stepId, String groupId) {}
     /** REV: version absent; EXP: version=2. Persistence validates the union and one adoption/up to two extras. */
     @JsonInclude(JsonInclude.Include.NON_NULL)
     public record DecisionRecord(String reviewId, String id, Integer version, String targetRunId,
@@ -42,7 +52,7 @@ public final class WorkspaceDto {
             String processMode, List<Map<String, Object>> constraints, List<Map<String, Object>> goals,
             String queryText, List<String> evidenceKinds, List<String> limitations, List<RunSnapshot> runSnapshots,
             String question, List<Map<String, Object>> objectives, String overallComment,
-            List<CandidateSnapshot> candidates) {}
+            List<CandidateSnapshot> candidates, V2RecordSource source) {}
     public record DecisionWrite(long workspaceEpoch, DecisionRecord record, List<RunRef> runRefs) {}
     @JsonInclude(JsonInclude.Include.NON_NULL)
     public record AgentRequest(String text, RunRef baseline, List<RunRef> candidateReferences, Map<String, Object> clarification) {}

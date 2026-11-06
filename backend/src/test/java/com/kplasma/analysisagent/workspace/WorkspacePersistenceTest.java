@@ -105,14 +105,14 @@ class WorkspacePersistenceTest extends WorkspaceTestSupport {
         assertThat(ok("POST","/api/workspace/turns",Map.of("stateToken",token(),"turn",good),"scalars").get("conversation").get("turns").get(0).get("answerSnapshot").get("candidateGroups")).isEqualTo(good.get("answerSnapshot").get("candidateGroups"));
     }
 
-    @Test void newConversationDeletesTurnRetryPayloadButKeepsCurrentWorkspaceDecisionRetry() throws Exception {
+    @Test void newConversationPreservesTurnRetryPayloadAndCurrentWorkspaceDecisionRetry() throws Exception {
         var append=Map.of("stateToken",token(),"turn",turn());
         ok("POST","/api/workspace/turns",append,"cleared-turn");
         var decision=write(review());var saved=ok("POST","/api/decisions",decision,"preserved-decision");
         long epoch=token().get("workspaceEpoch").longValue();
         assertThat(jdbc.queryForObject("select count(*) from workspace_idempotency where workspace_epoch=?",Long.class,epoch)).isEqualTo(2);
         ok("POST","/api/workspace/new-conversation",Map.of("stateToken",token()),null);
-        assertThat(jdbc.queryForObject("select count(*) from workspace_idempotency where scope='TURN'",Long.class)).isZero();
+        assertThat(jdbc.queryForObject("select count(*) from workspace_idempotency where scope='TURN'",Long.class)).isEqualTo(1);
         assertThat(jdbc.queryForObject("select count(*) from workspace_idempotency where workspace_epoch=? and scope='DECISION'",Long.class,epoch)).isEqualTo(1);
         rejects("POST","/api/workspace/turns",append,"cleared-turn",409,"STALE_CONTEXT");
         assertThat(ok("POST","/api/decisions",decision,"preserved-decision")).isEqualTo(saved);

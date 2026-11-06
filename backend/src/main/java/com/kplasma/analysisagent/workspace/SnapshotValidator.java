@@ -26,6 +26,11 @@ public class SnapshotValidator {
         require(found.equals(unique),code,"Run version missing or identity mismatch");
     }
     public void require(boolean condition,String code,String message) {if(!condition)throw new IntakeException(code,400,message);}
+    public boolean currentCatalogRef(RunRef ref) {
+        return Boolean.TRUE.equals(jdbc.queryForObject("""
+            select exists(select 1 from run where run_id=? and current_version_id=?::uuid)
+            """, Boolean.class, ref.runId(), ref.runVersionId()));
+    }
     public void text(String text,String code,String field) {require(text!=null&&!text.isBlank(),code,field+" is required");}
     public void instant(String value,String code,String field) {try{Instant.parse(value);}catch(Exception e){throw new IntakeException(code,400,field+" must be an ISO instant");}}
     public void key(String key,String code) {text(key,code,"Idempotency-Key");require(key.length()<=200,code,"Idempotency-Key is too long");}
