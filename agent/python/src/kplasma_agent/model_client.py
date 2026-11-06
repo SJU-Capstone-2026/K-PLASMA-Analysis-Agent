@@ -2,6 +2,7 @@
 
 import copy
 import json
+import httpx
 from openai import OpenAI, APIError, APIConnectionError, APITimeoutError, RateLimitError
 from . import tracing
 
@@ -81,7 +82,7 @@ class ModelClient:
             },
         ]
 
-    def _request(self, instructions, input_value, observation, **options):
+    def _request(self, instructions, input_value, observation, *, on_text_delta=None, **options):
         if self.client is None:
             raise ModelError("MODEL_NOT_CONFIGURED")
         params = {
@@ -95,8 +96,21 @@ class ModelClient:
         observation.json_attribute("llm.responses_input", input_value)
         observation.attribute("llm.output_messages.0.message.role", "assistant")
         try:
-            response = self.client.responses.create(**params, instructions=instructions, input=input_value)
-        except (APIConnectionError, APITimeoutError, RateLimitError):
+            if on_text_delta is None:
+                response = self.client.responses.create(**params, instructions=instructions, input=input_value)
+            else:
+                response = None
+                with self.client.responses.stream(**params, instructions=instructions, input=input_value) as stream:
+                    for event in stream:
+                        if event.type == "response.output_text.delta":
+                            on_text_delta(event.delta)
+                        elif event.type == "error":
+                            raise ModelError("MODEL_UNAVAILABLE")
+                        elif event.type in {"response.completed", "response.incomplete", "response.failed"}:
+                            response = event.response
+                if response is None:
+                    raise ModelError("MODEL_OUTPUT_TRUNCATED")
+        except (APIConnectionError, APITimeoutError, RateLimitError, httpx.HTTPError):
             raise ModelError("MODEL_UNAVAILABLE", retryable=True) from None
         except APIError as error:
             raise ModelError(
@@ -163,19 +177,24 @@ class ModelClient:
             metadata["responseItems"] = [item.model_dump(mode="json") for item in response.output]
             return selected, metadata
 
-    def answer(self, instructions, payload, *, tool_context=None):
+    def answer(self, instructions, payload, *, tool_context=None, on_text_delta=None):
         with tracing.span(
             "llm.general_answer",
             kind="LLM",
             inputs={"instructions": instructions, "payload": payload},
             attributes={"llm.model_name": self.settings.model},
         ) as observation:
-            response, metadata = self._request(instructions, self._input(payload, tool_context), observation)
+            response, metadata = self._request(
+                instructions, self._input(payload, tool_context), observation, on_text_delta=on_text_delta
+            )
             if not response.output_text.strip():
                 raise ModelError("MODEL_OUTPUT_INVALID")
             return response.output_text, metadata
 
-    def generate(self, instructions, payload, output_model, *, tool_context=None):
+    def stream_answer(self, instructions, payload, *, on_text_delta, tool_context=None):
+        return self.answer(instructions, payload, tool_context=tool_context, on_text_delta=on_text_delta)
+
+    def generate(self, instructions, payload, output_model, *, tool_context=None, on_text_delta=None):
         with tracing.span(
             "llm.responses",
             kind="LLM",
@@ -194,6 +213,7 @@ class ModelClient:
                     instructions,
                     self._input(payload, tool_context),
                     observation,
+                    on_text_delta=on_text_delta,
                     text={
                         "format": {
                             "type": "json_schema",
@@ -209,15 +229,16 @@ class ModelClient:
                     ).model_dump(), metadata
                 except (ValueError, TypeError):
                     raise ModelError("MODEL_OUTPUT_INVALID") from None
-            return self._generate(instructions, payload, output_model, observation)
+            return self._generate(instructions, payload, output_model, observation, on_text_delta=on_text_delta)
 
-    def _generate(self, instructions, payload, output_model, observation):
+    def _generate(self, instructions, payload, output_model, observation, *, on_text_delta=None):
         schema = strict_schema(output_model)
         observation.json_attribute("llm.output_schema", schema)
         response, metadata = self._request(
             instructions,
             json.dumps(payload, ensure_ascii=False),
             observation,
+            on_text_delta=on_text_delta,
             max_output_tokens=3000,
             text={
                 "format": {
