@@ -22,6 +22,7 @@ def test_compact_result_keeps_one_run_snapshot_and_ordered_references():
     broken=deepcopy(result)
     broken['runsByVersion']['1']['metrics']['ionFlux']=999
     assert not validate_result(inputs,broken,source)['valid']
+    assert not validate_result(inputs,{**result,'commonRunRefs':result['commonRunRefs'][::-1]},source)['valid']
 
 
 def test_no_match_does_not_return_nearest_runs():

@@ -53,6 +53,7 @@ TOOL_DESCRIPTIONS = {
     "values는 원값만, differences는 계산된 차이(차이 값만 포함), trend는 축 경향, interpretation은 이유 해석, 모호하면 auto. "
     "comparison_fields는 요청한 스칼라·조건·파형 특징값을 질문 순서대로 선택한다. metrics는 과거 호환용으로 null을 사용한다. "
     "plot_ids는 요청한 실제 그래프만 선택한다(ied/iad/iead/current/potential/density/residual). "
+    "IEAD 분포 비교는 plot_ids의 iead와 comparison_fields의 iead.maximum, iead.peakEnergy, iead.peakAngle을 사용한다. "
     "RF 파형은 current,potential; 전체 상세 그래프는 7개 전부. 피크는 maximum, 진폭은 halfPeakToPeak이다. "
     "피크·진폭 질문에는 해당 파형 plot_ids도 선택한다. 스칼라만 물으면 plot_ids=null. "
     "모호한 일반 비교는 comparison_fields=null, plot_ids=null이며 코드가 기본 결과 지표를 선택한다. "

@@ -35,8 +35,11 @@ class BackendClient:
             raise BackendError(code, response.status_code >= 500)
         return response.json()
 
-    def claim(self, worker_id):
-        return self.call("POST", "claim", json={"workerId": worker_id, "leaseSeconds": 60})
+    def claim(self, worker_id, supported_graph_versions=None):
+        body = {"workerId": worker_id, "leaseSeconds": 60}
+        if supported_graph_versions is not None:
+            body["supportedGraphVersions"] = supported_graph_versions
+        return self.call("POST", "claim", json=body)
 
     def bind(self, claim):
         return RequestBackend(self, claim)
@@ -44,9 +47,24 @@ class BackendClient:
 
 class RequestBackend:
     def __init__(self, client, claim):
+        from .progress import ProgressReporter
+
         self.client = client
         self.prefix = f"requests/{claim['request']['requestId']}/"
         self.fence = {k: claim[k] for k in ("claimGeneration", "requestRevision")}
+        self.progress = ProgressReporter(self)
+        self.graph_version = claim.get("request", {}).get("graphVersion", "v1")
+        self.operation_kind = None
+        self.public_stage = None
+
+    def public_event(self, kind, payload, key):
+        body = {**self.fence, "eventKey": key, "type": kind, "payload": payload}
+        for attempt in range(2):
+            try:
+                return self.client.call("POST", self.prefix + "events", json=body, timeout=3.0)
+            except BackendError as error:
+                if not error.retryable or attempt:
+                    raise
 
     def post(self, path, **fields):
         body = {**self.fence, **fields}
@@ -60,7 +78,24 @@ class RequestBackend:
             return result
 
     def stage(self, stage=None, **fields):
-        return self.post("heartbeat", stage=stage, leaseSeconds=60, **fields)
+        result = self.post("heartbeat", stage=stage, leaseSeconds=60, **fields)
+        self.operation_kind = fields.get("operationKind", self.operation_kind)
+        if self.graph_version == "v1" and stage:
+            code = {
+                "select_tool": "PLAN", "guard": "PLAN_VALIDATE", "gather": "QUESTION_CHECK",
+                "calculate": {"forward_lookup": "FORWARD_LOOKUP", "reverse_search": "REVERSE_SEARCH",
+                              "compare_runs": "COMPARE_RUNS"}.get(self.operation_kind, "DERIVE"),
+                "load_comparison_outputs": "COMPARE_OUTPUTS", "validate_result": "RESULT_VALIDATE",
+                "generate_answer": "GENERAL_ANSWER", "validate_answer": "RESULT_VALIDATE",
+                "present": "COMMIT", "commit": "COMMIT",
+            }.get(stage)
+            if code and (self.public_stage is None or self.public_stage[0] != code):
+                if self.public_stage is not None:
+                    previous, identity = self.public_stage
+                    self.progress.activity(previous, "completed", identity=identity)
+                identity = self.progress.activity(code)
+                self.public_stage = (code, identity)
+        return result
 
     def attempt(self, stage):
         return self.post("attempt", stage=stage, limit=4)

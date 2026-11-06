@@ -154,6 +154,8 @@ def _resolve(selector, manifest, context):
 
 
 def build_graph(model, backend, settings, checkpointer):
+    progress = getattr(backend, "progress", None)
+
     def call_model(stage, fn, prompt, payload, *args, **kwargs):
         repaired = False
         for attempt in range(4):
@@ -641,9 +643,23 @@ def build_graph(model, backend, settings, checkpointer):
             "call_id": state["tool_selection"]["call_id"],
             "output": {},
         }
+        def write_answer(prompt, context, **kwargs):
+            streaming = getattr(model, "stream_answer", None)
+            if progress is None or not progress.enabled or not callable(streaming):
+                return model.answer(prompt, context, **kwargs)
+            stream = progress.start_answer("general")
+            try:
+                result = streaming(prompt, context, on_text_delta=lambda text: stream.append("paragraphs.0", text),
+                                   **kwargs)
+                stream.flush()
+                return result
+            except BaseException:
+                stream.invalidate("writer_failed")
+                raise
+
         draft, metadata = call_model(
             "explain",
-            model.answer,
+            write_answer,
             GENERAL_PROMPT,
             payload,
             tool_context=tool_context,
