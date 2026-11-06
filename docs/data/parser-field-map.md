@@ -70,8 +70,9 @@ API 정의는 `docs/api/openapi.yaml`, TypeScript는 `agent/src/contracts/index.
 | `analysis.strictConvergence` | Above maximum and INI `[Option].conv` | `finalResidualMax <= conv`; distinct from engine completion |
 | `analysis.hasDistribution` | Bias condition plus required output validation | Baseline Bias-on true, Bias-off false; a missing required Bias-on output is an incomplete Run, not a successful Bias-off substitute |
 
-Fixture `units` strings are exactly: pressure `mTorr`, sourcePower/biasPower `W`, ionFlux `10¹⁸ m⁻²s⁻¹`, meanIonEnergy/iedWidth `eV`. Analysis graph units remain raw: current `statampere/cm^2`, potential `V`, density `#/cm^3`, distance `cm`, phase `rf cycle`, residual `a.u.`, angle `degrees`.
+Fixture `units` strings are exactly: pressure `mTorr`, sourcePower/biasPower `W`, ionFlux `10¹⁸ m⁻²s⁻¹`, meanIonEnergy/iedWidth `eV`. Analysis graph units remain raw: current `statampere/cm^2`, potential `V`, density distance `cm`, phase `rf cycle`, residual `a.u.`, angle `degrees`. The IEAD and density grid headers do not declare the value unit.
 
+아래 표와 sampling 규칙은 v12.3.1 기준 프로토타입의 표시용 fixture를 설명한다. 현재 등록과 API는 Task 6의 전체 원본 저장 규칙을 따른다.
 
 | Graph / fixture destination | Raw filename, metadata, row grammar | Reconstruction and fixture shape |
 | --- | --- | --- |
@@ -132,25 +133,25 @@ Residual은 type=residual, gtype=1D, x=iteration (#), y=residual (a.u.), species
 
 ## Task 6 원본 격자 그래프 경계
 
-`KPlasmaGraphParser.parse(StoredSource, ParsedScalars)`는 `GraphBundle`을 반환한다. `GraphBundle`의 `hasDistribution`과 `iedWidth`는 모든 Bias-on 필수 그래프 검증이 끝난 뒤에만 존재하는 결과이며, Task 7이 scalar의 임시 `hasDistribution=false`를 이 검증 결과와 결합한다. 그래프·원본 증거 파일이 빠지면 INCOMPLETE, 손상 수치·축·단위·선언 shape가 충돌하면 PARSE_FAILED로 경로/물리 행/필드를 남긴다. 내부 storage 경로나 원본 수치 내용을 오류에 넣지 않는다.
+`KPlasmaGraphParser.parse(StoredSource, ParsedScalars, RunRef)`는 `GraphBundle`을 반환한다. `GraphBundle`의 `hasDistribution`과 `iedWidth`는 모든 Bias-on 필수 그래프 검증이 끝난 뒤에만 존재하는 결과이며, Task 7이 scalar의 임시 `hasDistribution=false`를 이 검증 결과와 결합한다. 그래프·원본 증거 파일이 빠지면 INCOMPLETE, 손상 수치·축·단위·선언 shape가 충돌하면 PARSE_FAILED로 경로/물리 행/필드를 남긴다. 내부 storage 경로나 원본 수치 내용을 오류에 넣지 않는다.
 
 | 그래프 | 원본 경로 | 원본/표시 구조와 단위 |
 | --- | --- | --- |
-| IED | `0d_result/output/IED/Ar+.txt` | type=IEDs, 1D, energy(eV)/IED(a.u.), 최대 161개 `{energy,intensity}` |
-| IAD | `0d_result/output/IAD/Ar+.txt` | type=IADs, 1D, angle(degrees)/IAD(a.u.), 최대 101개 `[angle,intensity]` |
-| IEAD | `0d_result/output/IEAD/Ar+.txt` | type=IEAD, 2D, nx=angle/ny=energy, 최대 31×61개; `values[a*energies.length+e]`, 원본 sourceShape/angleRange 유지 |
-| Current | `0d_result/output/CUR/J0h_h.txt` | type=Current_density, 1D, time(rf cycle)/J0h_h(statampere/cm^2), 최대 121개 points 및 원본 phaseRange/sourceCount |
-| Potential | `0d_result/output/POT/pot.txt` | type=Pot, 1D, time(rf cycle)/pot(V), 최대 121개 points 및 원본 phaseRange/sourceCount |
-| Density | `0d_result/output/DEN/Ar+.txt` | type=DENSITY, 2D, nx=phase/ny=31 original distance(cm); 최대 41 phase rows와 각 원본 거리/밀도 배열, sourceShape 유지 |
-| Residual | `0d_result/log/residual.log` | 최대 81개 `[iteration,max(abs(E,Ar*,Ar+,Ar,Te))]`; iteration을 최댓값에서 제외 |
+| IED | `0d_result/output/IED/Ar+.txt` | type=IEDs, 1D, energy(eV)/IED(a.u.), 모든 원본 `{energy,intensity}` |
+| IAD | `0d_result/output/IAD/Ar+.txt` | type=IADs, 1D, angle(degrees)/IAD(a.u.), 모든 원본 `[angle,intensity]` |
+| IEAD | `0d_result/output/IEAD/Ar+.txt` | type=IEAD, 2D, nx=angle/ny=energy, 전체 nx×ny 격자; `values[a*energies.length+e]`, 원본 sourceShape/angleRange 유지 |
+| Current | `0d_result/output/CUR/J0h_h.txt` | type=Current_density, 1D, time(rf cycle)/J0h_h(statampere/cm^2), 모든 원본 points 및 원본 phaseRange/sourceCount |
+| Potential | `0d_result/output/POT/pot.txt` | type=Pot, 1D, time(rf cycle)/pot(V), 모든 원본 points 및 원본 phaseRange/sourceCount |
+| Density | `0d_result/output/DEN/Ar+.txt` | type=DENSITY, 2D, nx=phase/ny=31 original distance(cm); 모든 원본 phase rows와 각 원본 거리/밀도 배열, sourceShape 유지 |
+| Residual | `0d_result/log/residual.log` | 모든 원본 반복의 `[iteration,max(abs(E,Ar*,Ar+,Ar,Te))]`; iteration을 최댓값에서 제외 |
 
-모든 숫자 행을 검증하고 초기 `# key=value` metadata와 실제 숫자 행 수를 대조한다. 빈 줄은 sample이 아닌 구분자다. 2D outer coordinate는 block 안에서 같다. IEAD의 inner energy 좌표는 모든 block에서 같아야 한다. Density의 거리 좌표는 phase별로 달라질 수 있으며 각 선택 phase의 원본 distances 배열을 따로 보존한다. 2D는 표시할 값과 축 검증 상태를 보관하면서 순차로 읽는다. 원본 current/potential/phase 길이를 1201로 고정하지 않는다. 원본 좌표를 범위로부터 생성하거나 곡선을 보간·정렬·평활화·단위 변환하지 않는다.
+모든 숫자 행을 검증하고 초기 `# key=value` metadata와 실제 숫자 행 수를 대조한다. 빈 줄은 sample이 아닌 구분자다. 2D outer coordinate는 block 안에서 같다. IEAD의 inner energy 좌표는 모든 block에서 같아야 한다. Density의 거리 좌표는 phase별로 달라질 수 있으며 각 원본 phase의 원본 distances 배열을 따로 보존한다. 2D는 축 검증 상태를 보관하면서 모든 원본 셀을 순차로 읽는다. 원본 current/potential/phase 길이를 1201로 고정하지 않는다. 원본 좌표를 범위로부터 생성하거나 곡선을 보간·정렬·평활화·단위 변환하지 않는다.
 
-`SourceGridSampler.sampleIndices(N,M)`는 `m=min(N,M)`에 대해 정수 quotient/remainder를 사용한 정확한 `roundHalfEven(i*(N-1)/(m-1))`만 선택한다. 두 끝점을 유지하고 N=1은 index 0을 한 번만 선택한다. 예: N=6/M=3 → `[0,2,5]`. 빈 원본은 성공한 빈 그래프가 아니며 N>1/M=1은 양 끝점 계약을 만족할 수 없어 거부한다.
+전체 표시 점·격자와 요약 특징값은 Run 버전별로 DB에 저장한다. 등록 당시 원본 해시는 비교의 출처를 식별한다. IEAD의 강도 단위가 없으면 최대 강도 원값을 보존하고 단위가 필요한 차이 계산을 막는다.
 
 IED width는 표시하기 전 전체 원본 intensity를 source order로 누적하여 `>=total*0.1`/`>=total*0.9`가 된 첫 energy의 차이다. energy bin 폭으로 가중하거나 percentile을 보간하지 않는다. binary64 차이에 **`new BigDecimal(difference).round(new MathContext(8, HALF_EVEN))`**를 적용한다. `BigDecimal.valueOf`는 이 경우 동점에서 결과가 달라지므로 사용하지 않는다. 비유한 값·음수 intensity·0/비유한 total은 실패한다.
 
-Bias-off는 IED `[]`, IAD/IEAD/current/potential/density/width `null`, `hasDistribution=false`이며 residual은 유지한다. `GraphBundle.unavailableReasons`는 각 비가용 그래프에 `Bias-off Run에는 해당 쉬스 분포 출력이 저장되지 않았습니다.`를 제공한다. Bias-on 필수 파일 누락을 이 정상 비가용 값으로 대체하지 않는다.
+Bias-off는 IED `[]`, IAD/IEAD/current/potential/density/width `null`, `hasDistribution=false`이며 residual은 유지한다. 비교 API는 Bias-off의 해당 그래프에 `BIAS_OFF`를 반환한다. Bias-on 필수 파일 누락을 이 정상 비가용 값으로 대체하지 않는다.
 
 표시 `sourceFiles`는 원본 전체 manifest와 별개다. 순서는 SETTING(`0d_setting.ini`), LOG(`solver.log`), LOG(`residual.log`), Bias-on만 IED, IAD, IEAD, CURRENT, POTENTIAL, DENSITY이며 모든 실제 검증 entry의 status=PARSED다. output.log나 기타 manifest entry를 이 목록에 추가하지 않는다. 같은 Ar+.txt basename은 경로와 type으로 구별한다. `path`는 검증한 conditions에서 생성한 `PRS_%02d/Source_%d/Bias_%04d/` 표시 namespace와 실제 Run-relative 파일 경로를 결합한다. single-Run 선택·임의 outer ZIP/folder wrapper에서도 동일한 표시 경로를 사용한다. 업로드의 실제 relativeRoot/파일 lineage는 StoredSource·import manifest·원본 파일 조회에서 그대로 보존한다.
 

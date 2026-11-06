@@ -7,6 +7,12 @@ info:
     input/file missing/corrupt/unsupported/duplicate/storage/interrupted/stale context.
     Uploaded JS is never executed.
 paths:
+  /api/agent/requests/{id}/events:
+    $ref: '../contracts/agent-v1.openapi.yaml#/paths/~1api~1agent~1requests~1{id}~1events'
+  /api/agent/requests/{id}/results:
+    $ref: '../contracts/agent-v1.openapi.yaml#/paths/~1api~1agent~1requests~1{id}~1results'
+  /internal/agent/requests/{id}/events:
+    $ref: '../contracts/agent-v1.openapi.yaml#/paths/~1internal~1agent~1requests~1{id}~1events'
   /api/health:
     get:
       operationId: getApiHealth
@@ -377,8 +383,7 @@ paths:
   /api/workspace/new-conversation:
     post:
       operationId: postApiWorkspaceNewConversation
-      description: Atomically increment conversationEpoch; clear conversation and
-        reference only.
+      description: Preserve the current conversation and its exact Run references, then create and activate an empty conversation with a fresh conversationEpoch. Existing requests continue in their original conversation.
       responses:
         '200':
           description: Success
@@ -459,6 +464,35 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/DecisionWrite'
+  /api/workspace/conversations/{epoch}/activate:
+    post:
+      operationId: activateWorkspaceConversation
+      description: Atomically save the current room and restore the selected conversation, Run references and graph version. A stale token or revision is rejected.
+      parameters:
+      - in: path
+        name: epoch
+        required: true
+        schema: { type: integer, format: int64 }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [stateToken]
+              properties:
+                stateToken: { $ref: '#/components/schemas/StateToken' }
+      responses:
+        '200':
+          description: The selected conversation and current room list.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WorkspaceView' }
+        '404':
+          description: Conversation does not exist in this workspace lifetime.
+        '409':
+          description: STALE_CONTEXT.
   /api/workspace/reset:
     post:
       operationId: postApiWorkspaceReset
@@ -747,6 +781,7 @@ components:
           items:
             $ref: '#/components/schemas/Pair'
         iad:
+          description: All validated original points in source order when the Run version's IAD snapshot has been populated. Legacy versions awaiting backfill may contain the original display sample; bias-off has no IAD.
           anyOf:
           - type: array
             items:
@@ -1032,6 +1067,27 @@ components:
             type: array
             items:
               $ref: '#/components/schemas/RunRef'
+          catalogRefs:
+            type: array
+            description: Exact versions explicitly selected from the catalog and included in runs.
+            items:
+              $ref: '#/components/schemas/RunRef'
+          v2Origins:
+            type: array
+            items:
+              type: object
+              required: [ref, source]
+              properties:
+                ref:
+                  $ref: '#/components/schemas/RunRef'
+                source:
+                  type: object
+                  required: [turnId, executionId, stepId, groupId]
+                  properties:
+                    turnId: { type: string }
+                    executionId: { type: string }
+                    stepId: { type: string }
+                    groupId: { type: string }
       - type: 'null'
     Conversation:
       type: object
@@ -1063,6 +1119,7 @@ components:
         submittedRunRefs: { type: array, items: { $ref: '#/components/schemas/RunRef' }, description: Immutable original submitted tags; independent of later HITL selection. }
         status: { enum: [QUEUED, RUNNING, NEEDS_INPUT, COMPLETED, FAILED, CANCELLED] }
         turnId: { type: [string, 'null'] }
+        executionSummary: { $ref: '../contracts/agent-v1.openapi.yaml#/components/schemas/ExecutionSummary' }
     WorkspaceView:
       type: object
       additionalProperties: false
@@ -1071,6 +1128,18 @@ components:
       - conversation
       - candidateReference
       properties:
+        conversations:
+          type: array
+          description: Saved rooms in the current workspace lifetime, newest activity first. Titles use the first question and do not require a model call.
+          items:
+            type: object
+            additionalProperties: false
+            required: [conversationEpoch, title, createdAt, updatedAt]
+            properties:
+              conversationEpoch: { type: integer, format: int64 }
+              title: { type: string }
+              createdAt: { type: string, format: date-time }
+              updatedAt: { type: string, format: date-time }
         agentMessages: { type: array, items: { $ref: '#/components/schemas/AgentMessage' }, description: Single compact projection for the current workspace/conversation epochs. }
         stateToken:
           $ref: '#/components/schemas/StateToken'

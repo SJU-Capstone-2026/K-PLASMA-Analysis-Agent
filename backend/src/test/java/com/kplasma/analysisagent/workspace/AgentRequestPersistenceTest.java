@@ -44,9 +44,14 @@ class AgentRequestPersistenceTest extends WorkspaceTestSupport {
             assertThat(response.get("outputs").size()).isEqualTo(batch.size()*2);
             response.get("outputs").forEach(output->assertThat(output.get("display").isNull()).isTrue());
         }
-        long outputSql=mockingDetails(observedJdbc).getInvocations().stream().filter(call->call.getMethod().getParameterCount()==3&&call.getMethod().getParameterTypes()[1]==org.springframework.jdbc.core.RowCallbackHandler.class&&call.getArguments()[0] instanceof String sql&&sql.contains("join source_set s")&&sql.contains("source_file")).count();
-        assertThat(outputSql).isEqualTo((size+24)/25);
-        System.out.printf("Comparison output manifest SQL: runs=%d batches=%d statements=%d%n",size,(size+24)/25,outputSql);
+        var outputSql=mockingDetails(observedJdbc).getInvocations().stream()
+            .filter(call->call.getMethod().getParameterCount()==3
+                && call.getMethod().getParameterTypes()[1]==org.springframework.jdbc.core.RowCallbackHandler.class
+                && call.getArguments()[0] instanceof String sql && sql.contains("run_output_snapshot"))
+            .map(call->(String)call.getArguments()[0]).toList();
+        assertThat(outputSql).hasSize((size+24)/25)
+            .allSatisfy(sql->assertThat(sql).doesNotContain("source_file", "o.display"));
+        System.out.printf("Comparison output snapshot SQL: runs=%d batches=%d statements=%d%n",size,(size+24)/25,outputSql.size());
     }
     @Test void runPickerPagesCurrentCatalogueAndResumePinsOnlySelectedVersions() throws Exception {
         var job=accepted();var claimed=claim();String path="/requests/"+job.get("requestId").stringValue();
@@ -143,10 +148,26 @@ class AgentRequestPersistenceTest extends WorkspaceTestSupport {
         assertThat(jdbc.queryForObject("select count(*) from agent_checkpoint where request_id=?",Long.class,UUID.fromString(job.get("requestId").stringValue()))).isZero();
         var changed=new HashMap<>(answer);changed.put("status","CHANGED");assertThat(internalResponse(path+"/finalize",mutation(claim,"answer",changed)).statusCode()).isEqualTo(409);
     }
+    @Test void backgroundAnswerIsSavedToItsOriginalConversation() throws Exception {
+        long first=token().get("conversationEpoch").longValue();
+        var job=accepted();var claimed=claim();String path="/requests/"+job.get("requestId").stringValue();
+        ok("POST","/api/workspace/new-conversation",Map.of("stateToken",token()),null);
+        var otherToken=token();
+        internal(path+"/heartbeat",mutation(claimed,"operationKind","explain_concept"));
+        var answer=Map.of("intent","CONCEPT_EXPLANATION","status","SUCCESS","candidates",List.of(),"usedRunRefs",List.of(),
+            "answerSnapshot",Map.of("implementationId","v1","kind","explain_concept","summary","원래 방의 설명"));
+        assertThat(internal(path+"/finalize",mutation(claimed,"answer",answer)).get("status").stringValue()).isEqualTo("COMPLETED");
+        assertThat(state().get("conversation").get("turns").size()).isZero();
+        assertThat(state().get("agentMessages").size()).isZero();
+        assertThat(token()).isEqualTo(otherToken);
+        var restored=ok("POST","/api/workspace/conversations/"+first+"/activate",Map.of("stateToken",token()),null);
+        assertThat(restored.get("conversation").get("turns").get(0).get("id")).isEqualTo(job.get("requestId"));
+        assertThat(restored.get("agentMessages").get(0).get("status").stringValue()).isEqualTo("COMPLETED");
+    }
     @Test void resetFencesLateWriterAndErasesAllTransientUserContent() throws Exception {
         var job=accepted();var claim=claim();String path="/requests/"+job.get("requestId").stringValue();
         internal(path+"/checkpoint",mutation(claim,"payload",Map.of("draft","private-state")));
-        ok("POST","/api/workspace/new-conversation",Map.of("stateToken",token()),null);
+        ok("POST","/api/workspace/reset",Map.of("stateToken",token()),null);
         assertThat(internalResponse(path+"/checkpoint",mutation(claim,"payload",Map.of("draft","late"))).statusCode()).isEqualTo(409);
         var cleared=ok("GET","/api/agent"+path,null,null);assertThat(cleared.get("question").isNull()).isTrue();assertThat(cleared.get("status").stringValue()).isEqualTo("CANCELLED");
         assertThat(cleared.get("error").isNull()).isTrue();

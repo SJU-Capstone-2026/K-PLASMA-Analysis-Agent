@@ -1,0 +1,547 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "BudgetState": {
+      "additionalProperties": false,
+      "properties": {
+        "replans_used": {
+          "maximum": 2,
+          "minimum": 0,
+          "title": "Replans Used",
+          "type": "integer"
+        },
+        "answer_rewrites_used": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Answer Rewrites Used",
+          "type": "integer"
+        },
+        "partial_finalizations_used": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Partial Finalizations Used",
+          "type": "integer"
+        },
+        "model_requests_used": {
+          "maximum": 13,
+          "minimum": 0,
+          "title": "Model Requests Used",
+          "type": "integer"
+        },
+        "tool_invocations_used": {
+          "maximum": 12,
+          "minimum": 0,
+          "title": "Tool Invocations Used",
+          "type": "integer"
+        },
+        "active_elapsed_seconds": {
+          "minimum": 0,
+          "title": "Active Elapsed Seconds",
+          "type": "number"
+        }
+      },
+      "required": [
+        "replans_used",
+        "answer_rewrites_used",
+        "partial_finalizations_used",
+        "model_requests_used",
+        "tool_invocations_used",
+        "active_elapsed_seconds"
+      ],
+      "title": "BudgetState",
+      "type": "object"
+    },
+    "DataAnswerDraft": {
+      "additionalProperties": false,
+      "properties": {
+        "fact_ids": {
+          "items": {
+            "maxLength": 96,
+            "minLength": 1,
+            "type": "string"
+          },
+          "title": "Fact Ids",
+          "type": "array"
+        },
+        "interpretations": {
+          "items": {
+            "$ref": "#/$defs/Interpretation"
+          },
+          "title": "Interpretations",
+          "type": "array"
+        },
+        "limitations": {
+          "items": {
+            "$ref": "#/$defs/Limitation"
+          },
+          "title": "Limitations",
+          "type": "array"
+        }
+      },
+      "required": [
+        "fact_ids",
+        "interpretations",
+        "limitations"
+      ],
+      "title": "DataAnswerDraft",
+      "type": "object"
+    },
+    "Evidence": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "maxLength": 96,
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "executionId": {
+          "maxLength": 96,
+          "minLength": 1,
+          "title": "Executionid",
+          "type": "string"
+        },
+        "field": {
+          "maxLength": 96,
+          "minLength": 1,
+          "title": "Field",
+          "type": "string"
+        },
+        "value": {
+          "$ref": "#/$defs/JsonValue"
+        },
+        "unit": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Unit"
+        },
+        "runRef": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RunRef"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "id",
+        "executionId",
+        "field",
+        "value",
+        "unit"
+      ],
+      "title": "Evidence",
+      "type": "object"
+    },
+    "GeneralAnswerDraft": {
+      "additionalProperties": false,
+      "properties": {
+        "paragraphs": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Paragraphs",
+          "type": "array"
+        },
+        "sources": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Sources",
+          "type": "array"
+        }
+      },
+      "required": [
+        "paragraphs",
+        "sources"
+      ],
+      "title": "GeneralAnswerDraft",
+      "type": "object"
+    },
+    "Interpretation": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "maxLength": 96,
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        },
+        "evidence_ids": {
+          "items": {
+            "maxLength": 96,
+            "minLength": 1,
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Evidence Ids",
+          "type": "array"
+        },
+        "assumptions": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Assumptions",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "text",
+        "evidence_ids",
+        "assumptions"
+      ],
+      "title": "Interpretation",
+      "type": "object"
+    },
+    "JsonValue": {},
+    "Limitation": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "maxLength": 96,
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        },
+        "evidence_ids": {
+          "items": {
+            "maxLength": 96,
+            "minLength": 1,
+            "type": "string"
+          },
+          "title": "Evidence Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "text",
+        "evidence_ids"
+      ],
+      "title": "Limitation",
+      "type": "object"
+    },
+    "ReviewAnswer": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "enum": [
+            "request_coverage",
+            "evidence_alignment",
+            "interpretation_scope"
+          ],
+          "title": "Name",
+          "type": "string"
+        },
+        "choice": {
+          "title": "Choice",
+          "type": "string"
+        },
+        "probabilities": {
+          "additionalProperties": {
+            "maximum": 1,
+            "minimum": 0,
+            "type": "number"
+          },
+          "title": "Probabilities",
+          "type": "object"
+        },
+        "confidence": {
+          "anyOf": [
+            {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Confidence"
+        }
+      },
+      "required": [
+        "name",
+        "choice",
+        "probabilities",
+        "confidence"
+      ],
+      "title": "ReviewAnswer",
+      "type": "object"
+    },
+    "ReviewDecision": {
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "enum": [
+            "PASS",
+            "ISSUE",
+            "UNAVAILABLE",
+            "SKIPPED"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "answers": {
+          "items": {
+            "$ref": "#/$defs/ReviewAnswer"
+          },
+          "title": "Answers",
+          "type": "array"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reason"
+        }
+      },
+      "required": [
+        "status",
+        "answers"
+      ],
+      "title": "ReviewDecision",
+      "type": "object"
+    },
+    "RunRef": {
+      "additionalProperties": false,
+      "properties": {
+        "runId": {
+          "maxLength": 96,
+          "minLength": 1,
+          "title": "Runid",
+          "type": "string"
+        },
+        "runVersionId": {
+          "maxLength": 96,
+          "minLength": 1,
+          "title": "Runversionid",
+          "type": "string"
+        }
+      },
+      "required": [
+        "runId",
+        "runVersionId"
+      ],
+      "title": "RunRef",
+      "type": "object"
+    },
+    "StepResult": {
+      "additionalProperties": false,
+      "properties": {
+        "executionId": {
+          "maxLength": 96,
+          "minLength": 1,
+          "title": "Executionid",
+          "type": "string"
+        },
+        "stepId": {
+          "maxLength": 96,
+          "minLength": 1,
+          "title": "Stepid",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "verified",
+            "empty",
+            "partial",
+            "blocked",
+            "failed",
+            "skipped"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "outputs": {
+          "additionalProperties": {
+            "$ref": "#/$defs/JsonValue"
+          },
+          "title": "Outputs",
+          "type": "object"
+        },
+        "runRefs": {
+          "items": {
+            "$ref": "#/$defs/RunRef"
+          },
+          "title": "Runrefs",
+          "type": "array"
+        },
+        "groupId": {
+          "anyOf": [
+            {
+              "maxLength": 96,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Groupid"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reason"
+        }
+      },
+      "required": [
+        "executionId",
+        "stepId",
+        "status",
+        "outputs"
+      ],
+      "title": "StepResult",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "implementationId": {
+      "const": "v2",
+      "title": "Implementationid",
+      "type": "string"
+    },
+    "graphVersion": {
+      "const": "v2",
+      "title": "Graphversion",
+      "type": "string"
+    },
+    "schemaVersion": {
+      "const": 1,
+      "title": "Schemaversion",
+      "type": "integer"
+    },
+    "intent": {
+      "enum": [
+        "COMPOSITE_ANSWER",
+        "GENERAL_ANSWER"
+      ],
+      "title": "Intent",
+      "type": "string"
+    },
+    "question": {
+      "title": "Question",
+      "type": "string"
+    },
+    "confirmedContext": {
+      "additionalProperties": {
+        "$ref": "#/$defs/JsonValue"
+      },
+      "title": "Confirmedcontext",
+      "type": "object"
+    },
+    "planRevision": {
+      "anyOf": [
+        {
+          "minimum": 1,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Planrevision"
+    },
+    "stepResults": {
+      "items": {
+        "$ref": "#/$defs/StepResult"
+      },
+      "title": "Stepresults",
+      "type": "array"
+    },
+    "evidence": {
+      "items": {
+        "$ref": "#/$defs/Evidence"
+      },
+      "title": "Evidence",
+      "type": "array"
+    },
+    "draft": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/DataAnswerDraft"
+        },
+        {
+          "$ref": "#/$defs/GeneralAnswerDraft"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Draft"
+    },
+    "answer": {
+      "title": "Answer",
+      "type": "string"
+    },
+    "executionStatus": {
+      "enum": [
+        "COMPLETE",
+        "PARTIAL",
+        "FAILED"
+      ],
+      "title": "Executionstatus",
+      "type": "string"
+    },
+    "review": {
+      "$ref": "#/$defs/ReviewDecision"
+    },
+    "budget": {
+      "$ref": "#/$defs/BudgetState"
+    }
+  },
+  "required": [
+    "implementationId",
+    "graphVersion",
+    "schemaVersion",
+    "intent",
+    "question",
+    "confirmedContext",
+    "planRevision",
+    "stepResults",
+    "evidence",
+    "draft",
+    "answer",
+    "executionStatus",
+    "review",
+    "budget"
+  ],
+  "title": "GraphV2AnswerSnapshotV1",
+  "type": "object"
+}

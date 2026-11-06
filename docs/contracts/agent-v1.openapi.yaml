@@ -33,13 +33,20 @@ info:
     resolving deferred dependency invalidation. Before operation classification,
     a reference change or referenced Run deletion marks the captured context invalid.
     Classification cancels dependent work under the same lock, while independent
-    operations such as concept explanation may continue. New conversation/reset
-    always cancel immediately. No model call holds a DB transaction.
+    operations such as concept explanation may continue. Workspace reset cancels;
+    new conversations and room navigation preserve work in its original room.
+    No model call holds a DB transaction.
+    Public events are additive for both graph versions. SSE replays committed rows
+    using Last-Event-ID or after, while format=json provides the identical ordered
+    event page. Reconnection never submits or executes work. A terminal subscription
+    with no unread events returns 204. The duration is accumulated server-observed
+    RUNNING time, excluding queue and user-input waits; abandoned intervals stop at
+    their previous lease. Historical requests without timing evidence omit summaries.
 paths:
   /api/run-versions/outputs:
     post:
       summary: Batch-load exact-version original outputs for charts
-      description: Maximum 50 unique Run references and 7 output IDs. One manifest SQL per batch, bounded source cache. Individual unavailable outputs retain a reason; no fabricated curves. Never overwrites saved answer scalars.
+      description: Maximum 50 unique Run references and 7 output IDs. Every output reads the exact-version DB snapshot. The public response contains the complete source points or grid. Worker requests return compact metadata and features. Missing snapshots report OUTPUT_NOT_INDEXED or IAD_NOT_INDEXED. Bias-off outputs without a source distribution report BIAS_OFF.
       requestBody:
         required: true
         content:
@@ -47,7 +54,7 @@ paths:
             schema: { $ref: '#/components/schemas/OutputQuery' }
       responses:
         '200':
-          description: Native axes and units, full-source extrema, bounded original display samples. Display payload is browser-only.
+          description: Native axes and units, full-source extrema and original display points. IAD display contains all validated points. Display payload is browser-only.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/OutputResponse' }
@@ -98,24 +105,124 @@ paths:
       responses:
         '200': { $ref: '#/components/responses/Request' }
         '404': { description: Request not found }
+  /api/agent/requests/{id}/events:
+    parameters: [{ $ref: '#/components/parameters/RequestId' }]
+    get:
+      operationId: replayAgentPublicEvents
+      description: >-
+        Replay committed events after a cursor. SSE uses default message events whose data is the
+        entire envelope and id is seq. Last-Event-ID takes precedence over after. No database
+        connection or request lock is held while awaiting or sending events. Each JSON page and
+        status snapshot describes one locked request prefix; apply its cursor only after the
+        returned events. Follow hasMore using the last returned seq. NEEDS_INPUT closes the
+        current subscription; resume opens a new one at the same request's cursor.
+      parameters:
+        - { name: after, in: query, schema: { type: integer, minimum: 0, default: 0 } }
+        - { name: Last-Event-ID, in: header, schema: { type: integer, minimum: 0 } }
+        - { name: format, in: query, schema: { const: json }, description: Omit for SSE. }
+      responses:
+        '200':
+          description: Durable replay; SSE closes after its final committed event.
+          content:
+            text/event-stream:
+              schema: { type: string, description: 'id: seq followed by data: JSON PublicEvent and a blank line.' }
+            application/json:
+              schema: { $ref: '#/components/schemas/PublicEventPage' }
+        '204': { description: Terminal or input-waiting request already received through lastEventSeq; stops EventSource reconnect. }
+        '400': { description: Invalid or out-of-range event cursor. }
+        '404': { description: Request was removed or reset; event and draft content is unavailable. }
+  /api/agent/requests/{id}/results:
+    parameters: [{ $ref: '#/components/parameters/RequestId' }]
+    get:
+      operationId: getAgentPublicResults
+      description: >-
+        Read the immutable saved executions referenced by one results.ready seq. New bindings
+        require current graph-valid verified/empty/partial tool executions and exact frozen Run
+        references. Older bindings keep their original contents after a replan. Only tool-card
+        fields are projected; no plan, inputs, model output or original graph arrays are returned.
+      parameters:
+        - { name: resultRevision, in: query, required: true, schema: { type: integer, minimum: 1 } }
+      responses:
+        '200':
+          description: The requested public result version.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [resultRevision, results]
+                properties:
+                  resultRevision: { type: integer }
+                  results:
+                    type: array
+                    maxItems: 16
+                    items:
+                      type: object
+                      additionalProperties: false
+                      required: [stepId, executionId, runRefs, toolResult]
+                      properties:
+                        stepId: { type: string }
+                        executionId: { type: string, format: uuid }
+                        runRefs: { type: array, items: { $ref: '#/components/schemas/RunRef' } }
+                        toolResult: { type: object, description: Existing forward_lookup, reverse_search or compare_runs public tool-card contract. }
+        '404': { description: No such results.ready version, or request content was removed or reset. }
+  /internal/agent/requests/{id}/events:
+    parameters: [{ $ref: '#/components/parameters/RequestId' }]
+    post:
+      operationId: appendAgentPublicEvent
+      security: [{ WorkerToken: [] }]
+      description: >-
+        Uses the current worker generation, request revision, live lease and workspace/conversation
+        fences. eventKey is request-scoped and max 200 characters; system: is reserved. Same type
+        and normalized payload replays the original envelope; changed content conflicts.
+        answer.start allocates the next answerRevision when omitted and returns it in payload.
+        answer.delta requires the current stream and contiguous global chunkIndex (first 0 or 1).
+        Each text chunk is 1..8192 characters and total preview text is bounded to 1000000 characters.
+        results.ready accepts only current tool-card execution IDs, and resultRevision is this event's seq.
+        request.state is emitted only by backend lifecycle transactions, never by the worker.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [claimGeneration, requestRevision, eventKey, type, payload]
+              properties:
+                claimGeneration: { type: integer }
+                requestRevision: { type: integer }
+                eventKey: { type: string, minLength: 1, maxLength: 200 }
+                type: { enum: [activity, answer.start, answer.delta, answer.reset, results.ready] }
+                payload: { $ref: '#/components/schemas/WorkerPublicPayload' }
+      responses:
+        '200':
+          description: Durable envelope, including allocated answerRevision/resultRevision.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PublicEvent' }
+        '400': { description: Unknown public fields, activity code, invalid size or payload. }
+        '401': { description: Worker token required. }
+        '409': { description: Stale fence, invalidated execution/stream, noncontiguous chunk or idempotency conflict. }
   /api/agent/requests/{id}/run-options:
     parameters: [{ $ref: '#/components/parameters/RequestId' }]
     get:
       operationId: getFixedRunSelectionPage
       parameters:
         - { $ref: '#/components/parameters/PendingInputId' }
-        - { name: format, in: query, required: true, schema: { type: integer, enum: [2] } }
+        - { name: format, in: query, required: false, schema: { type: integer, enum: [2] } }
         - { name: query, in: query, schema: { type: string, maxLength: 256 } }
         - { name: sort, in: query, schema: { enum: [ascending, descending], default: ascending } }
         - { name: cursor, in: query, schema: { type: string, maxLength: 4000 } }
         - { name: pageSize, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 30 } }
-      description: Latest catalogue pages and exact selected versions; DB literal substring search and natural numeric ordering. Cursor is bound to request revision, pending input, snapshot, query and sort. Selected or explicitly attached deleted versions remain visible and disabled in selected/attached state; unselected deleted Runs disappear from the live catalogue. No workspace history or full Run payload is loaded. Legacy clients without format=2 receive CLIENT_REFRESH_REQUIRED.
+      description: Latest catalogue pages and exact selected versions; DB literal substring search and natural numeric ordering. Cursor is bound to request revision, pending input, snapshot, query and sort. Selected or explicitly attached deleted versions remain visible and disabled in selected/attached state; unselected deleted Runs disappear from the live catalogue. No workspace history or full Run payload is loaded. Graph v1 requires format=2. Graph v2 omits format and reads its frozen filtered candidates, including search measurements and original search order; it does not fall back to the live catalogue.
       responses:
         '200':
           description: At most pageSize options, with a keyset cursor.
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/RunSelectionPage' }
+              schema:
+                oneOf:
+                  - { $ref: '#/components/schemas/RunSelectionPage' }
+                  - { $ref: '#/components/schemas/LegacyV2RunOptions' }
         '400': { description: Invalid query, cursor or page size. }
         '409': { description: Wrong request epoch or pending input, or CLIENT_REFRESH_REQUIRED. }
   /api/agent/requests/{id}/run-options/count:
@@ -439,6 +546,170 @@ components:
               selectedRunRefs: { type: array, items: { $ref: '#/components/schemas/RunRef' }, description: Exact materialized reverse-query pool, including an empty array for no matches. }
               reverseQuery: { $ref: '#/components/schemas/ReverseQuery' }
   schemas:
+    PublicActivity:
+      type: object
+      additionalProperties: false
+      required: [activityId, code, phase]
+      properties:
+        activityId: { type: string, maxLength: 200 }
+        code: { enum: [QUEUED, QUESTION_CHECK, PLAN, PLAN_VALIDATE, FORWARD_LOOKUP, REVERSE_SEARCH, SEARCH_COMPLETE, SEARCH_EMPTY, COMPARE_RUNS, COMPARE_OUTPUTS, COMPARE_IEAD, DERIVE, RESULT_VALIDATE, REUSE_RESULT, NEEDS_RUNS, NEEDS_BASELINE, NEEDS_CONDITIONS, RESUMED, REPLAN, GENERAL_ANSWER, INTERPRET, REVIEW, REWRITE, COMMIT, RECOVERING] }
+        phase: { enum: [started, completed, reused] }
+        stepId: { type: string, maxLength: 200 }
+        runCount: { type: integer, minimum: 0, maximum: 1000000 }
+        metricIds: { type: array, maxItems: 24, items: { type: string, maxLength: 80 } }
+    WorkerPublicPayload:
+      oneOf:
+        - { $ref: '#/components/schemas/PublicActivity' }
+        - type: object
+          additionalProperties: false
+          required: [streamId, mode]
+          properties:
+            streamId: { type: string, maxLength: 200 }
+            answerRevision: { type: integer, minimum: 1, maximum: 1000 }
+            mode: { enum: [general, interpretation] }
+            rewrite: { type: boolean, default: false }
+        - type: object
+          additionalProperties: false
+          required: [streamId, answerRevision, blockId, text, chunkIndex]
+          properties:
+            streamId: { type: string, maxLength: 200 }
+            answerRevision: { type: integer, minimum: 1 }
+            blockId: { type: string, maxLength: 200 }
+            text: { type: string, minLength: 1, maxLength: 8192 }
+            chunkIndex: { type: integer, minimum: 0, maximum: 100000 }
+        - type: object
+          additionalProperties: false
+          required: [streamId, answerRevision]
+          properties:
+            streamId: { type: string, maxLength: 200 }
+            answerRevision: { type: integer, minimum: 1 }
+            reason: { type: string, pattern: '^[A-Z_]{1,80}$', default: RESET }
+        - type: object
+          additionalProperties: false
+          required: [executionIds]
+          properties:
+            executionIds: { type: array, maxItems: 16, uniqueItems: true, items: { type: string, format: uuid } }
+    PublicEvent:
+      type: object
+      additionalProperties: false
+      required: [schemaVersion, requestId, workspaceEpoch, conversationEpoch, requestRevision, seq, occurredAt, type, payload]
+      properties:
+        schemaVersion: { const: 1 }
+        requestId: { type: string, format: uuid }
+        workspaceEpoch: { type: integer }
+        conversationEpoch: { type: integer }
+        requestRevision: { type: integer }
+        seq: { type: integer, minimum: 1 }
+        occurredAt: { type: string, format: date-time }
+        type: { enum: [activity, results.ready, answer.start, answer.delta, answer.reset, request.state] }
+        payload:
+          anyOf:
+            - { $ref: '#/components/schemas/WorkerPublicPayload' }
+            - type: object
+              additionalProperties: false
+              required: [executionIds, resultRevision]
+              properties:
+                executionIds: { type: array, maxItems: 16, uniqueItems: true, items: { type: string, format: uuid } }
+                resultRevision: { type: integer, minimum: 1 }
+            - type: object
+              additionalProperties: false
+              required: [status, stage, turnId]
+              properties:
+                status: { enum: [QUEUED, RUNNING, NEEDS_INPUT, COMPLETED, FAILED, CANCELLED] }
+                stage: { type: string }
+                turnId: { type: [string, 'null'] }
+                durationMs: { type: integer, minimum: 0 }
+          description: >-
+            WorkerPublicPayload with backend-assigned answerRevision on starts or resultRevision
+            on results.ready. request.state contains status, stage, nullable turnId, and durationMs
+            only when a known final running duration exists. No internal plan, reasoning or raw error.
+    PublicEventPage:
+      type: object
+      required: [events, lastEventSeq, status, requestRevision, workspaceEpoch, conversationEpoch, hasMore]
+      properties:
+        events: { type: array, maxItems: 256, items: { $ref: '#/components/schemas/PublicEvent' } }
+        lastEventSeq: { type: integer }
+        status: { enum: [QUEUED, RUNNING, NEEDS_INPUT, COMPLETED, FAILED, CANCELLED] }
+        requestRevision: { type: integer }
+        workspaceEpoch: { type: integer }
+        conversationEpoch: { type: integer }
+        hasMore: { type: boolean }
+    PublicActivityRecord:
+      type: object
+      additionalProperties: false
+      required: [activityId, code, phase, seq, occurredAt]
+      properties:
+        activityId: { $ref: '#/components/schemas/PublicActivity/properties/activityId' }
+        code: { $ref: '#/components/schemas/PublicActivity/properties/code' }
+        phase: { $ref: '#/components/schemas/PublicActivity/properties/phase' }
+        stepId: { $ref: '#/components/schemas/PublicActivity/properties/stepId' }
+        runCount: { $ref: '#/components/schemas/PublicActivity/properties/runCount' }
+        metricIds: { $ref: '#/components/schemas/PublicActivity/properties/metricIds' }
+        seq: { type: integer }
+        occurredAt: { type: string, format: date-time }
+    ProgressSnapshot:
+      type: object
+      required: [lastEventSeq, activities, answer, resultRevision]
+      properties:
+        lastEventSeq: { type: integer }
+        activities:
+          type: array
+          items: { $ref: '#/components/schemas/PublicActivityRecord' }
+        answer:
+          type: [object, 'null']
+          required: [streamId, answerRevision, mode, status, blocks]
+          properties:
+            streamId: { type: string }
+            answerRevision: { type: integer }
+            mode: { enum: [general, interpretation] }
+            status: { enum: [writing, reviewing, rewriting, interrupted, done] }
+            blocks:
+              type: array
+              items:
+                type: object
+                required: [id, text]
+                properties:
+                  id: { type: string }
+                  text: { type: string }
+        resultRevision: { type: [integer, 'null'] }
+    ExecutionSummary:
+      type: object
+      additionalProperties: false
+      required: [durationMs, activities]
+      properties:
+        durationMs: { type: integer, minimum: 0, description: Fixed cumulative RUNNING milliseconds; no queue/HITL time. }
+        activities: { type: array, items: { $ref: '#/components/schemas/PublicActivityRecord' } }
+    LegacyV2RunOptions:
+      type: object
+      description: Frozen candidates of a graph-v2 selection, without format=2.
+      required: [requestId, requestRevision, pendingInputId, options]
+      properties:
+        requestId: { type: string, format: uuid }
+        requestRevision: { type: integer }
+        pendingInputId: { type: string }
+        searchCriteria:
+          type: object
+          required: [constraints, goals]
+          properties:
+            constraints: { type: array, items: { type: object } }
+            goals: { type: array, items: { type: object } }
+        options:
+          type: array
+          items:
+            type: object
+            required: [key, ref, conditions, selectable, unavailableReason]
+            properties:
+              key: { type: string }
+              ref: { $ref: '#/components/schemas/RunRef' }
+              conditions:
+                type: object
+                additionalProperties: { $ref: './agent-answer-v2.schemas.yaml#/components/schemas/ScalarDatum' }
+              searchMeasurements:
+                type: object
+                description: Filter and sort measurements from the saved search for this exact Run version.
+                additionalProperties: { $ref: './agent-answer-v2.schemas.yaml#/components/schemas/ScalarDatum' }
+              selectable: { type: boolean }
+              unavailableReason: { type: [string, 'null'] }
     RunSelectionPage:
       type: object
       required: [format, requestId, requestRevision, pendingInputId, snapshotId, selectionRevision, totalCount, baselineKey, options, hasMore, nextCursor]
@@ -594,9 +865,11 @@ components:
             required: [ref, kind, turnId, groupId]
             properties:
               ref: { $ref: '#/components/schemas/RunRef' }
-              kind: { enum: [run_tag, candidate_group] }
-              turnId: { type: string }
+              kind: { enum: [run_tag, candidate_group, catalog_tag] }
+              turnId: { type: [string, 'null'], description: Null for a saved catalog tag }
               groupId: { type: [string, 'null'] }
+              executionId: { type: string }
+              stepId: { type: string }
         candidateReferences: { type: array, items: { $ref: '#/components/schemas/RunRef' } }
     RequestView:
       type: object
@@ -604,11 +877,20 @@ components:
       properties:
         requestId: { type: string, format: uuid }
         requestRevision: { type: integer }
+        workspaceEpoch: { type: integer, description: Additive request scope for event fencing. }
+        conversationEpoch: { type: integer, description: Original room; independent of currently active room. }
+        progress: { $ref: '#/components/schemas/ProgressSnapshot' }
+        executionSummary: { $ref: '#/components/schemas/ExecutionSummary' }
         status: { enum: [QUEUED, RUNNING, NEEDS_INPUT, COMPLETED, FAILED, CANCELLED] }
         stage: { type: string }
-        graphVersion: { const: v1 }
+        graphVersion: { enum: [v1, v2] }
         question: { type: [string, 'null'] }
-        pendingInput: { type: [object, 'null'], description: 'At least id and message; optional fields/options. Omitted numeric units use fixed defaults saved as answerSnapshot.unitAssumptions. Unknown/incompatible explicit units still require clarification; unitMetric binds a unit-only correction to its slot. Pure high/low sorting needs no unit.' }
+        pendingInput:
+          type: [object, 'null']
+          description: 'At least id and message; optional fields/options. Omitted numeric units use fixed defaults saved as answerSnapshot.unitAssumptions. Unknown/incompatible explicit units still require clarification; unitMetric binds a unit-only correction to its slot. Pure high/low sorting needs no unit.'
+          properties:
+            minSelections: { type: integer, minimum: 2, description: 'Minimum Run selection count; defaults to 2.' }
+            maxSelections: { type: integer, minimum: 2, description: 'Optional Run selection limit. Equals minSelections for an exact count.' }
         error: { type: [object, 'null'] }
         partialResult:
           type: [object, 'null']

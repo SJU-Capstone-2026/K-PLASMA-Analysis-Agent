@@ -189,6 +189,14 @@ public class SourceStore {
         return "OTHER";
     }
     static MessageDigest digest() { try { return MessageDigest.getInstance("SHA-256"); } catch (NoSuchAlgorithmException e) { throw new IllegalStateException(e); } }
+
+    public static boolean matchesHash(StoredBatch.File file) throws IOException {
+        var digest = digest();
+        try (var input = new DigestInputStream(Files.newInputStream(file.path(), LinkOption.NOFOLLOW_LINKS), digest)) {
+            input.transferTo(OutputStream.nullOutputStream());
+        }
+        return HexFormat.of().formatHex(digest.digest()).equals(file.sha256());
+    }
     static String hashFiles(Map<String, StoredBatch.File> files) {
         MessageDigest digest = digest();
         files.entrySet().stream().filter(e -> !operatingSystemMetadata(e.getKey())).sorted(Map.Entry.comparingByKey()).forEach(e -> {

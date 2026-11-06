@@ -11,6 +11,11 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.annotation.JsonInclude;
+import com.kplasma.analysisagent.agent.v2.GraphVersionPolicy;
+import com.kplasma.analysisagent.agent.v2.V2StepOrigins;
+import com.kplasma.analysisagent.agent.v2.V2ExecutionRepository;
+import tools.jackson.databind.JsonNode;
 
 @Service
 public class AgentRequestService {
@@ -22,13 +27,19 @@ public class AgentRequestService {
     private final SnapshotValidator validate;
     private final JdbcTemplate jdbc;
     private final ObjectMapper mapper;
+    private final V2ExecutionRepository v2;
+    private final AgentPublicEvents publicEvents;
+    private final AgentPublicResultProjection publicResults;
     private final RunSelectionService selections;
     private final DecisionRepository decisions;
-    public AgentRequestService(AgentRequestRepository requests,WorkspaceRepository workspace,SnapshotValidator validate,JdbcTemplate jdbc,ObjectMapper mapper,RunSelectionService selections,DecisionRepository decisions){this.requests=requests;this.workspace=workspace;this.validate=validate;this.jdbc=jdbc;this.mapper=mapper;this.selections=selections;this.decisions=decisions;}
-    public record ReferenceOrigin(RunRef ref,String kind,String turnId,String groupId) {}
-    public record Submission(String text,StateToken stateToken,RunRef selectedRunRef,RunRef baseline,List<RunRef> candidateReferences,List<RunRef> attachedRunRefs,List<ReferenceOrigin> referenceOrigins) {}
+    public AgentRequestService(AgentRequestRepository requests,WorkspaceRepository workspace,SnapshotValidator validate,JdbcTemplate jdbc,ObjectMapper mapper,V2ExecutionRepository v2,AgentPublicEvents publicEvents,AgentPublicResultProjection publicResults,RunSelectionService selections,DecisionRepository decisions){this.requests=requests;this.workspace=workspace;this.validate=validate;this.jdbc=jdbc;this.mapper=mapper;this.v2=v2;this.publicEvents=publicEvents;this.publicResults=publicResults;this.selections=selections;this.decisions=decisions;}
+    public record ReferenceOrigin(RunRef ref,String kind,String turnId,String groupId,
+        @JsonInclude(JsonInclude.Include.NON_NULL) String executionId,
+        @JsonInclude(JsonInclude.Include.NON_NULL) String stepId) {}
+    public record Submission(String text,StateToken stateToken,RunRef selectedRunRef,RunRef baseline,List<RunRef> candidateReferences,List<RunRef> attachedRunRefs,List<ReferenceOrigin> referenceOrigins,
+        @JsonInclude(JsonInclude.Include.NON_NULL) String graphVersion) {}
     public record Resume(long expectedRequestRevision,String pendingInputId,Map<String,Object> input) {}
-    public record Claim(String workerId,int leaseSeconds) {}
+    public record Claim(String workerId,int leaseSeconds,List<String> supportedGraphVersions) {}
     public record Mutation(long claimGeneration,long requestRevision,Integer leaseSeconds,String stage,String operationKind,Boolean dependsOnContext,
         Map<String,Object> payload,Map<String,Object> pendingInput,Map<String,Object> error,Map<String,Object> partialResult,List<RunRef> usedRunRefs,AgentResponse answer,Integer limit,List<RunRef> requiredRunRefs,
         Map<String,Object> reverseQuery,Boolean referencesOnly,Map<String,Object> forwardQuery) {}
@@ -48,9 +59,16 @@ public class AgentRequestService {
         context.put("candidateReference",current.candidateReference());context.put("candidateReferences",body.candidateReferences()==null?(current.candidateReference()==null?List.of():current.candidateReference().runs()):body.candidateReferences());
         context.put("selectedRunRef",body.selectedRunRef());
         context.put("comparisonReference",explicit);context.put("recentContext",recentContext(current.conversation().turns()));
-        var turns=current.conversation().turns();context.put("lastAnswer",turns.isEmpty()?null:turns.getLast().answerSnapshot());
+        var turns=current.conversation().turns();
+        String pinned=current.conversation().agentGraphVersion();
+        if(pinned==null&&!turns.isEmpty())pinned="v1";
+        String graphVersion=GraphVersionPolicy.resolve(pinned,body.graphVersion());
+        context.put("graphVersion",graphVersion);
+        context.put("lastAnswer",turns.isEmpty()?null:turns.getLast().answerSnapshot());
         context.put("comparisonContext",turns.reversed().stream().filter(t->"compare_runs".equals(t.answerSnapshot().get("kind"))||"explain_change".equals(t.answerSnapshot().get("kind"))).map(TurnSnapshot::answerSnapshot).findFirst().orElse(null));
-        UUID id=UUID.randomUUID();jdbc.update("insert into agent_request(id,workspace_epoch,conversation_epoch,status,question,submission,context_snapshot) values (?,?,?,'QUEUED',?,?::jsonb,?::jsonb)",id,current.stateToken().workspaceEpoch(),current.stateToken().conversationEpoch(),body.text(),requests.json(body),requests.json(context));
+        UUID id=UUID.randomUUID();jdbc.update("insert into agent_request(id,workspace_epoch,conversation_epoch,status,question,submission,context_snapshot,graph_version) values (?,?,?,'QUEUED',?,?::jsonb,?::jsonb,?)",id,current.stateToken().workspaceEpoch(),current.stateToken().conversationEpoch(),body.text(),requests.json(body),requests.json(context),graphVersion);
+        publicEvents.activity(id,"QUEUED","started");publicEvents.state(id);
+        jdbc.update("update workspace set agent_graph_version=? where id=1",graphVersion);
         workspace.remember(current.stateToken().workspaceEpoch(),current.stateToken().conversationEpoch(),"AGENT",key,body,id.toString());workspace.advance();return requests.view(requests.get(id,false));
     }
     private boolean visible(RunRef ref,WorkspaceView current){return Objects.equals(ref,current.conversation().activeRun())||(current.candidateReference()!=null&&current.candidateReference().runs().contains(ref))||current.conversation().turns().stream().anyMatch(t->t.answerRunRefs().contains(ref));}
@@ -59,11 +77,24 @@ public class AgentRequestService {
         List<Map<String,Object>> entries=new ArrayList<>();String baselineKey=null;
         for(int i=0;i<refs.size();i++){
             var ref=refs.get(i);var origin=origins.get(i);require(Objects.equals(origin.ref(),ref),"Reference origin order mismatch");
-            require(Set.of("run_tag","candidate_group").contains(String.valueOf(origin.kind())),"Unknown reference origin");
-            var turn=current.conversation().turns().stream().filter(t->t.id().equals(origin.turnId())).findFirst().orElse(null);
-            require(turn!=null&&turn.answerRunRefs().contains(ref),"Reference must originate in an actual saved answer");
-            require(!"candidate_group".equals(origin.kind())||groupContains(turn,origin.groupId(),ref),"Candidate group must contain the exact saved Run");
-            String key="R"+(i+1);Map<String,Object> source=new LinkedHashMap<>();source.put("kind",origin.kind());source.put("turnId",origin.turnId());source.put("groupId",origin.groupId());source.put("pendingInputId",null);
+            require(Set.of("run_tag","candidate_group","catalog_tag").contains(String.valueOf(origin.kind())),"Unknown reference origin");
+            if ("catalog_tag".equals(origin.kind())) {
+                var selection = current.candidateReference();
+                require(origin.turnId()==null && origin.groupId()==null && origin.executionId()==null && origin.stepId()==null
+                    && selection!=null && selection.catalogRefs()!=null && selection.catalogRefs().contains(ref),
+                    "Catalog tag must match a saved selection");
+            } else {
+                var turn=current.conversation().turns().stream().filter(t->t.id().equals(origin.turnId())).findFirst().orElse(null);
+                require(turn!=null&&turn.answerRunRefs().contains(ref),"Reference must originate in an actual saved answer");
+                if ("v2".equals(turn.answerSnapshot().get("implementationId"))) {
+                    require(V2StepOrigins.contains(turn,new V2RecordSource(origin.turnId(),origin.executionId(),
+                        origin.stepId(),origin.groupId()),ref),"V2 reference must belong to its saved execution group");
+                } else {
+                    require(origin.executionId()==null&&origin.stepId()==null,"V1 references cannot carry v2 execution IDs");
+                    require(!"candidate_group".equals(origin.kind())||groupContains(turn,origin.groupId(),ref),"Candidate group must contain the exact saved Run");
+                }
+            }
+            String key="R"+(i+1);Map<String,Object> source=new LinkedHashMap<>();source.put("kind",origin.kind());source.put("turnId",origin.turnId());source.put("groupId",origin.groupId());source.put("pendingInputId",null);if(origin.executionId()!=null){source.put("executionId",origin.executionId());source.put("stepId",origin.stepId());}
             entries.add(Map.of("key",key,"ref",ref,"origin",source));if(Objects.equals(ref,baseline))baselineKey=key;
         }
         require(baseline==null||refs.isEmpty()||baselineKey!=null,"Baseline must be attached");
@@ -112,8 +143,22 @@ public class AgentRequestService {
         if(!(snapshot instanceof Map<?,?> map)||!(map.get("entries") instanceof List<?> entries))return List.of();
         return entries.stream().map(value->mapper.convertValue(((Map<?,?>)value).get("ref"),RunRef.class)).toList();
     }
-    @Transactional(readOnly=true) public Map<String,Object> status(UUID id){return requests.view(requests.get(id,false));}
+    @Transactional public Map<String,Object> status(UUID id){return requests.view(requests.get(id,true));}
     @Transactional public Map<String,Object> cancel(UUID id){var current=workspace.lock();var row=requests.get(id,true);epochs(row,current);if(ACTIVE.contains(row.status()))requests.cancel(id,"CANCELLED_BY_USER");return requests.view(requests.get(id,false));}
+    private int selectionLimit(Object value,int defaultValue) {
+        if (value==null) return defaultValue;
+        require(value instanceof Number,"Selection count must be an integer");
+        var number=(Number)value;
+        require(number.doubleValue()==number.intValue() && number.intValue()>=2,"Invalid selection count");
+        return number.intValue();
+    }
+    private String pendingActivity(Map<String,Object> pending) {
+        String type=String.valueOf(pending.get("type"));
+        if("run_selection".equals(type))return "NEEDS_RUNS";
+        if("baseline".equals(type) || "comparison_options".equals(type)
+            && pending.get("fields") instanceof List<?> fields && fields.equals(List.of("baselineKey")))return "NEEDS_BASELINE";
+        return "NEEDS_CONDITIONS";
+    }
     @Transactional public Map<String,Object> resume(UUID id,Resume body,String key){
         var current=workspace.lock();var row=requests.get(id,true);epochs(row,current);validate.key(key,INVALID);require(body.input()!=null&&!body.input().isEmpty(),"input is required");require(requests.json(body.input()).length()<=20000,"input is too large");
         var previous=jdbc.queryForList("select request_revision,pending_input_id,(input - 'comparisonReference')=?::jsonb as same from agent_input_event where request_id=? and idempotency_key=?",requests.json(body.input()),id,key);
@@ -123,11 +168,32 @@ public class AgentRequestService {
         Map<String,Object> event=new LinkedHashMap<>(body.input());
         if("run_selection".equals(row.pending().get("type"))){
             require("run_selection".equals(body.input().get("type")),"Run selection input is required");
-            var snapshot=selections.resolve(id,body.pendingInputId(),body.input(),Boolean.TRUE.equals(row.pending().get("baselineRequired")));
+            Map<String,Object> snapshot;
+            if("v2".equals(row.graphVersion())){
+                require(body.input().keySet().stream().allMatch(Set.of("type","runKeys","baselineKey")::contains),"Unexpected selection field");
+                var options=options(row,body.pendingInputId());Object raw=body.input().get("runKeys");require(raw instanceof List<?>,"runKeys are required");var keys=(List<?>)raw;
+                int minimum=selectionLimit(row.pending().get("minSelections"),2);
+                int maximum=selectionLimit(row.pending().get("maxSelections"),Integer.MAX_VALUE);
+                require(keys.size()>=minimum && keys.size()<=maximum
+                    && new HashSet<>(keys).size()==keys.size(),"Run selection count does not match the request");
+                JsonNode sourceStep = row.pending().get("sourceExecutionId") == null ? null
+                    : v2SelectionSource(id,row,row.pending().get("sourceExecutionId"));
+                List<Map<String,Object>> entries=new ArrayList<>();
+                for(Object keyValue:keys){require(keyValue instanceof String,"Run keys must be strings");var option=options.stream().filter(o->Objects.equals(o.get("key"),keyValue)).findFirst().orElse(null);require(option!=null&&Boolean.TRUE.equals(option.get("selectable")),"Unknown or unavailable Run selection");
+                    Map<String,Object> origin=new LinkedHashMap<>();origin.put("kind","hitl");origin.put("turnId",null);origin.put("groupId",sourceStep==null?null:sourceStep.path("groupId").asString());
+                    origin.put("pendingInputId",body.pendingInputId());
+                    if(sourceStep!=null){origin.put("executionId",sourceStep.path("executionId").asString());origin.put("stepId",sourceStep.path("stepId").asString());}
+                    entries.add(Map.of("key",keyValue,"ref",option.get("ref"),"origin",origin));}
+                Object baseline=body.input().get("baselineKey");require(baseline==null||keys.contains(baseline),"Baseline must be selected");require(!Boolean.TRUE.equals(row.pending().get("baselineRequired"))||baseline!=null,"Baseline is required");
+                snapshot=new LinkedHashMap<>();snapshot.put("entries",entries);snapshot.put("baselineKey",baseline);
+            }else{
+                snapshot=selections.resolve(id,body.pendingInputId(),body.input(),Boolean.TRUE.equals(row.pending().get("baselineRequired")));
+            }
             validate.bulkRefs(entryRefs(snapshot),INVALID);
-            Map<String,Object> context=new LinkedHashMap<>(row.context());context.put("comparisonReference",snapshot);context.remove("comparisonOptions");
+            Map<String,Object> context=new LinkedHashMap<>(row.context());context.put("comparisonReference",snapshot);
+            if("v1".equals(row.graphVersion()))context.remove("comparisonOptions");
             jdbc.update("update agent_request set context_snapshot=?::jsonb,manifest=null where id=?",requests.json(context),id);event.put("comparisonReference",snapshot);
-            selections.finish(id);
+            if("v1".equals(row.graphVersion()))selections.finish(id);
         }else if("comparison_options".equals(row.pending().get("type"))){
             require("comparison_options".equals(body.input().get("type")),"Comparison options input is required");
             require(body.input().keySet().stream().allMatch(Set.of("type","baselineKey","trendAxis")::contains),"Unexpected comparison option");
@@ -137,31 +203,126 @@ public class AgentRequestService {
             for(Object field:(List<?>)row.pending().get("fields"))require(body.input().get(field)!=null,"Required comparison option missing");
         }
         jdbc.update("insert into agent_input_event(id,request_id,request_revision,idempotency_key,pending_input_id,input) values (?,?,?,?,?,?::jsonb)",UUID.randomUUID(),id,row.revision()+1,key,body.pendingInputId(),requests.json(event));
+        publicEvents.activity(id,pendingActivity(row.pending()),"completed");
         jdbc.update("update agent_request set status='QUEUED',stage='resume',request_revision=request_revision+1,claim_generation=claim_generation+1,pending_input=null,lease_until=null,updated_at=now() where id=?",id);
+        publicEvents.reset(id,"RESUMED");publicEvents.state(id);publicEvents.activity(id,"RESUMED","started");
         return requests.view(requests.get(id,false));
     }
     @Transactional public Map<String,Object> claim(Claim body){
         validate.text(body.workerId(),INVALID,"workerId");require(body.workerId().length()<=200,"workerId is too long");int seconds=lease(body.leaseSeconds());
+        var versions=GraphVersionPolicy.workerVersions(body.supportedGraphVersions());
+        String placeholders=String.join(",",Collections.nCopies(versions.size(),"?"));
         while(true){
-            var ids=jdbc.queryForList("select id from agent_request where status='QUEUED' or (status='RUNNING' and lease_until<clock_timestamp()) order by created_at for update skip locked limit 1",UUID.class);
+            var ids=jdbc.queryForList("select id from agent_request where graph_version in ("+placeholders+") and (status='QUEUED' or (status='RUNNING' and lease_until<clock_timestamp())) order by created_at for update skip locked limit 1",UUID.class,versions.toArray());
             Map<String,Object> result=new LinkedHashMap<>();if(ids.isEmpty()){result.put("request",null);return result;}UUID id=ids.getFirst();
             var previous=requests.get(id,false);Map<String,Object> counts=new LinkedHashMap<>(previous.attempts());String key="claim:"+previous.revision();int count=((Number)counts.getOrDefault(key,0)).intValue();
             if(count>=3){
+                publicEvents.closeRunning(id,true);publicEvents.reset(id,"FAILED");
                 jdbc.update("update agent_request set status='FAILED',stage='failed',claim_generation=claim_generation+1,lease_until=null,pending_input=null,context_snapshot=null,partial_result=null,error=?::jsonb,updated_at=now() where id=?",requests.json(Map.of("code","CLAIM_ATTEMPT_LIMIT","message","작업 복구가 반복해서 실패했습니다. 새 질문으로 다시 시도해 주세요.")),id);
-                requests.purgeTransient(id);continue;
+                requests.purgeTransient(id);publicEvents.state(id);continue;
             }
             counts.put(key,count+1);
+            publicEvents.running(id,"RUNNING".equals(previous.status()));
             jdbc.update("update agent_request set status='RUNNING',worker_id=?,claim_generation=claim_generation+1,lease_until=clock_timestamp()+(? * interval '1 second'),attempts=?::jsonb,updated_at=now() where id=?",body.workerId(),seconds,requests.json(counts),id);
+            if("RUNNING".equals(previous.status()))publicEvents.activity(id,"RECOVERING","started");
+            else publicEvents.activity(id,"resume".equals(previous.stage())?"RESUMED":"QUEUED","completed");
+            publicEvents.state(id);
             var row=requests.get(id,false);var view=requests.view(row);result.put("request",view);result.put("claimGeneration",row.generation());result.put("requestRevision",row.revision());result.put("context",row.context());result.put("inputEvents",view.get("inputEvents"));return result;
         }
     }
     private int lease(Integer seconds){int value=seconds==null||seconds==0?60:seconds;require(value>=5&&value<=300,"leaseSeconds must be 5..300");return value;}
     private AgentRequestRepository.Row fence(UUID id,long generation,long revision){var row=requests.get(id,true);boolean alive=Boolean.TRUE.equals(jdbc.queryForObject("select lease_until>clock_timestamp() from agent_request where id=?",Boolean.class,id));if(!"RUNNING".equals(row.status())||row.generation()!=generation||row.revision()!=revision||!alive)conflict("STALE_CLAIM","Worker lease, generation or request revision is no longer valid");return row;}
+    public record V2Write(long claimGeneration, long requestRevision, String kind, String key,
+                          Integer planRevision, String stepId, JsonNode payload) {}
+
+    @Transactional public Map<String,Object> publicEvent(UUID id,AgentPublicEvents.Write body) {
+        var current=workspace.lock();var row=fence(id,body.claimGeneration(),body.requestRevision());epochs(row,current);
+        var payload=AgentPublicEvents.validate(body.type(),body.payload());
+        require(body.eventKey()!=null && !body.eventKey().isBlank() && body.eventKey().length()<=200 && !body.eventKey().startsWith("system:"),"Invalid eventKey");
+        // An exact retry may refer to an earlier result binding or draft, but still requires a live claim.
+        var replay=publicEvents.replay(id,body.eventKey(),body.type(),payload);
+        if(replay!=null)return replay;
+        if("results.ready".equals(body.type())) {
+            require("v2".equals(row.graphVersion()),"Public saved results require graph v2");
+            @SuppressWarnings("unchecked") var ids=(List<String>)payload.get("executionIds");
+            publicResults.project(v2.publicResults(id,ids,true));
+        }
+        return publicEvents.worker(id,body,payload);
+    }
+
+    private void v2Fence(UUID id, V2Write body) {
+        var current = workspace.lock();
+        var row = fence(id, body.claimGeneration(), body.requestRevision());
+        epochs(row, current);
+        require("v2".equals(row.graphVersion()), "This endpoint requires graph v2");
+    }
+
+    @Transactional public Map<String,Object> acceptV2Plan(UUID id, V2Write body) {
+        v2Fence(id, body);
+        return v2.acceptPlan(id, body.requestRevision(), body.payload());
+    }
+
+    @Transactional public Map<String,Object> reserveV2Step(UUID id, V2Write body) {
+        v2Fence(id, body);
+        require(body.planRevision() != null, "planRevision is required");
+        return v2.reserveStep(id, body.claimGeneration(), body.requestRevision(),
+            body.planRevision(), body.stepId(), body.payload());
+    }
+
+    @Transactional public Map<String,Object> v2StepContext(UUID id, UUID executionId, V2Write body) {
+        v2Fence(id, body);
+        JsonNode inputs = v2.activeStepInputs(id, body.claimGeneration(), body.requestRevision(), executionId);
+        var row = requests.get(id, false);
+        if (inputs.path("runs").isArray()) {
+            List<RunRef> refs = new ArrayList<>();
+            for (var node : inputs.path("runs")) refs.add(mapper.treeToValue(node, RunRef.class));
+            JsonNode source = inputs.path("candidateExecutionId");
+            boolean authorized = source.isString()
+                ? v2.matchesSearchCandidates(id, executionId, source.asString(), inputs.path("runs"))
+                : entryRefs(row.context().get("comparisonReference")).containsAll(refs);
+            require(refs.size() >= 2 && new HashSet<>(refs).size() == refs.size() && authorized,
+                "Comparison must use confirmed Run versions or the full saved search result");
+            validate.bulkRefs(refs, INVALID);
+            v2.pinStepSources(id, executionId, refs);
+            return Map.of("runs", scalarVersions(refs.stream().map(RunRef::runVersionId).toArray(String[]::new)));
+        }
+        var manifest = context(id, body.claimGeneration(), body.requestRevision());
+        v2.pinStepSources(id, executionId, manifest.get("catalogRunRefs"));
+        return Map.of("runs", manifest.get("runs"));
+    }
+
+    @Transactional public void authorizeV2Outputs(UUID id, UUID executionId, V2Write body, List<RunRef> refs) {
+        v2Fence(id, body);
+        JsonNode inputs = v2.activeStepInputs(id, body.claimGeneration(), body.requestRevision(), executionId);
+        var allowed = new ArrayList<RunRef>();
+        for (var node : inputs.path("runs")) allowed.add(mapper.treeToValue(node, RunRef.class));
+        require(refs != null && !refs.isEmpty() && allowed.containsAll(refs), "Outputs must come from this comparison");
+    }
+
+    @Transactional public Map<String,Object> saveV2Step(UUID id, UUID executionId, V2Write body) {
+        v2Fence(id, body);
+        require(body.payload() != null && body.payload().path("runRefs").isArray(), "Step Run references are required");
+        var refs = new ArrayList<RunRef>();
+        for (var ref : body.payload().path("runRefs")) refs.add(mapper.treeToValue(ref, RunRef.class));
+        validate.bulkRefs(refs, INVALID);
+        return v2.saveStep(id, body.claimGeneration(), body.requestRevision(), executionId, body.payload());
+    }
+
+    @Transactional public Map<String,Object> reserveV2Model(UUID id, V2Write body) {
+        v2Fence(id, body);
+        return v2.reserveModel(id, body.claimGeneration(), body.requestRevision(), body.kind(), body.key());
+    }
+
+    @Transactional public Map<String,Object> completeV2Model(UUID id, UUID attemptId, V2Write body) {
+        v2Fence(id, body);
+        return v2.completeModel(id, body.claimGeneration(), body.requestRevision(), attemptId, body.payload());
+    }
+
     @Transactional public void authorizeOutputs(UUID id,long generation,long revision,List<RunRef> refs){
         var row=fence(id,generation,revision);require("compare_runs".equals(row.operationKind()),"Only comparisons load outputs");
         require(refs!=null&&!refs.isEmpty()&&entryRefs(row.context().get("comparisonReference")).containsAll(refs),"Output query must use the fixed comparison selection");
     }
-    private void epochs(AgentRequestRepository.Row row,WorkspaceView current){if(row.workspaceEpoch()!=current.stateToken().workspaceEpoch()||row.conversationEpoch()!=current.stateToken().conversationEpoch())conflict("STALE_CONTEXT","Workspace or conversation changed");}
+    private void epochs(AgentRequestRepository.Row row,WorkspaceView current){if(row.workspaceEpoch()!=current.stateToken().workspaceEpoch()||!workspace.hasConversation(row.workspaceEpoch(),row.conversationEpoch()))conflict("STALE_CONTEXT","Workspace or conversation changed");}
     @Transactional public Map<String,Object> heartbeat(UUID id,Mutation body){
         var current=workspace.lock();var row=fence(id,body.claimGeneration(),body.requestRevision());epochs(row,current);if(body.stage()!=null)require(body.stage().length()<=80,"stage is too long");
         if(body.operationKind()!=null)require(Set.of("forward_lookup","reverse_search","compare_runs","generate_answer","decision_records","explain_change","explain_concept","unsupported").contains(body.operationKind()),"Unknown operationKind");
@@ -326,6 +487,120 @@ public class AgentRequestService {
         manifest.put("context",Map.of("comparisonReference",reference));manifest.put("createdAt",Instant.now().toString());
         jdbc.update("update agent_request set manifest=?::jsonb,context_snapshot=?::jsonb where id=?",requests.json(manifest),requests.json(updatedContext),id);return manifest;
     }
+    private Map<String,Object> optionDatum(Object value,String unit){
+        boolean available=value instanceof Number n&&Double.isFinite(n.doubleValue());Map<String,Object> result=new LinkedHashMap<>();
+        result.put("value",available?value:null);result.put("unit",unit);result.put("status",available?"AVAILABLE":"UNAVAILABLE");result.put("reason",available?null:"MISSING_VALUE");result.put("sourceValue",null);return result;
+    }
+    private JsonNode v2SelectionSource(UUID id, AgentRequestRepository.Row row, Object sourceExecutionId) {
+        require("v2".equals(row.graphVersion()) && sourceExecutionId instanceof String,
+            "Candidate source requires graph v2");
+        var saved = v2.savedResults(id).stream()
+            .filter(r -> Objects.equals(r.path("executionId").asString(), sourceExecutionId))
+            .findFirst().orElse(null);
+        require(saved != null && saved.path("outputs").path("candidates").isArray(), "Candidate source is invalid");
+        return saved;
+    }
+
+    private void freezeOptions(UUID id,AgentRequestRepository.Row row,String pendingId,Object sourceExecutionId){
+        if(row.context()!=null&&row.context().get("comparisonOptions") instanceof Map<?,?> frozen&&Objects.equals(frozen.get("pendingInputId"),pendingId))return;
+        Set<RunRef> allowed = new LinkedHashSet<>();
+        if (sourceExecutionId != null) {
+            var saved = v2SelectionSource(id,row,sourceExecutionId);
+            for (var candidate : saved.path("outputs").path("candidates"))
+                allowed.add(mapper.treeToValue(candidate, RunRef.class));
+        }
+        var summaries = sourceExecutionId == null
+            ? jdbc.query("select v.summary::text from run r join run_version v on v.id=r.current_version_id order by r.run_id",
+                (rs,n)->requests.read(rs.getString(1)))
+            : scalarVersions(allowed.stream().map(RunRef::runVersionId).toArray(String[]::new));
+        List<Map<String,Object>> options=new ArrayList<>();int index=0;
+        for(var run:summaries){Map<String,Object> conditions=new LinkedHashMap<>();Map<?,?> units=run.get("units") instanceof Map<?,?> map?map:Map.of();
+            for(String field:List.of("pressure","sourcePower","biasPower"))conditions.put(field,optionDatum(run.get(field),String.valueOf(units.containsKey(field)?units.get(field):field.equals("pressure")?"mTorr":"W")));
+            boolean selectable="READY".equals(run.get("catalogStatus"));Map<String,Object> option=new LinkedHashMap<>();option.put("key","R"+(++index));option.put("ref",Map.of("runId",run.get("runId"),"runVersionId",run.get("runVersionId")));option.put("conditions",conditions);option.put("selectable",selectable);option.put("unavailableReason",selectable?null:"DATA_NOT_COMPARABLE");options.add(option);}
+        // Fetch historical versions once, independent of the number of attached Runs.
+        if(row.context()!=null&&row.context().get("comparisonReference") instanceof Map<?,?> snapshot&&snapshot.get("entries") instanceof List<?> entries){
+            var historical=scalarVersions(entryRefs(snapshot).stream().map(RunRef::runVersionId).toArray(String[]::new));
+            for(Object value:entries){var entry=(Map<?,?>)value;var ref=mapper.convertValue(entry.get("ref"),RunRef.class);
+                var match=options.stream().filter(o->mapper.valueToTree(o.get("ref")).equals(mapper.valueToTree(ref))).findFirst();
+                if(match.isPresent()){match.get().put("key",entry.get("key"));continue;}
+                var source=historical.stream().filter(r->Objects.equals(r.get("runVersionId"),ref.runVersionId())).findFirst();
+                if(source.isEmpty())continue;
+                var run=source.get();Map<String,Object> conditions=new LinkedHashMap<>();Map<?,?> units=(Map<?,?>)run.get("units");
+                for(String field:List.of("pressure","sourcePower","biasPower"))conditions.put(field,optionDatum(run.get(field),String.valueOf(units.get(field))));
+                boolean selectable="READY".equals(run.get("catalogStatus"));Map<String,Object> option=new LinkedHashMap<>();
+                option.put("key",entry.get("key"));option.put("ref",ref);option.put("conditions",conditions);option.put("selectable",selectable);option.put("unavailableReason",selectable?null:"DATA_NOT_COMPARABLE");options.add(option);
+            }
+        }
+        if (sourceExecutionId != null) {
+            var order = new ArrayList<>(allowed);
+            options.removeIf(option -> !allowed.contains(mapper.convertValue(option.get("ref"), RunRef.class)));
+            options.sort(Comparator.comparingInt(option -> order.indexOf(mapper.convertValue(option.get("ref"),RunRef.class))));
+        }
+        // Reserve attached aliases first, then assign unique aliases to all other options.
+        Set<String> reserved=new HashSet<>();if(row.context()!=null&&row.context().get("comparisonReference") instanceof Map<?,?> snapshot&&snapshot.get("entries") instanceof List<?> entries)for(Object value:entries)reserved.add(String.valueOf(((Map<?,?>)value).get("key")));
+        Set<String> assigned=new HashSet<>();int next=1;for(var option:options){String key=String.valueOf(option.get("key"));boolean attached=row.context()!=null&&entryRefs(row.context().get("comparisonReference")).contains(mapper.convertValue(option.get("ref"),RunRef.class));if(!attached||assigned.contains(key)){while(reserved.contains("R"+next)||assigned.contains("R"+next))next++;key="R"+next++;option.put("key",key);}assigned.add(key);}
+        Map<String,Object> context=new LinkedHashMap<>(row.context()==null?Map.of():row.context());context.put("comparisonOptions",Map.of("pendingInputId",pendingId,"options",options));jdbc.update("update agent_request set context_snapshot=?::jsonb where id=?",requests.json(context),id);
+    }
+    private List<Map<String,Object>> options(AgentRequestRepository.Row row,String pendingId){
+        require(row.context()!=null&&row.context().get("comparisonOptions") instanceof Map<?,?>,"Run options were not saved");var frozen=(Map<?,?>)row.context().get("comparisonOptions");require(Objects.equals(frozen.get("pendingInputId"),pendingId),"Options belong to a different pending input");
+        @SuppressWarnings("unchecked") var options=(List<Map<String,Object>>)frozen.get("options");
+        Set<String> existing=new HashSet<>(jdbc.queryForList("select id::text from run_version where id=any(?::uuid[])",String.class,(Object)options.stream().map(o->mapper.convertValue(o.get("ref"),RunRef.class).runVersionId()).toArray(String[]::new)));
+        List<Map<String,Object>> result=new ArrayList<>();for(var saved:options){var option=new LinkedHashMap<>(saved);if(!existing.contains(mapper.convertValue(option.get("ref"),RunRef.class).runVersionId())){option.put("selectable",false);option.put("unavailableReason","RUN_VERSION_DELETED");}result.add(option);}return result;
+    }
+    private void addSearchMeasurements(JsonNode search, List<Map<String,Object>> options) {
+
+        Set<String> fields=new LinkedHashSet<>();
+        for (String group:List.of("constraints","goals")) {
+            for (var rule:search.path(group)) {
+                String field=rule.path("metric").asString();
+                if (Set.of("ionFlux","meanIonEnergy","iedWidth").contains(field)) fields.add(field);
+            }
+        }
+        if (fields.isEmpty()) return;
+
+        var runs=search.path("runsByVersion");
+        for (var option:options) {
+            var ref=mapper.convertValue(option.get("ref"),RunRef.class);
+            var run=runs.path(ref.runVersionId());
+            if (!ref.runId().equals(run.path("runId").asString())
+                || !ref.runVersionId().equals(run.path("runVersionId").asString())) continue;
+            Map<String,Object> measurements=new LinkedHashMap<>();
+            for (String field:fields) {
+                var unit=run.path("units").path(field);
+                if (!unit.isString() || unit.asString().isBlank()) continue;
+                var value=run.path("metrics").path(field);
+                var datum=optionDatum(value.isNumber()?value.numberValue():null,unit.asString());
+                var reason=run.path("metricAvailability").path(field);
+                if (datum.get("value")==null && reason.isString()) datum.put("reason",reason.asString());
+                measurements.put(field,datum);
+            }
+            if (!measurements.isEmpty()) option.put("searchMeasurements",measurements);
+        }
+    }
+    @Transactional public Map<String,Object> runOptions(UUID id,String pendingId) {
+        var current=workspace.lock();
+        var row=requests.get(id,true);
+        epochs(row,current);
+        if (!"v2".equals(row.graphVersion()))conflict("CLIENT_REFRESH_REQUIRED","실험 선택 화면이 업데이트되었습니다. 화면을 새로고침해 주세요.");
+        if (!"NEEDS_INPUT".equals(row.status()) || row.pending()==null
+            || !"run_selection".equals(row.pending().get("type")) || !Objects.equals(row.pending().get("id"),pendingId)) {
+            conflict("STALE_REQUEST","Run selection changed");
+        }
+        var choices=options(row,pendingId);
+        var sourceExecutionId=row.pending().get("sourceExecutionId");
+        var response=new LinkedHashMap<String,Object>(
+            Map.of("requestId",id.toString(),"requestRevision",row.revision(),"pendingInputId",pendingId,"options",choices));
+        if (sourceExecutionId!=null) {
+            var search=v2SelectionSource(id,row,sourceExecutionId).path("outputs").path("toolResult");
+            if ("reverse_search".equals(search.path("kind").asString())) {
+                addSearchMeasurements(search,choices);
+                response.put("searchCriteria",Map.of(
+                    "constraints",search.path("constraints").isArray()?search.path("constraints"):List.of(),
+                    "goals",search.path("goals").isArray()?search.path("goals"):List.of()));
+            }
+        }
+        return response;
+    }
     private void collectVersions(Object value,Set<String> refs){if(value instanceof Map<?,?> map){if(map.get("runVersionId") instanceof String id)refs.add(id);for(var v:map.values())collectVersions(v,refs);}else if(value instanceof List<?> list)list.forEach(v->collectVersions(v,refs));}
     private Map<String,Object> scalarSummary(String json){
         Map<String,Object> source=requests.read(json),result=new LinkedHashMap<>();
@@ -340,29 +615,83 @@ public class AgentRequestService {
         var pending=new LinkedHashMap<>(body.pendingInput());
         if("run_selection".equals(pending.get("type"))){
             require(((String)pending.get("id")).length()<=200,"pendingInput.id is too long");
-            var session=selections.prepare(id,(String)pending.get("id"),row.context());pending.put("snapshotId",session.id().toString());pending.put("optionsFormat",2);
+            if("v2".equals(row.graphVersion())){
+                int minimum=selectionLimit(pending.get("minSelections"),2);
+                int maximum=selectionLimit(pending.get("maxSelections"),Integer.MAX_VALUE);
+                require(maximum>=minimum,"Selection maximum must be at least the minimum");
+                freezeOptions(id,row,(String)pending.get("id"),pending.get("sourceExecutionId"));
+            }else{
+                var session=selections.prepare(id,(String)pending.get("id"),row.context());pending.put("snapshotId",session.id().toString());pending.put("optionsFormat",2);
+            }
         }
-        jdbc.update("update agent_request set status='NEEDS_INPUT',stage='wait_input',pending_input=?::jsonb,lease_until=null,updated_at=now() where id=?",requests.json(pending),id);return requests.view(requests.get(id,false));
+        publicEvents.closeRunning(id,false);publicEvents.reset(id,"INPUT_REQUIRED");
+        jdbc.update("update agent_request set status='NEEDS_INPUT',stage='wait_input',pending_input=?::jsonb,lease_until=null,updated_at=now() where id=?",requests.json(pending),id);
+        publicEvents.activity(id,pendingActivity(pending),"started");
+        publicEvents.state(id);return requests.view(requests.get(id,false));
     }
     @Transactional public Map<String,Object> fail(UUID id,Mutation body){
         var current=workspace.lock();var row=fence(id,body.claimGeneration(),body.requestRevision());epochs(row,current);require(body.error()!=null,"error is required");String code=(String)body.error().get("code"),message=(String)body.error().get("message");validate.text(code,INVALID,"error.code");validate.text(message,INVALID,"error.message");require(code.matches("[A-Z_]{1,80}")&&message.length()<=1000,"Invalid public error");
         if(body.partialResult()!=null){
             if(body.partialResult().get("schemaVersion") instanceof Number n&&(n.intValue()==2||n.intValue()==3)){require("compare_runs".equals(row.operationKind()),"Only failed comparisons retain schema-2 partials");require(entryRefs(row.context().get("comparisonReference")).equals(body.usedRunRefs()),"Partial selection mismatch");validate.bulkRefs(body.usedRunRefs(),INVALID);validate.compactValidated(body.partialResult(),INVALID,new HashSet<>(body.usedRunRefs()));new AnswerV2Validator(validate,((Number)body.partialResult().get("schemaVersion")).intValue()==3).comparison(body.partialResult(),body.usedRunRefs(),true);}
             else{require("explain_change".equals(row.operationKind()),"Only a failed change explanation may retain legacy comparison");validatePartialComparison(body.partialResult(),body.usedRunRefs());}}
-        jdbc.update("update agent_request set status='FAILED',stage='failed',error=?::jsonb,partial_result=?::jsonb,context_snapshot=null,lease_until=null,pending_input=null,updated_at=now() where id=?",requests.json(Map.of("code",code,"message",message)),requests.json(body.partialResult()),id);requests.purgeTransient(id);return requests.view(requests.get(id,false));
+        publicEvents.closeRunning(id,true);publicEvents.reset(id,"FAILED");
+        jdbc.update("update agent_request set status='FAILED',stage='failed',error=?::jsonb,partial_result=?::jsonb,context_snapshot=null,lease_until=null,pending_input=null,updated_at=now() where id=?",requests.json(Map.of("code",code,"message",message)),requests.json(body.partialResult()),id);requests.purgeTransient(id);publicEvents.state(id);return requests.view(requests.get(id,false));
     }
     @Transactional public Map<String,Object> finalizeRequest(UUID id,Mutation body){
         var current=workspace.lock();var row=requests.get(id,true);epochs(row,current);require(body.answer()!=null,"answer is required");
-        if("COMPLETED".equals(row.status())){if(!mapper.readTree(requests.json(row.answer())).equals(mapper.valueToTree(body.answer())))conflict("IDEMPOTENCY_CONFLICT","Completed answer cannot change");return requests.view(row);}
-        row=fence(id,body.claimGeneration(),body.requestRevision());var answer=body.answer();require(INTENTS.contains(answer.intent()==null?"":answer.intent()),"Invalid answer intent");require(answer.answerSnapshot()!=null,"Answer snapshot is required");require("v1".equals(answer.answerSnapshot().get("implementationId")),"Answer must identify v1");
+        if("COMPLETED".equals(row.status())){
+            boolean same = "v2".equals(row.graphVersion())
+                ? Boolean.TRUE.equals(jdbc.queryForObject("select final_answer=?::jsonb from agent_request where id=?",
+                    Boolean.class,requests.json(body.answer()),id))
+                : mapper.readTree(requests.json(row.answer())).equals(mapper.valueToTree(body.answer()));
+            if(!same)conflict("IDEMPOTENCY_CONFLICT","Completed answer cannot change");
+            return requests.view(row);
+        }
+        row=fence(id,body.claimGeneration(),body.requestRevision());var answer=body.answer();
+        if ("v2".equals(row.graphVersion())) return finalizeV2(row, answer);
+        require(INTENTS.contains(answer.intent()==null?"":answer.intent()),"Invalid answer intent");require(answer.answerSnapshot()!=null,"Answer snapshot is required");require("v1".equals(answer.answerSnapshot().get("implementationId")),"Answer must identify v1");
         if(answer.answerSnapshot().get("schemaVersion") instanceof Number n&&(n.intValue()==2||n.intValue()==3)){
             validate.bulkRefs(answer.usedRunRefs(),INVALID);validate.compactValidated(answer.answerSnapshot(),INVALID,new HashSet<>(answer.usedRunRefs()));new AnswerV2Validator(validate,((Number)answer.answerSnapshot().get("schemaVersion")).intValue()==3).answer(answer,row.question());
             if("compare_runs".equals(answer.answerSnapshot().get("kind")))require(entryRefs(row.context().get("comparisonReference")).equals(answer.usedRunRefs()),"Completed comparison must retain exact selection");
         }else{require((answer.answerSnapshot().get("schemaVersion")==null||answer.answerSnapshot().get("schemaVersion") instanceof Number version&&version.doubleValue()==1),"Unknown answer version");validate.refs(answer.usedRunRefs(),INVALID,false);validate.compact(answer.answerSnapshot(),INVALID,new HashSet<>(answer.usedRunRefs()));}
         RunRef active=row.context()==null?null:mapper.convertValue(row.context().get("activeRun"),RunRef.class);if(active!=null&&!answer.usedRunRefs().contains(active))active=null;
         var turn=new TurnSnapshot(id.toString(),row.createdAt().toString(),row.question(),answer.intent(),active,answer.usedRunRefs(),answer.answerSnapshot(),new TurnUiSnapshot(false,List.of(),Map.of(),"common",null,false,null));
-        workspace.append(turn);workspace.advance();jdbc.update("update agent_request set status='COMPLETED',stage='completed',final_answer=?::jsonb,turn_id=?,context_snapshot=null,lease_until=null,pending_input=null,updated_at=now() where id=?",requests.json(answer),id,id);requests.purgeTransient(id);return requests.view(requests.get(id,false));
+        workspace.append(turn,row.workspaceEpoch(),row.conversationEpoch());workspace.advance(row.workspaceEpoch(),row.conversationEpoch());publicEvents.closeRunning(id,true);jdbc.update("update agent_request set status='COMPLETED',stage='completed',final_answer=?::jsonb,turn_id=?,context_snapshot=null,lease_until=null,pending_input=null,updated_at=now() where id=?",requests.json(answer),id,id);requests.purgeTransient(id);publicEvents.state(id);return requests.view(requests.get(id,false));
     }
+    private Map<String,Object> finalizeV2(AgentRequestRepository.Row row, AgentResponse answer) {
+        JsonNode snapshot = mapper.valueToTree(answer.answerSnapshot());
+        require(com.kplasma.analysisagent.agent.v2.V2Contracts.isSnapshot(snapshot), "Invalid v2 answer");
+        require(Objects.equals(row.question(), snapshot.path("question").asString())
+            && Objects.equals(answer.intent(), snapshot.path("intent").asString()), "Answer does not match this request");
+        var runRefs = new LinkedHashSet<RunRef>();
+        var executions = new HashSet<String>();
+        for (var result : snapshot.path("stepResults")) {
+            require(v2.matchesSavedResult(row.id(),result) && executions.add(result.path("executionId").asString()),
+                "Answer step result is not a saved execution");
+            for (var node : result.path("runRefs")) runRefs.add(mapper.treeToValue(node, RunRef.class));
+        }
+        for (var evidence : snapshot.path("evidence")) {
+            require(executions.contains(evidence.path("executionId").asString()), "Evidence must identify a saved execution");
+            if (evidence.path("runRef").isObject()) require(runRefs.contains(mapper.treeToValue(
+                evidence.path("runRef"), RunRef.class)), "Evidence Run is outside the answer scope");
+        }
+        require(answer.usedRunRefs() != null && runRefs.equals(new LinkedHashSet<>(answer.usedRunRefs())),
+            "Answer Run inventory does not match executed steps");
+        validate.bulkRefs(answer.usedRunRefs(), INVALID);
+        UUID id = row.id();
+        workspace.append(new TurnSnapshot(id.toString(), row.createdAt().toString(), row.question(), answer.intent(),
+            null, answer.usedRunRefs(), answer.answerSnapshot(), new TurnUiSnapshot(false,List.of(),Map.of(),"common",null,false,null)),row.workspaceEpoch(),row.conversationEpoch());
+        workspace.advance(row.workspaceEpoch(),row.conversationEpoch());
+        publicEvents.closeRunning(id,true);
+        jdbc.update("""
+            update agent_request set status='COMPLETED',stage='completed',final_answer=?::jsonb,turn_id=?,
+            context_snapshot=null,lease_until=null,pending_input=null,updated_at=now() where id=?
+            """, requests.json(answer), id, id);
+        requests.purgeTransient(id);
+        publicEvents.state(id);
+        return requests.view(requests.get(id,false));
+    }
+
     private void validatePartialComparison(Map<String,Object> partial,List<RunRef> refs){
         validate.refs(refs,INVALID,false);require(refs.size()==2,"A partial comparison requires both Run versions");validate.compact(partial,INVALID,new HashSet<>(refs));
         Set<String> fields=Set.of("kind","resultStatus","baseline","target","conditions","changedConditions","metrics","quality","usedRunRefs","numericPolicyVersion","explanationComplete");

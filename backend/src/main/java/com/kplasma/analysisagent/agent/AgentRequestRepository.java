@@ -15,32 +15,37 @@ public class AgentRequestRepository {
     private static final TypeReference<Map<String,Object>> MAP=new TypeReference<>() {};
     private final JdbcTemplate jdbc;
     private final ObjectMapper mapper;
-    public AgentRequestRepository(JdbcTemplate jdbc,ObjectMapper mapper){this.jdbc=jdbc;this.mapper=mapper;}
+    private final AgentPublicEvents publicEvents;
+    public AgentRequestRepository(JdbcTemplate jdbc,ObjectMapper mapper,AgentPublicEvents publicEvents){this.jdbc=jdbc;this.mapper=mapper;this.publicEvents=publicEvents;}
     public record Row(UUID id,long workspaceEpoch,long conversationEpoch,long revision,long generation,
         String status,String stage,String question,Map<String,Object> context,Map<String,Object> manifest,
         Map<String,Object> pending,Map<String,Object> error,Map<String,Object> partial,Map<String,Object> answer,
-        String turnId,Instant createdAt,Instant leaseUntil,boolean dependsOnContext,String operationKind,Map<String,Object> attempts) {}
+        String turnId,Instant createdAt,Instant leaseUntil,boolean dependsOnContext,String operationKind,Map<String,Object> attempts,String graphVersion,
+        long lastEventSeq,Long durationMs,Instant finishedAt) {}
     private Row row(ResultSet rs,int index) throws SQLException {
         var lease=rs.getTimestamp("lease_until");
         return new Row(rs.getObject("id",UUID.class),rs.getLong("workspace_epoch"),rs.getLong("conversation_epoch"),
             rs.getLong("request_revision"),rs.getLong("claim_generation"),rs.getString("status"),rs.getString("stage"),rs.getString("question"),
             read(rs.getString("context_snapshot")),read(rs.getString("manifest")),read(rs.getString("pending_input")),read(rs.getString("error")),
             read(rs.getString("partial_result")),read(rs.getString("final_answer")),rs.getString("turn_id"),rs.getTimestamp("created_at").toInstant(),
-            lease==null?null:lease.toInstant(),rs.getBoolean("depends_on_context"),rs.getString("operation_kind"),read(rs.getString("attempts")));
+            lease==null?null:lease.toInstant(),rs.getBoolean("depends_on_context"),rs.getString("operation_kind"),read(rs.getString("attempts")),rs.getString("graph_version"),
+            rs.getLong("last_public_event_seq"),rs.getObject("running_duration_ms",Long.class),rs.getTimestamp("execution_finished_at")==null?null:rs.getTimestamp("execution_finished_at").toInstant());
     }
     public Map<String,Object> read(String value){return value==null?null:mapper.readValue(value,MAP);}
     public String json(Object value){return mapper.writeValueAsString(value);}
     public List<com.kplasma.analysisagent.contract.WorkspaceDto.AgentMessage> messages(long workspace,long conversation){
-        return jdbc.query("select r.id,r.created_at,r.question,r.submission->'attachedRunRefs' refs,r.status,r.turn_id,i.idempotency_key from agent_request r left join workspace_idempotency i on i.workspace_epoch=r.workspace_epoch and i.conversation_epoch=r.conversation_epoch and i.scope='AGENT' and i.result_id=r.id::text where r.workspace_epoch=? and r.conversation_epoch=? order by r.created_at,r.id",(rs,n)->new com.kplasma.analysisagent.contract.WorkspaceDto.AgentMessage(rs.getString("id"),rs.getString("idempotency_key"),rs.getTimestamp("created_at").toInstant().toString(),rs.getString("question"),rs.getString("refs")==null?List.of():mapper.readValue(rs.getString("refs"),new TypeReference<List<com.kplasma.analysisagent.contract.RunDto.RunRef>>(){}),rs.getString("status"),rs.getString("turn_id")),workspace,conversation);
+        return jdbc.query("select r.id,r.created_at,r.question,r.submission->'attachedRunRefs' refs,r.status,r.turn_id,r.last_public_event_seq,r.running_duration_ms,r.execution_finished_at,i.idempotency_key from agent_request r left join workspace_idempotency i on i.workspace_epoch=r.workspace_epoch and i.conversation_epoch=r.conversation_epoch and i.scope='AGENT' and i.result_id=r.id::text where r.workspace_epoch=? and r.conversation_epoch=? order by r.created_at,r.id",(rs,n)->new com.kplasma.analysisagent.contract.WorkspaceDto.AgentMessage(rs.getString("id"),rs.getString("idempotency_key"),rs.getTimestamp("created_at").toInstant().toString(),rs.getString("question"),rs.getString("refs")==null?List.of():mapper.readValue(rs.getString("refs"),new TypeReference<List<com.kplasma.analysisagent.contract.RunDto.RunRef>>(){}),rs.getString("status"),rs.getString("turn_id"),publicEvents.summary(rs.getObject("id",UUID.class),rs.getLong("last_public_event_seq"),rs.getObject("running_duration_ms",Long.class),rs.getTimestamp("execution_finished_at")!=null)),workspace,conversation);
     }
     public Row get(UUID id,boolean lock){var rows=jdbc.query("select * from agent_request where id=?"+(lock?" for update":""),this::row,id);if(rows.isEmpty())throw new IntakeException("NOT_FOUND",404,"Agent request not found");return rows.getFirst();}
     public Map<String,Object> view(Row row) {
         Map<String,Object> value=new LinkedHashMap<>();value.put("requestId",row.id().toString());value.put("requestRevision",row.revision());
-        value.put("status",row.status());value.put("stage",row.stage());value.put("graphVersion","v1");value.put("question",row.question());
+        value.put("workspaceEpoch",row.workspaceEpoch());value.put("conversationEpoch",row.conversationEpoch());
+        value.put("status",row.status());value.put("stage",row.stage());value.put("graphVersion",row.graphVersion());value.put("question",row.question());
         value.put("pendingInput",row.pending());value.put("error",row.error());value.put("partialResult",row.partial());value.put("turnId",row.turnId());
         value.put("answerSnapshot",row.answer()==null?null:row.answer().get("answerSnapshot"));value.put("intent",row.answer()==null?null:row.answer().get("intent"));
         value.put("usedRunRefs",row.answer()==null?List.of():row.answer().getOrDefault("usedRunRefs",List.of()));value.put("inputEvents",events(row.id()));
-        value.put("createdAt",row.createdAt().toString());return value;
+        value.put("createdAt",row.createdAt().toString());value.put("progress",publicEvents.progress(row.id(),row.lastEventSeq()));
+        var summary=publicEvents.summary(row.id(),row.lastEventSeq(),row.durationMs(),row.finishedAt()!=null);if(summary!=null)value.put("executionSummary",summary);return value;
     }
     public List<Map<String,Object>> events(UUID id){return jdbc.query("select * from agent_input_event where request_id=? order by request_revision",(rs,n)->{
         Map<String,Object> item=new LinkedHashMap<>();item.put("id",rs.getString("id"));item.put("requestRevision",rs.getLong("request_revision"));
@@ -48,16 +53,21 @@ public class AgentRequestRepository {
     },id);}
     public Map<String,Object> latest(long workspace,long conversation,boolean failed){var rows=jdbc.query("select * from agent_request where workspace_epoch=? and conversation_epoch=? and "+(failed?"true":"status in ('QUEUED','RUNNING','NEEDS_INPUT')")+" order by created_at desc limit 1",this::row,workspace,conversation);return rows.isEmpty()||(failed&&!"FAILED".equals(rows.getFirst().status()))?null:view(rows.getFirst());}
     public void purgeTransient(UUID id){jdbc.update("delete from agent_run_selection where request_id=?",id);jdbc.update("delete from agent_checkpoint where request_id=?",id);jdbc.update("update agent_request set manifest=null where id=?",id);}
-    public void cancel(UUID id,String code){jdbc.update("update agent_request set status='CANCELLED',stage='cancelled',claim_generation=claim_generation+1,lease_until=null,pending_input=null,context_snapshot=null,partial_result=null,error=?::jsonb,updated_at=now() where id=? and status in ('QUEUED','RUNNING','NEEDS_INPUT')",json(Map.of("code",code,"message","요청의 문맥이 변경되거나 실행이 취소되었습니다.")),id);purgeTransient(id);}
+    @org.springframework.transaction.annotation.Transactional
+    public void cancel(UUID id,String code){
+        var row=get(id,true);if(!Set.of("QUEUED","RUNNING","NEEDS_INPUT").contains(row.status()))return;
+        publicEvents.closeRunning(id,true);publicEvents.reset(id,"CANCELLED");
+        jdbc.update("update agent_request set status='CANCELLED',stage='cancelled',claim_generation=claim_generation+1,lease_until=null,pending_input=null,context_snapshot=null,partial_result=null,error=?::jsonb,updated_at=now() where id=?",json(Map.of("code",code,"message","요청의 문맥이 변경되거나 실행이 취소되었습니다.")),id);purgeTransient(id);publicEvents.state(id);
+    }
     /** Caller holds workspace lock; cancelling rows precedes erasure so stale writers are fenced. */
     public void clearConversation(long workspace,long conversation,boolean reset){
         var ids=jdbc.queryForList("select id from agent_request where "+(reset?"workspace_epoch=?":"workspace_epoch=? and conversation_epoch=?")+" for update",UUID.class,reset?new Object[]{workspace}:new Object[]{workspace,conversation});
-        for(UUID id:ids){cancel(id,"CONTEXT_CLEARED");jdbc.update("delete from agent_input_event where request_id=?",id);jdbc.update("update agent_request set status='CANCELLED',stage='cancelled',question=null,submission=null,context_snapshot=null,manifest=null,pending_input=null,error=null,partial_result=null,final_answer=null,attempts='{}'::jsonb where id=?",id);}
+        for(UUID id:ids){cancel(id,"CONTEXT_CLEARED");jdbc.update("delete from agent_input_event where request_id=?",id);jdbc.update("delete from agent_public_event where request_id=?",id);jdbc.update("delete from agent_v2_model_attempt where request_id=?",id);jdbc.update("delete from agent_v2_plan_revision where request_id=?",id);jdbc.update("update agent_request set status='CANCELLED',stage='cancelled',question=null,submission=null,context_snapshot=null,manifest=null,pending_input=null,error=null,partial_result=null,final_answer=null,attempts='{}'::jsonb,last_public_event_seq=0,public_answer_revision=0,public_stream_id=null,public_chunk_index=null,public_preview_chars=0,running_duration_ms=null,running_started_at=null,execution_finished_at=null where id=?",id);}
         jdbc.update("delete from workspace_idempotency where scope='AGENT' and workspace_epoch=?"+(reset?"":" and conversation_epoch=?"),reset?new Object[]{workspace}:new Object[]{workspace,conversation});
     }
     public void invalidateReferences(long workspace,long conversation){jdbc.queryForList("select id from agent_request where workspace_epoch=? and conversation_epoch=? and depends_on_context and status in ('QUEUED','RUNNING','NEEDS_INPUT') for update",UUID.class,workspace,conversation).forEach(id->invalidateContext(get(id,false),"REFERENCE_CHANGED"));}
     private boolean invalidateContext(Row row,String reason){
-        if(row.operationKind()==null&&row.manifest()==null&&row.context()!=null){
+        if("v1".equals(row.graphVersion())&&row.operationKind()==null&&row.manifest()==null&&row.context()!=null){
             Map<String,Object> context=new LinkedHashMap<>(row.context());context.put("invalidationReason",reason);
             jdbc.update("update agent_request set context_snapshot=?::jsonb,updated_at=now() where id=?",json(context),row.id());return false;
         }

@@ -12,21 +12,34 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class RunRegistrationService {
     private final RunRepository repository;
+    private final RunOutputSnapshotService outputSnapshots;
     private final Clock clock;
-    public RunRegistrationService(RunRepository repository,Clock clock) {this.repository=repository;this.clock=clock;}
+    public RunRegistrationService(RunRepository repository, RunOutputSnapshotService outputSnapshots, Clock clock) {
+        this.repository = repository;
+        this.outputSnapshots = outputSnapshots;
+        this.clock = clock;
+    }
+
+    public RunRef newRef(ParsedScalars scalars) {
+        var c = scalars.conditions();
+        String runId = String.format(Locale.ROOT, "RUN-P%02d-S%03d-B%04d", (int)c.pressure(), (int)c.sourcePower(), (int)c.biasPower());
+        return new RunRef(runId, UUID.randomUUID().toString());
+    }
+
     @Transactional
-    public RunRef register(StoredSource source,ParsedScalars scalars,GraphBundle graphs) {
+    public RunRef register(StoredSource source, ParsedScalars scalars, GraphBundle graphs, RunRef ref) {
         var c=scalars.conditions(); var a=scalars.analysis();
-        String runId=String.format(Locale.ROOT,"RUN-P%02d-S%03d-B%04d",(int)c.pressure(),(int)c.sourcePower(),(int)c.biasPower());
+        String runId = ref.runId();
         repository.lock(runId);
-        String version=UUID.randomUUID().toString(),registeredAt=clock.instant().toString();
+        String version=ref.runVersionId(),registeredAt=clock.instant().toString();
         var metrics=new Metrics(scalars.ionFlux(),scalars.meanIonEnergy(),graphs.iedWidth());
         var analysisScalars=new AnalysisScalars(graphs.hasDistribution(),a.strictConvergence(),a.finalResidualMax(),a.electronTemperature(),a.ionTemperature(),a.gasTemperature(),a.absorbedPower(),a.alpha(),a.plasmaResistance(),a.plasmaReactance(),a.dcOffset(),a.peakToPeak(),a.currentDensityPeak(),a.electronDensity(),a.ionDensity(),a.metastableDensity(),a.neutralDensity(),a.ionFluxRaw(),a.metastableFluxRaw(),a.neutralFluxRaw());
-        var analysis=new Analysis(graphs.hasDistribution(),a.strictConvergence(),a.finalResidualMax(),a.electronTemperature(),a.ionTemperature(),a.gasTemperature(),a.absorbedPower(),a.alpha(),a.plasmaResistance(),a.plasmaReactance(),a.dcOffset(),a.peakToPeak(),a.currentDensityPeak(),a.electronDensity(),a.ionDensity(),a.metastableDensity(),a.neutralDensity(),a.ionFluxRaw(),a.metastableFluxRaw(),a.neutralFluxRaw(),graphs.residualTrace(),graphs.iad(),graphs.iead(),graphs.current(),graphs.potential(),graphs.density());
+        var analysis=new Analysis(graphs.hasDistribution(),a.strictConvergence(),a.finalResidualMax(),a.electronTemperature(),a.ionTemperature(),a.gasTemperature(),a.absorbedPower(),a.alpha(),a.plasmaResistance(),a.plasmaReactance(),a.dcOffset(),a.peakToPeak(),a.currentDensityPeak(),a.electronDensity(),a.ionDensity(),a.metastableDensity(),a.neutralDensity(),a.ionFluxRaw(),a.metastableFluxRaw(),a.neutralFluxRaw(),List.of(),null,null,null,null,null);
         String note="실제 K-PLASMA(0D) 결과 파일에서 파싱한 Run";
         var summary=new Summary(runId,version,c.pressure(),c.sourcePower(),c.biasPower(),metrics,scalars.units(),"CONVERGED","VERIFIED","READY",registeredAt,100,note,analysisScalars);
-        var full=new Full(runId,version,c.pressure(),c.sourcePower(),c.biasPower(),metrics,scalars.units(),"CONVERGED","VERIFIED","READY",registeredAt,100,note,analysis,graphs.iedDistribution(),graphs.sourceFiles());
+        var full=new Full(runId,version,c.pressure(),c.sourcePower(),c.biasPower(),metrics,scalars.units(),"CONVERGED","VERIFIED","READY",registeredAt,100,note,analysis,List.of(),graphs.sourceFiles());
         repository.save(source.sourceId(),summary,full);
-        return new RunRef(runId,version);
+        graphs.outputs().forEach(outputSnapshots::save);
+        return ref;
     }
 }

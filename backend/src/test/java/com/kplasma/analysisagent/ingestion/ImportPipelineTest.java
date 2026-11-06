@@ -1,6 +1,9 @@
 package com.kplasma.analysisagent.ingestion;
 
 import com.kplasma.analysisagent.contract.ImportDto.*;
+import com.kplasma.analysisagent.contract.RunDto;
+import com.kplasma.analysisagent.contract.RunOutputDto;
+import com.kplasma.analysisagent.run.RunOutputSnapshotService;
 import com.kplasma.analysisagent.run.RunQueryService;
 import java.nio.file.*;
 import java.util.*;
@@ -28,6 +31,7 @@ class ImportPipelineTest {
     @Autowired ImportWorker worker;
     @Autowired ImportRecovery recovery;
     @Autowired RunQueryService query;
+    @Autowired RunOutputSnapshotService outputSnapshots;
     @Autowired com.kplasma.analysisagent.run.RunOutputService outputs;
     @Autowired com.kplasma.analysisagent.run.RunDeletionService deletion;
     @Autowired JdbcTemplate jdbc;
@@ -170,14 +174,96 @@ class ImportPipelineTest {
     @Test void originalOutputBatchKeepsCompactWorkerDataAndDeletedVersionsDoNotHitCache()throws Exception{
         var imported=process(accept("comparison-outputs"));var job=imported.jobs().getFirst();
         var ref=new com.kplasma.analysisagent.contract.RunDto.RunRef(job.runId(),job.runVersionId());
-        var request=new com.kplasma.analysisagent.contract.RunOutputDto.Request(List.of(ref),List.of("residual","current"));
-        var response=outputs.outputs(request,true);assertThat(response.outputs()).hasSize(2);
+        var request=new RunOutputDto.Request(List.of(ref),List.of("residual","current","iad"));
+        var response=outputs.outputs(request,true);assertThat(response.outputs()).hasSize(3);
         var residual=response.outputs().getFirst();assertThat(residual.metadata().sourceCount()).isPositive();assertThat(residual.display().samples()).isNotEmpty();
         assertThat(response.outputs().get(1).metadata().reason()).isEqualTo("BIAS_OFF");
+        assertThat(response.outputs().get(2).metadata().reason()).isEqualTo("BIAS_OFF");
         assertThat(outputs.outputs(request,false).outputs()).allSatisfy(output->assertThat(output.display()).isNull());
         assertThatThrownBy(()->outputs.outputs(new com.kplasma.analysisagent.contract.RunOutputDto.Request(List.of(ref),List.of("invented")),true)).isInstanceOf(IntakeException.class);
         deletion.delete(new com.kplasma.analysisagent.contract.RunDeletionDto.Request(List.of(ref.runId())));
         assertThat(outputs.outputs(request,true).outputs()).allSatisfy(output->assertThat(output.metadata().reason()).isEqualTo("VERSION_UNAVAILABLE"));
+    }
+    @Test void detailAndComparisonReadAllGraphsWithoutOriginalFiles() throws Exception {
+        var files = new HashMap<>(SyntheticRunFiles.biasOnFiles("full-graphs"));
+        var iead = new StringBuilder("# type=IEAD\n# gtype=2D\n# x=angle (degrees)\n# y=energy (eV)\n# nx=32\n# ny=62\n");
+        for (int angle = 0; angle < 32; angle++)
+            for (int energy = 0; energy < 62; energy++)
+                iead.append(angle).append(' ').append(energy).append(' ').append(angle * 62 + energy).append('\n');
+        files.put("0d_result/output/IEAD/Ar+.txt", iead.toString());
+        var imported = process(intake.accept(batch(files, false), "full-graphs"));
+        var job = imported.jobs().getFirst();
+        assertThat(job.status()).describedAs("%s", job.errors()).isEqualTo("READY");
+        var ref = new RunDto.RunRef(job.runId(), job.runVersionId());
+        UUID version = UUID.fromString(ref.runVersionId());
+        var originals = jdbc.queryForList("""
+            select f.storage_path from run_version v join source_file f on v.source_id=f.source_id
+            where v.id=? and (f.relative_path like '0d_result/output/%' or f.relative_path='0d_result/log/residual.log')
+            """, String.class, version);
+        assertThat(originals).hasSize(7);
+        for (var original : originals) Files.delete(ROOT.resolve(original));
+
+        var detail = query.getVersion(version);
+        var points = detail.analysis().iad();
+        assertThat(points).hasSize(201);
+        assertThat(points.get(101)).isEqualTo(new RunDto.Pair(101, 9));
+        assertThat(detail.analysis().iead().sourceShape()).isEqualTo(new RunDto.Pair(32, 62));
+        assertThat(detail.analysis().iead().values()).hasSize(32 * 62);
+        assertThat(detail.analysis().iead().values().getLast()).isEqualTo(1983.0);
+        assertThat(detail.iedDistribution()).hasSize(3);
+        assertThat(detail.analysis().current().points()).hasSize(2);
+        assertThat(detail.analysis().potential().points()).hasSize(2);
+        assertThat(detail.analysis().density().rows()).hasSize(2);
+        assertThat(detail.analysis().residualTrace()).hasSize(2);
+
+        var request = new RunOutputDto.Request(List.of(ref), List.of("iad"));
+        var comparison = outputs.outputs(request, false).outputs().getFirst();
+        assertThat(comparison.metadata().status()).isEqualTo("AVAILABLE");
+        assertThat(comparison.metadata().sourceCount()).isEqualTo(201);
+        assertThat(comparison.features().get("iad.maximum").value()).isEqualTo(9);
+        assertThat(comparison.features().get("iad.peakAngle").value()).isEqualTo(101);
+        assertThat(comparison.display()).isNull();
+        assertThat(outputs.outputs(request, true).outputs().getFirst().display().samples()).hasSize(201);
+        var allGraphs = new RunOutputDto.Request(List.of(ref),
+            List.of("ied", "iad", "iead", "current", "potential", "density", "residual"));
+        assertThat(outputs.outputs(allGraphs, false).outputs()).allSatisfy(output -> {
+            assertThat(output.metadata().status()).isEqualTo("AVAILABLE");
+            assertThat(output.display()).isNull();
+        });
+        var ieadOutput = outputs.outputs(allGraphs, true).outputs().get(2);
+        assertThat(ieadOutput.metadata().sourceCount()).isEqualTo(32 * 62);
+        assertThat(ieadOutput.display().rows().getLast().values()).hasSize(62);
+        assertThat(ieadOutput.features().get("iead.maximum").sourceValue()).containsEntry("value", 1983.0);
+        assertThat(ieadOutput.features().get("iead.peakAngle").value()).isEqualTo(31);
+        assertThat(ieadOutput.features().get("iead.peakEnergy").value()).isEqualTo(61);
+    }
+
+    @Test void backfillPreservesTheRunVersionAndRejectsChangedOriginalBytes() throws Exception {
+        var job = process(intake.accept(batch(SyntheticRunFiles.biasOnFiles("legacy-iad"), false), "legacy-iad")).jobs().getFirst();
+        assertThat(job.status()).isEqualTo("READY");
+        UUID version = UUID.fromString(job.runVersionId());
+        jdbc.update("update run_version set full_run=jsonb_set(full_run,'{analysis,iad}','[[0,1]]') where id=?", version);
+        String originalSnapshot = jdbc.queryForObject("select full_run::text from run_version where id=?", String.class, version);
+        jdbc.update("delete from run_output_snapshot where run_version_id=? and output_id='iad'", version);
+        var request = new RunOutputDto.Request(List.of(new RunDto.RunRef(job.runId(), job.runVersionId())), List.of("iad"));
+        assertThat(query.getVersion(version).analysis().iad()).containsExactly(new RunDto.Pair(0, 1));
+        assertThat(outputs.outputs(request, false).outputs().getFirst().metadata().reason()).isEqualTo("IAD_NOT_INDEXED");
+
+        String relative = jdbc.queryForObject("""
+            select f.storage_path from run_version v join source_file f on v.source_id=f.source_id
+            where v.id=? and f.kind='IAD'
+            """, String.class, version);
+        Path file = ROOT.resolve(relative);
+        String original = Files.readString(file);
+        Files.writeString(file, original + "\n");
+        assertThat(outputSnapshots.backfill(ROOT)).isEqualTo(new RunOutputSnapshotService.BackfillResult(0, 1));
+        assertThat(outputs.outputs(request, false).outputs().getFirst().metadata().reason()).isEqualTo("IAD_NOT_INDEXED");
+
+        Files.writeString(file, original);
+        assertThat(outputSnapshots.backfill(ROOT)).isEqualTo(new RunOutputSnapshotService.BackfillResult(1, 0));
+        assertThat(outputSnapshots.backfill(ROOT)).isEqualTo(new RunOutputSnapshotService.BackfillResult(0, 0));
+        assertThat(query.getVersion(version).analysis().iad()).hasSize(201);
+        assertThat(jdbc.queryForObject("select full_run::text from run_version where id=?", String.class, version)).isEqualTo(originalSnapshot);
     }
     static Path temp() { try { return Files.createTempDirectory("pipeline-"); } catch(Exception e) { throw new ExceptionInInitializerError(e); } }
     @AfterAll static void cleanup() { SourceStore.cleanup(ROOT); }

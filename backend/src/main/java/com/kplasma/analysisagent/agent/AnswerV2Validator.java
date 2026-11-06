@@ -50,7 +50,7 @@ final class AnswerV2Validator {
         if(kind.equals("reverse_search")&&result.containsKey("searchResultVersion"))compactSearch(result);
         if(kind.equals("generate_answer")){fields(result,"kind","resultStatus","markdown","knowledgeBasis","usedRunRefs");require("ANSWER_READY".equals(result.get("resultStatus"))&&"LLM_GENERAL_KNOWLEDGE".equals(result.get("knowledgeBasis")),"Invalid general answer");text(result.get("markdown"));require(answer.usedRunRefs().isEmpty()&&refs(result.get("usedRunRefs")).isEmpty()&&answer.candidates().isEmpty()&&answer.explanation()==null,"General answer cannot depend on Run refs");require(object(snapshot.get("resolvedInputs")).isEmpty()&&object(snapshot.get("contextProvenance")).isEmpty()&&object(selection.get("arguments")).isEmpty(),"General inputs must be empty");}
     }
-    private void compactSearch(Map<?,?> result){
+    void compactSearch(Map<?,?> result){
         fields(result,"kind","resultStatus","status","processMode","constraints","goals","objectives","totalCount","searchResultVersion","runsByVersion","commonRunRefs","commonRunIds","commonRecommendation","objectiveResults","goalResults","candidateEvaluations","usedRunRefs","excludedRuns","defaultedUnits","numericPolicyVersion");
         require(result.get("searchResultVersion") instanceof Number n&&n.doubleValue()==2,"Unknown search result version");
         var runs=object(result.get("runsByVersion"));

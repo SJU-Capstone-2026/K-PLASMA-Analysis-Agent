@@ -1,0 +1,1442 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "AwaitInputStep": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "maxLength": 96,
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "requirement_ids": {
+          "items": {
+            "maxLength": 96,
+            "minLength": 1,
+            "type": "string"
+          },
+          "title": "Requirement Ids",
+          "type": "array"
+        },
+        "depends_on": {
+          "items": {
+            "maxLength": 96,
+            "minLength": 1,
+            "type": "string"
+          },
+          "title": "Depends On",
+          "type": "array"
+        },
+        "requires": {
+          "items": {
+            "$ref": "#/$defs/OutputRequirement"
+          },
+          "title": "Requires",
+          "type": "array"
+        },
+        "run_if": {
+          "items": {
+            "$ref": "#/$defs/RunCondition"
+          },
+          "title": "Run If",
+          "type": "array"
+        },
+        "kind": {
+          "const": "await_input",
+          "title": "Kind",
+          "type": "string"
+        },
+        "confirmation": {
+          "enum": [
+            "run_selection",
+            "condition",
+            "baseline",
+            "trend_axis",
+            "calculation_direction"
+          ],
+          "title": "Confirmation",
+          "type": "string"
+        },
+        "inputs": {
+          "$ref": "#/$defs/AwaitInputs"
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "confirmation",
+        "inputs"
+      ],
+      "title": "AwaitInputStep",
+      "type": "object"
+    },
+    "AwaitInputs": {
+      "additionalProperties": false,
+      "properties": {
+        "target_step_id": {
+          "maxLength": 96,
+          "minLength": 1,
+          "title": "Target Step Id",
+          "type": "string"
+        },
+        "field": {
+          "maxLength": 96,
+          "minLength": 1,
+          "title": "Field",
+          "type": "string"
+        },
+        "selection_count": {
+          "anyOf": [
+            {
+              "minimum": 2,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Selection Count"
+        },
+        "candidates": {
+          "anyOf": [
+            {
+              "discriminator": {
+                "mapping": {
+                  "context_ref": "#/$defs/ContextRef",
+                  "literal": "#/$defs/LiteralInput",
+                  "result_ref": "#/$defs/ResultRef"
+                },
+                "propertyName": "kind"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/$defs/LiteralInput"
+                },
+                {
+                  "$ref": "#/$defs/ContextRef"
+                },
+                {
+                  "$ref": "#/$defs/ResultRef"
+                }
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Candidates"
+        }
+      },
+      "required": [
+        "target_step_id",
+        "field"
+      ],
+      "title": "AwaitInputs",
+      "type": "object"
+    },
+    "CandidateScope": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "candidate_group",
+          "title": "Kind",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "title": "CandidateScope",
+      "type": "object"
+    },
+    "CompareInputs": {
+      "additionalProperties": false,
+      "properties": {
+        "runs": {
+          "discriminator": {
+            "mapping": {
+              "context_ref": "#/$defs/ContextRef",
+              "literal": "#/$defs/LiteralInput",
+              "result_ref": "#/$defs/ResultRef"
+            },
+            "propertyName": "kind"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/LiteralInput"
+            },
+            {
+              "$ref": "#/$defs/ContextRef"
+            },
+            {
+              "$ref": "#/$defs/ResultRef"
+            }
+          ],
+          "title": "Runs"
+        },
+        "fields": {
+          "items": {
+            "enum": [
+              "ionFlux",
+              "meanIonEnergy",
+              "iedWidth",
+              "pressure",
+              "sourcePower",
+              "biasPower",
+              "current.maximum",
+              "current.minimum",
+              "current.peakToPeak",
+              "current.halfPeakToPeak",
+              "current.maximumPhase",
+              "current.minimumPhase",
+              "potential.maximum",
+              "potential.minimum",
+              "potential.peakToPeak",
+              "potential.halfPeakToPeak",
+              "potential.maximumPhase",
+              "potential.minimumPhase",
+              "ied.maximum",
+              "ied.peakEnergy",
+              "iad.maximum",
+              "iad.peakAngle",
+              "iead.maximum",
+              "iead.peakEnergy",
+              "iead.peakAngle",
+              "density.maximum",
+              "density.maximumPhase",
+              "density.maximumDistance",
+              "residual.maximum",
+              "residual.maximumIteration",
+              "residual.final",
+              "residual.finalIteration"
+            ],
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Fields",
+          "type": "array"
+        },
+        "baseline": {
+          "anyOf": [
+            {
+              "discriminator": {
+                "mapping": {
+                  "context_ref": "#/$defs/ContextRef",
+                  "literal": "#/$defs/LiteralInput",
+                  "result_ref": "#/$defs/ResultRef"
+                },
+                "propertyName": "kind"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/$defs/LiteralInput"
+                },
+                {
+                  "$ref": "#/$defs/ContextRef"
+                },
+                {
+                  "$ref": "#/$defs/ResultRef"
+                }
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Baseline"
+        },
+        "trend_axis": {
+          "anyOf": [
+            {
+              "discriminator": {
+                "mapping": {
+                  "context_ref": "#/$defs/ContextRef",
+                  "literal": "#/$defs/LiteralInput",
+                  "result_ref": "#/$defs/ResultRef"
+                },
+                "propertyName": "kind"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/$defs/LiteralInput"
+                },
+                {
+                  "$ref": "#/$defs/ContextRef"
+                },
+                {
+                  "$ref": "#/$defs/ResultRef"
+                }
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Trend Axis"
+        },
+        "plot_ids": {
+          "items": {
+            "enum": [
+              "ied",
+              "iad",
+              "iead",
+              "current",
+              "potential",
+              "density",
+              "residual"
+            ],
+            "type": "string"
+          },
+          "title": "Plot Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "runs",
+        "fields"
+      ],
+      "title": "CompareInputs",
+      "type": "object"
+    },
+    "CompareStep": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "maxLength": 96,
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "requirement_ids": {
+          "items": {
+            "maxLength": 96,
+            "minLength": 1,
+            "type": "string"
+          },
+          "title": "Requirement Ids",
+          "type": "array"
+        },
+        "depends_on": {
+          "items": {
+            "maxLength": 96,
+            "minLength": 1,
+            "type": "string"
+          },
+          "title": "Depends On",
+          "type": "array"
+        },
+        "requires": {
+          "items": {
+            "$ref": "#/$defs/OutputRequirement"
+          },
+          "title": "Requires",
+          "type": "array"
+        },
+        "run_if": {
+          "items": {
+            "$ref": "#/$defs/RunCondition"
+          },
+          "title": "Run If",
+          "type": "array"
+        },
+        "kind": {
+          "const": "tool",
+          "title": "Kind",
+          "type": "string"
+        },
+        "tool": {
+          "const": "compare_runs",
+          "title": "Tool",
+          "type": "string"
+        },
+        "inputs": {
+          "$ref": "#/$defs/CompareInputs"
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "tool",
+        "inputs"
+      ],
+      "title": "CompareStep",
+      "type": "object"
+    },
+    "ConstraintInput": {
+      "additionalProperties": false,
+      "properties": {
+        "field": {
+          "enum": [
+            "pressure",
+            "sourcePower",
+            "biasPower",
+            "meanIonEnergy",
+            "ionFlux",
+            "iedWidth"
+          ],
+          "title": "Field",
+          "type": "string"
+        },
+        "operator": {
+          "enum": [
+            "eq",
+            "lte",
+            "gte",
+            "lt",
+            "gt",
+            "between"
+          ],
+          "title": "Operator",
+          "type": "string"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "discriminator": {
+                "mapping": {
+                  "context_ref": "#/$defs/ContextRef",
+                  "literal": "#/$defs/LiteralInput",
+                  "result_ref": "#/$defs/ResultRef"
+                },
+                "propertyName": "kind"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/$defs/LiteralInput"
+                },
+                {
+                  "$ref": "#/$defs/ContextRef"
+                },
+                {
+                  "$ref": "#/$defs/ResultRef"
+                }
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Value"
+        },
+        "min": {
+          "anyOf": [
+            {
+              "discriminator": {
+                "mapping": {
+                  "context_ref": "#/$defs/ContextRef",
+                  "literal": "#/$defs/LiteralInput",
+                  "result_ref": "#/$defs/ResultRef"
+                },
+                "propertyName": "kind"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/$defs/LiteralInput"
+                },
+                {
+                  "$ref": "#/$defs/ContextRef"
+                },
+                {
+                  "$ref": "#/$defs/ResultRef"
+                }
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Min"
+        },
+        "max": {
+          "anyOf": [
+            {
+              "discriminator": {
+                "mapping": {
+                  "context_ref": "#/$defs/ContextRef",
+                  "literal": "#/$defs/LiteralInput",
+                  "result_ref": "#/$defs/ResultRef"
+                },
+                "propertyName": "kind"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/$defs/LiteralInput"
+                },
+                {
+                  "$ref": "#/$defs/ContextRef"
+                },
+                {
+                  "$ref": "#/$defs/ResultRef"
+                }
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max"
+        }
+      },
+      "required": [
+        "field",
+        "operator"
+      ],
+      "title": "ConstraintInput",
+      "type": "object"
+    },
+    "ContextRef": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "context_ref",
+          "title": "Kind",
+          "type": "string"
+        },
+        "key": {
+          "maxLength": 96,
+          "minLength": 1,
+          "title": "Key",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "key"
+      ],
+      "title": "ContextRef",
+      "type": "object"
+    },
+    "ContextSelectionScope": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "context_selection",
+          "title": "Kind",
+          "type": "string"
+        },
+        "key": {
+          "maxLength": 96,
+          "minLength": 1,
+          "title": "Key",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "key"
+      ],
+      "title": "ContextSelectionScope",
+      "type": "object"
+    },
+    "DeriveInputs": {
+      "additionalProperties": false,
+      "properties": {
+        "values": {
+          "anyOf": [
+            {
+              "discriminator": {
+                "mapping": {
+                  "context_ref": "#/$defs/ContextRef",
+                  "literal": "#/$defs/LiteralInput",
+                  "result_ref": "#/$defs/ResultRef"
+                },
+                "propertyName": "kind"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/$defs/LiteralInput"
+                },
+                {
+                  "$ref": "#/$defs/ContextRef"
+                },
+                {
+                  "$ref": "#/$defs/ResultRef"
+                }
+              ]
+            },
+            {
+              "items": {
+                "discriminator": {
+                  "mapping": {
+                    "context_ref": "#/$defs/ContextRef",
+                    "literal": "#/$defs/LiteralInput",
+                    "result_ref": "#/$defs/ResultRef"
+                  },
+                  "propertyName": "kind"
+                },
+                "oneOf": [
+                  {
+                    "$ref": "#/$defs/LiteralInput"
+                  },
+                  {
+                    "$ref": "#/$defs/ContextRef"
+                  },
+                  {
+                    "$ref": "#/$defs/ResultRef"
+                  }
+                ]
+              },
+              "type": "array"
+            }
+          ],
+          "title": "Values"
+        },
+        "direction": {
+          "anyOf": [
+            {
+              "enum": [
+                "absolute",
+                "first_minus_second",
+                "second_minus_first"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Direction"
+        }
+      },
+      "required": [
+        "values"
+      ],
+      "title": "DeriveInputs",
+      "type": "object"
+    },
+    "DeriveStep": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "maxLength": 96,
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "requirement_ids": {
+          "items": {
+            "maxLength": 96,
+            "minLength": 1,
+            "type": "string"
+          },
+          "title": "Requirement Ids",
+          "type": "array"
+        },
+        "depends_on": {
+          "items": {
+            "maxLength": 96,
+            "minLength": 1,
+            "type": "string"
+          },
+          "title": "Depends On",
+          "type": "array"
+        },
+        "requires": {
+          "items": {
+            "$ref": "#/$defs/OutputRequirement"
+          },
+          "title": "Requires",
+          "type": "array"
+        },
+        "run_if": {
+          "items": {
+            "$ref": "#/$defs/RunCondition"
+          },
+          "title": "Run If",
+          "type": "array"
+        },
+        "kind": {
+          "const": "derive",
+          "title": "Kind",
+          "type": "string"
+        },
+        "operation": {
+          "enum": [
+            "min",
+            "max",
+            "difference",
+            "scale",
+            "ratio",
+            "mean"
+          ],
+          "title": "Operation",
+          "type": "string"
+        },
+        "inputs": {
+          "$ref": "#/$defs/DeriveInputs"
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "operation",
+        "inputs"
+      ],
+      "title": "DeriveStep",
+      "type": "object"
+    },
+    "ForwardInputs": {
+      "additionalProperties": false,
+      "properties": {
+        "pressure": {
+          "anyOf": [
+            {
+              "discriminator": {
+                "mapping": {
+                  "context_ref": "#/$defs/ContextRef",
+                  "literal": "#/$defs/LiteralInput",
+                  "result_ref": "#/$defs/ResultRef"
+                },
+                "propertyName": "kind"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/$defs/LiteralInput"
+                },
+                {
+                  "$ref": "#/$defs/ContextRef"
+                },
+                {
+                  "$ref": "#/$defs/ResultRef"
+                }
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Pressure"
+        },
+        "source_power": {
+          "anyOf": [
+            {
+              "discriminator": {
+                "mapping": {
+                  "context_ref": "#/$defs/ContextRef",
+                  "literal": "#/$defs/LiteralInput",
+                  "result_ref": "#/$defs/ResultRef"
+                },
+                "propertyName": "kind"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/$defs/LiteralInput"
+                },
+                {
+                  "$ref": "#/$defs/ContextRef"
+                },
+                {
+                  "$ref": "#/$defs/ResultRef"
+                }
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Power"
+        },
+        "bias_power": {
+          "anyOf": [
+            {
+              "discriminator": {
+                "mapping": {
+                  "context_ref": "#/$defs/ContextRef",
+                  "literal": "#/$defs/LiteralInput",
+                  "result_ref": "#/$defs/ResultRef"
+                },
+                "propertyName": "kind"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/$defs/LiteralInput"
+                },
+                {
+                  "$ref": "#/$defs/ContextRef"
+                },
+                {
+                  "$ref": "#/$defs/ResultRef"
+                }
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Bias Power"
+        }
+      },
+      "title": "ForwardInputs",
+      "type": "object"
+    },
+    "ForwardStep": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "maxLength": 96,
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "requirement_ids": {
+          "items": {
+            "maxLength": 96,
+            "minLength": 1,
+            "type": "string"
+          },
+          "title": "Requirement Ids",
+          "type": "array"
+        },
+        "depends_on": {
+          "items": {
+            "maxLength": 96,
+            "minLength": 1,
+            "type": "string"
+          },
+          "title": "Depends On",
+          "type": "array"
+        },
+        "requires": {
+          "items": {
+            "$ref": "#/$defs/OutputRequirement"
+          },
+          "title": "Requires",
+          "type": "array"
+        },
+        "run_if": {
+          "items": {
+            "$ref": "#/$defs/RunCondition"
+          },
+          "title": "Run If",
+          "type": "array"
+        },
+        "kind": {
+          "const": "tool",
+          "title": "Kind",
+          "type": "string"
+        },
+        "tool": {
+          "const": "forward_lookup",
+          "title": "Tool",
+          "type": "string"
+        },
+        "inputs": {
+          "$ref": "#/$defs/ForwardInputs"
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "tool",
+        "inputs"
+      ],
+      "title": "ForwardStep",
+      "type": "object"
+    },
+    "GoalInput": {
+      "additionalProperties": false,
+      "properties": {
+        "field": {
+          "enum": [
+            "meanIonEnergy",
+            "ionFlux",
+            "iedWidth"
+          ],
+          "title": "Field",
+          "type": "string"
+        },
+        "direction": {
+          "enum": [
+            "maximize",
+            "minimize",
+            "target_range"
+          ],
+          "title": "Direction",
+          "type": "string"
+        },
+        "min": {
+          "anyOf": [
+            {
+              "discriminator": {
+                "mapping": {
+                  "context_ref": "#/$defs/ContextRef",
+                  "literal": "#/$defs/LiteralInput",
+                  "result_ref": "#/$defs/ResultRef"
+                },
+                "propertyName": "kind"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/$defs/LiteralInput"
+                },
+                {
+                  "$ref": "#/$defs/ContextRef"
+                },
+                {
+                  "$ref": "#/$defs/ResultRef"
+                }
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Min"
+        },
+        "max": {
+          "anyOf": [
+            {
+              "discriminator": {
+                "mapping": {
+                  "context_ref": "#/$defs/ContextRef",
+                  "literal": "#/$defs/LiteralInput",
+                  "result_ref": "#/$defs/ResultRef"
+                },
+                "propertyName": "kind"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/$defs/LiteralInput"
+                },
+                {
+                  "$ref": "#/$defs/ContextRef"
+                },
+                {
+                  "$ref": "#/$defs/ResultRef"
+                }
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max"
+        }
+      },
+      "required": [
+        "field",
+        "direction"
+      ],
+      "title": "GoalInput",
+      "type": "object"
+    },
+    "LiteralInput": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "literal",
+          "title": "Kind",
+          "type": "string"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Value"
+        },
+        "unit": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Unit"
+        },
+        "source": {
+          "$ref": "#/$defs/SourceQuote"
+        }
+      },
+      "required": [
+        "kind",
+        "value",
+        "unit",
+        "source"
+      ],
+      "title": "LiteralInput",
+      "type": "object"
+    },
+    "OutputRequirement": {
+      "additionalProperties": false,
+      "properties": {
+        "step_id": {
+          "maxLength": 96,
+          "minLength": 1,
+          "title": "Step Id",
+          "type": "string"
+        },
+        "field": {
+          "maxLength": 96,
+          "minLength": 1,
+          "title": "Field",
+          "type": "string"
+        },
+        "count": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Count"
+        },
+        "value_type": {
+          "anyOf": [
+            {
+              "enum": [
+                "quantity",
+                "quantities",
+                "run_refs"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Value Type"
+        },
+        "unit": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Unit"
+        }
+      },
+      "required": [
+        "step_id",
+        "field"
+      ],
+      "title": "OutputRequirement",
+      "type": "object"
+    },
+    "Requirement": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "maxLength": 96,
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "sources": {
+          "items": {
+            "$ref": "#/$defs/SourceQuote"
+          },
+          "minItems": 1,
+          "title": "Sources",
+          "type": "array"
+        },
+        "text": {
+          "minLength": 1,
+          "title": "Text",
+          "type": "string"
+        },
+        "handled_by": {
+          "items": {
+            "maxLength": 96,
+            "minLength": 1,
+            "type": "string"
+          },
+          "title": "Handled By",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "sources",
+        "text",
+        "handled_by"
+      ],
+      "title": "Requirement",
+      "type": "object"
+    },
+    "ResultRef": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "result_ref",
+          "title": "Kind",
+          "type": "string"
+        },
+        "step_id": {
+          "maxLength": 96,
+          "minLength": 1,
+          "title": "Step Id",
+          "type": "string"
+        },
+        "field": {
+          "maxLength": 96,
+          "minLength": 1,
+          "title": "Field",
+          "type": "string"
+        },
+        "scope": {
+          "discriminator": {
+            "mapping": {
+              "candidate_group": "#/$defs/CandidateScope",
+              "confirmed_run": "#/$defs/RunScope",
+              "confirmed_selection": "#/$defs/SelectionScope",
+              "context_selection": "#/$defs/ContextSelectionScope",
+              "scalar": "#/$defs/ScalarScope"
+            },
+            "propertyName": "kind"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/ScalarScope"
+            },
+            {
+              "$ref": "#/$defs/SelectionScope"
+            },
+            {
+              "$ref": "#/$defs/CandidateScope"
+            },
+            {
+              "$ref": "#/$defs/ContextSelectionScope"
+            },
+            {
+              "$ref": "#/$defs/RunScope"
+            }
+          ],
+          "title": "Scope"
+        }
+      },
+      "required": [
+        "kind",
+        "step_id",
+        "field",
+        "scope"
+      ],
+      "title": "ResultRef",
+      "type": "object"
+    },
+    "ReverseInputs": {
+      "additionalProperties": false,
+      "properties": {
+        "constraints": {
+          "items": {
+            "$ref": "#/$defs/ConstraintInput"
+          },
+          "title": "Constraints",
+          "type": "array"
+        },
+        "goals": {
+          "items": {
+            "$ref": "#/$defs/GoalInput"
+          },
+          "title": "Goals",
+          "type": "array"
+        }
+      },
+      "required": [
+        "constraints"
+      ],
+      "title": "ReverseInputs",
+      "type": "object"
+    },
+    "ReverseStep": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "maxLength": 96,
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "requirement_ids": {
+          "items": {
+            "maxLength": 96,
+            "minLength": 1,
+            "type": "string"
+          },
+          "title": "Requirement Ids",
+          "type": "array"
+        },
+        "depends_on": {
+          "items": {
+            "maxLength": 96,
+            "minLength": 1,
+            "type": "string"
+          },
+          "title": "Depends On",
+          "type": "array"
+        },
+        "requires": {
+          "items": {
+            "$ref": "#/$defs/OutputRequirement"
+          },
+          "title": "Requires",
+          "type": "array"
+        },
+        "run_if": {
+          "items": {
+            "$ref": "#/$defs/RunCondition"
+          },
+          "title": "Run If",
+          "type": "array"
+        },
+        "kind": {
+          "const": "tool",
+          "title": "Kind",
+          "type": "string"
+        },
+        "tool": {
+          "const": "reverse_search",
+          "title": "Tool",
+          "type": "string"
+        },
+        "inputs": {
+          "$ref": "#/$defs/ReverseInputs"
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "tool",
+        "inputs"
+      ],
+      "title": "ReverseStep",
+      "type": "object"
+    },
+    "RunCondition": {
+      "additionalProperties": false,
+      "properties": {
+        "step_id": {
+          "maxLength": 96,
+          "minLength": 1,
+          "title": "Step Id",
+          "type": "string"
+        },
+        "field": {
+          "enum": [
+            "status",
+            "candidate_count"
+          ],
+          "title": "Field",
+          "type": "string"
+        },
+        "operator": {
+          "enum": [
+            "eq",
+            "lt",
+            "lte",
+            "gt",
+            "gte"
+          ],
+          "title": "Operator",
+          "type": "string"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "minimum": 0,
+              "type": "integer"
+            }
+          ],
+          "title": "Value"
+        }
+      },
+      "required": [
+        "step_id",
+        "field",
+        "operator",
+        "value"
+      ],
+      "title": "RunCondition",
+      "type": "object"
+    },
+    "RunScope": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "confirmed_run",
+          "title": "Kind",
+          "type": "string"
+        },
+        "key": {
+          "maxLength": 96,
+          "minLength": 1,
+          "title": "Key",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "key"
+      ],
+      "title": "RunScope",
+      "type": "object"
+    },
+    "ScalarScope": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "scalar",
+          "title": "Kind",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "title": "ScalarScope",
+      "type": "object"
+    },
+    "SelectionScope": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "confirmed_selection",
+          "title": "Kind",
+          "type": "string"
+        },
+        "step_id": {
+          "maxLength": 96,
+          "minLength": 1,
+          "title": "Step Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "step_id"
+      ],
+      "title": "SelectionScope",
+      "type": "object"
+    },
+    "SourceQuote": {
+      "additionalProperties": false,
+      "properties": {
+        "message_key": {
+          "maxLength": 96,
+          "minLength": 1,
+          "title": "Message Key",
+          "type": "string"
+        },
+        "quote": {
+          "minLength": 1,
+          "title": "Quote",
+          "type": "string"
+        }
+      },
+      "required": [
+        "message_key",
+        "quote"
+      ],
+      "title": "SourceQuote",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "request_mode": {
+      "enum": [
+        "general_only",
+        "data_request"
+      ],
+      "title": "Request Mode",
+      "type": "string"
+    },
+    "interpretation_requested": {
+      "default": false,
+      "title": "Interpretation Requested",
+      "type": "boolean"
+    },
+    "base_revision": {
+      "anyOf": [
+        {
+          "minimum": 1,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Base Revision"
+    },
+    "requirements": {
+      "items": {
+        "$ref": "#/$defs/Requirement"
+      },
+      "title": "Requirements",
+      "type": "array"
+    },
+    "steps": {
+      "items": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/ForwardStep"
+          },
+          {
+            "$ref": "#/$defs/ReverseStep"
+          },
+          {
+            "$ref": "#/$defs/CompareStep"
+          },
+          {
+            "$ref": "#/$defs/DeriveStep"
+          },
+          {
+            "$ref": "#/$defs/AwaitInputStep"
+          }
+        ]
+      },
+      "maxItems": 16,
+      "title": "Steps",
+      "type": "array"
+    }
+  },
+  "required": [
+    "schema_version",
+    "request_mode",
+    "base_revision",
+    "requirements",
+    "steps"
+  ],
+  "title": "PlanDraft",
+  "type": "object"
+}
