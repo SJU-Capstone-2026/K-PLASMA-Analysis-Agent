@@ -3193,8 +3193,25 @@ p.manual-limit { margin-bottom: 0; color: #826947; font-size: 9px; line-height: 
 .v2-answer-explanation{margin-top:14px;line-height:1.7;overflow-wrap:anywhere}
 .v2-answer-explanation p{margin:6px 0}
 .v2-answer-assumptions{margin:4px 0 10px;padding-left:20px;color:#56667b;font-size:13px}
+
+.v1-pending.v1-pending--running { margin: 12px 0; padding: 0; }
+.agent-progress,.agent-progress-complete { min-width: 0; color: #727b89; font-size: 14px; line-height: 1.7; overflow-wrap: anywhere; }
+.agent-progress ul,.agent-progress-complete ul { display: grid; gap: 3px; margin: 5px 0; padding: 0; list-style: none; }
+.agent-activity { display: flex; align-items: baseline; gap: 7px; min-width: 0; }
+.agent-activity--current { color: #626b78; }
+.agent-activity-check { flex: 0 0 12px; color: #929aa6; text-align: center; }
+.agent-activity-spinner { flex: 0 0 10px; width: 10px; height: 10px; border: 1px solid #c2c8d0; border-top-color: #7f8997; border-radius: 50%; animation: agent-activity-spin 1s linear infinite; }
+.agent-progress-history summary { width: fit-content; max-width: 100%; cursor: pointer; }
+.agent-progress-history summary:focus-visible { border-radius: 3px; outline: 2px solid #6f88aa; outline-offset: 3px; }
+.agent-progress-complete summary { display: flex; align-items: center; gap: 9px; list-style: none; }
+.agent-progress-complete summary::-webkit-details-marker { display: none; }
+.agent-progress-chevron { display: inline-block; font-size: 17px; line-height: 1; }
+.agent-progress-complete details[open] .agent-progress-chevron { transform: rotate(90deg); }
+.agent-progress-complete hr { margin: 10px 0 16px; border: 0; border-top: 1px solid #dce0e5; }
 .agent-stream-preview { margin-top: 14px; }
 .agent-stream-status { color: #727b89; font-size: 14px; }
 .agent-stream-status span { color: #8a929e; }
 .agent-stream-preview .v1-markdown { min-width: 0; }
 .agent-stream-preview .katex-display { max-width: 100%; overflow-x: auto; overflow-y: hidden; }
+@keyframes agent-activity-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .agent-activity-spinner { animation: none; } }

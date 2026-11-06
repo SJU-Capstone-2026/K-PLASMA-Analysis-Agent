@@ -6,6 +6,7 @@ import {ReferenceTray} from '../../components/ReferenceTray';
 import {RunColorsProvider} from '../../components/RunColors';
 import {AnswerView} from './AnswerView';
 import {PendingRequest} from './PendingRequest';
+import {CompletedAgentProgress} from './AgentProgress';
 import {RunMentionComposer} from './RunMentionComposer';
 import type {ConversationController} from './useConversation';
 export interface AgentPageProps {conversation:ConversationController;records:DecisionRecord[];notify:(text:string,tone?:string)=>void;onDetail:(ref:RunRef,turn:TurnSnapshot)=>void;onRecord:(turn:TurnSnapshot,source?:V2RecordSource,target?:RunRef)=>void;onEvidence:(turn:TurnSnapshot,runId:string)=>void;onDemo:()=>Promise<void>}
@@ -26,7 +27,7 @@ function UserMessage({question,refs}:{question:string;refs:RunRef[]}){return <di
 const ConversationTurn=memo(function ConversationTurn({turn,message,onAction}:{turn:TurnSnapshot;message?:AgentMessage;onAction:TurnAction}){
  const saved=displayAnswer(turn.answerSnapshot).reference;
  const refs=message?.submittedRunRefs??(saved?.ids?.length?saved.ids.flatMap((id:string)=>turn.answerRunRefs.find(ref=>ref.runId===id)??[]):turn.context?[turn.context]:[]);
- return <article className="agent-turn" data-turn-id={turn.id}><UserMessage question={message?.question??turn.question} refs={refs}/><section className="agent-response agent-response--inline"><div id={`turn-answer-${turn.id}`}><AnswerView turn={turn} onAction={(name,element)=>onAction(turn.id,name,element)}/></div></section></article>;
+ return <article className="agent-turn" data-turn-id={turn.id}><UserMessage question={message?.question??turn.question} refs={refs}/><section className="agent-response agent-response--inline"><CompletedAgentProgress summary={message?.executionSummary}/><div id={`turn-answer-${turn.id}`}><AnswerView turn={turn} onAction={(name,element)=>onAction(turn.id,name,element)}/></div></section></article>;
 });
 export function AgentPage({conversation,notify,onDetail,onRecord,onEvidence,onDemo}:AgentPageProps){
  const {state,pending}=conversation;const colorScope=`${state.stateToken.workspaceEpoch}.${state.stateToken.conversationEpoch}`;const turns=state.conversation.turns;const active=state.conversation.activeRun;const composer=state.candidateReference??(active?reference([active]):null);
