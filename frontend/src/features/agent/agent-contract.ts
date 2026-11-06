@@ -28,6 +28,33 @@ export function snapshotResult<T>(snapshot:Snapshot):T{
  }
  return result as unknown as T;
 }
+export function measurementText(value:string|number,unit:string) {
+ const scaled=/^10[⁰¹²³⁴⁵⁶⁷⁸⁹⁻]+(?:\s|$)/.test(unit);
+ const text=String(value);
+ const coefficient=scaled&&text.includes('–')?`(${text})`:text;
+ return [coefficient,scaled?'×':'',unit].filter(Boolean).join(' ');
+}
+
+export function reverseSearchCriteria(criteria:Pick<SearchResult,'constraints'|'goals'>, prose=false) {
+  const bounds = (criteria.constraints ?? []).flatMap(rule => {
+    if (typeof rule.metric !== 'string') return [];
+    const label = metricNames[rule.metric] ?? rule.metric;
+    const unit = typeof rule.unit === 'string' ? rule.unit : '';
+    if (rule.operator === 'between' && typeof rule.min === 'number' && typeof rule.max === 'number') {
+      return [`${label} ${measurementText(`${rule.min}–${rule.max}`,unit)}`];
+    }
+    const symbol = {gt: '>', gte: '≥', lt: '<', lte: '≤', eq: '='}[String(rule.operator)];
+    if (!symbol || typeof rule.value !== 'number') return [];
+    const value = measurementText(rule.value,unit);
+    const word = {gt:'초과',gte:'이상',lt:'미만',lte:'이하',eq:''}[String(rule.operator)];
+    return [prose ? [label,value,word].filter(Boolean).join(' ') : `${label} ${symbol} ${value}`];
+  });
+  const order = (criteria.goals ?? []).flatMap(goal =>
+    goal.direction === 'maximize' || goal.direction === 'minimize'
+      ? [`${metricNames[goal.metric] ?? goal.metric} ${goal.direction === 'maximize' ? '높은 순' : '낮은 순'}`] : []);
+  return [...bounds, ...order];
+}
+
 export function numberText(value:number|null|undefined,digits=2,signed=false){if(typeof value!=='number'||!Number.isFinite(value))return '—';const rounded=Number(value.toFixed(digits));return `${signed&&rounded>0?'+':''}${rounded.toLocaleString('ko-KR',{maximumFractionDigits:digits})}`;}
 
 for(const [plot,name] of Object.entries({current:'RF 전류 밀도',potential:'전극 전위'}))for(const [suffix,label] of Object.entries({maximum:'최댓값',minimum:'최솟값',peakToPeak:'첨두간 값',halfPeakToPeak:'반첨두간 진폭',maximumPhase:'첫 최대 RF 위상',minimumPhase:'첫 최소 RF 위상'}))metricNames[`${plot}.${suffix}`]=`${name} ${label}`;
