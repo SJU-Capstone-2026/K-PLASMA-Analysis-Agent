@@ -5,8 +5,8 @@ import pytest
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.types import Command
 
-from agent.python.evals.v2_cases import runs
-from agent.python.evals.v2_harness import EvaluationJournal
+from evals.v2_cases import runs
+from evals.v2_harness import EvaluationJournal
 from kplasma_agent.graphs.v2 import build_v2_graph
 from kplasma_agent.v2.plan_review import parse_plan_review, review_result
 from .test_plan_review import QUESTION, answers, example_plan

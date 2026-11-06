@@ -2,7 +2,7 @@ from copy import deepcopy
 
 import pytest
 
-from agent.python.evals.plan_review_cases import cases
+from evals.plan_review_cases import cases
 from kplasma_agent.v2.plan_review import build_plan_review_context, parse_plan_review, plan_review_feedback
 
 
