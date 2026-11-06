@@ -30,11 +30,12 @@ def example_context():
     }, {})
 
 
-def answers(choice="match"):
-    return [{"name": name, "type": "choice", "choice": choice,
-             "probabilities": [{"value": value, "probability": 0.05 if value == choice else 0.475}
-                               for value in ("match", "mismatch", "unclear")], "confidence": 0.05}
-            for name in ("request_coverage", "condition_preservation", "target_operation_alignment")]
+def answers(choice="match", context=None):
+    from kplasma_agent.v2.plan_checks import review_questions
+    context = context or example_context()
+    return [{"name": q["name"], "type": "choice", "choice": choice,
+             "probabilities": [{"value": c["value"], "probability": 1 / len(q["choices"])} for c in q["choices"]],
+             "confidence": 0.05} for q in review_questions(context)]
 
 
 def test_review_preserves_original_and_executable_inputs_even_if_requirement_prose_is_correct():
@@ -121,7 +122,7 @@ def test_target_range_review_effect_matches_the_executed_inclusive_filter():
     assert "target_range" in contexts[0]["tool_contracts"]["reverse_search"]["condition_inputs"]
 
 
-@pytest.mark.parametrize("choice,status", [("match", "PASS"), ("mismatch", "ISSUE"), ("unclear", "UNCLEAR")])
+@pytest.mark.parametrize("choice,status", [("match", "PASS"), ("missing", "ISSUE"), ("unclear", "UNCLEAR")])
 def test_choice_drives_verdict_even_when_confidence_is_low_and_answers_arrive_out_of_order(choice, status):
     from kplasma_agent.v2.plan_review import parse_plan_review, plan_review_feedback
     rows = answers()
@@ -131,7 +132,7 @@ def test_choice_drives_verdict_even_when_confidence_is_low_and_answers_arrive_ou
     assert result.checks[1].choice == choice
     assert result.checks[1].confidence == 0.05
     if choice != "match":
-        assert plan_review_feedback(result)["failed_checks"] == {"condition_preservation": choice}
+        assert plan_review_feedback(result)["failed_checks"] == {"request.filter_coverage": choice}
 
 
 @pytest.mark.parametrize("corruption", ["missing", "duplicate", "choice", "nan", "missing_probability", "duplicate_probability"])

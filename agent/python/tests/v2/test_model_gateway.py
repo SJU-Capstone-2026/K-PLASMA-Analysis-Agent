@@ -97,7 +97,7 @@ def test_writer_schema_puts_complete_evidence_before_text():
         assert fields.index("evidence_ids") < fields.index("text")
 
 
-def test_plan_review_has_a_separate_three_question_request_and_preserves_low_confidence_choice():
+def test_plan_review_has_condition_questions_in_one_request_and_preserves_low_confidence_choice():
     from .test_plan_review import answers, example_context
 
     guarded = []
@@ -107,13 +107,10 @@ def test_plan_review_has_a_separate_three_question_request_and_preserves_low_con
         body = json.loads(request.content)
         assert request.url.path == "/v1/decisions"
         assert body["input"][0]["content"][0]["data"] == payload
-        assert [q["name"] for q in body["questions"]] == [
-            "request_coverage", "condition_preservation", "target_operation_alignment",
-        ]
-        assert all({c["value"] for c in q["choices"]} == {"match", "mismatch", "unclear"}
-                   for q in body["questions"])
+        assert [q["name"] for q in body["questions"]] == [s["name"] for s in payload["check_specs"]]
+        assert all({"match", "unclear"} <= {c["value"] for c in q["choices"]} for q in body["questions"])
         rows = answers()
-        rows[1] = answers("mismatch")[1]
+        rows[1] = answers("missing")[1]
         return httpx.Response(200, json={"answers": rows, "usage": {"input_tokens": 100}})
 
     with httpx.Client(transport=httpx.MockTransport(transport)) as client:
@@ -121,7 +118,7 @@ def test_plan_review_has_a_separate_three_question_request_and_preserves_low_con
                                  lambda body, role: guarded.append((body, role)))
         result, usage = gateway.review_plan(payload)
     assert result["status"] == "ISSUE"
-    assert result["checks"][1]["choice"] == "mismatch"
+    assert result["checks"][1]["choice"] == "missing"
     assert result["checks"][1]["confidence"] == 0.05
     assert usage == {"input_tokens": 100}
     assert len(guarded) == 1 and guarded[0][1] == "plan_review"

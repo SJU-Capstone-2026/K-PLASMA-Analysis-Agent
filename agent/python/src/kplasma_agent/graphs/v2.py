@@ -25,7 +25,7 @@ from ..v2.executor import SequentialExecutor
 from ..v2.plan_validation import InvalidPlan, validate_plan
 from ..v2.plan_review import (
     PROMPT_VERSION, PlanReviewResult, build_plan_review_context, digest, plan_digest,
-    plan_review_feedback, review_result,
+    matches_review_context, plan_review_feedback, review_result,
 )
 
 
@@ -259,9 +259,7 @@ def build_v2_graph(models, executions, checkpointer):
             data, error, counts = model_call(state, "PLAN_REVIEW", key, models.review_plan, payload)
             try:
                 decision = PlanReviewResult.model_validate(data) if data else review_result(payload, "UNAVAILABLE", reason=error)
-                if any(getattr(decision, key) != payload[key] for key in (
-                    "plan_revision", "plan_digest", "input_digest", "prompt_version",
-                )) or decision.status == "SKIPPED":
+                if not matches_review_context(decision, payload) or decision.status == "SKIPPED":
                     raise ValueError("plan review belongs to another input")
             except (ValueError, TypeError):
                 decision = review_result(payload, "UNAVAILABLE", reason="DECISIONS_INVALID_RESPONSE")
@@ -285,7 +283,7 @@ def build_v2_graph(models, executions, checkpointer):
             return (decision.status == "PASS" and decision.plan_revision == state["plan_revision"]
                     and decision.plan_digest == plan_digest(state["plan"])
                     and decision.prompt_version == PROMPT_VERSION
-                    and decision.input_digest == state["plan_review_input"]["input_digest"]
+                    and matches_review_context(decision, state["plan_review_input"])
                     and state.get("plan_review_binding_digest") == binding_digest(state))
         except (ValueError, TypeError, KeyError):
             return False

@@ -11,10 +11,8 @@ class MatchingPlanReview:
     """Explicit scripted response; these tests isolate execution and answer review."""
 
     def review_plan(self, context):
-        from kplasma_agent.v2.plan_review import PLAN_REVIEW_QUESTIONS, PlanReviewCheck, review_result
-        checks = [PlanReviewCheck(name=name, choice="match", probabilities={"match": 1.0, "mismatch": 0.0, "unclear": 0.0},
-                                  confidence=1.0) for name in PLAN_REVIEW_QUESTIONS]
-        return review_result(context, "PASS", checks=checks).model_dump(mode="json"), {}
+        from runtime_v2_worker import matching_plan_review
+        return matching_plan_review(context)
 
 
 def test_evaluation_matrix_has_24_cases_and_eight_repeated_three_times():

@@ -359,7 +359,7 @@
                   },
                   "kind": {
                     "type": "string",
-                    "description": "PLAN_INITIAL, REPLAN, PLAN_REVIEW, COMPOSE, ANSWER_REWRITE, PARTIAL_COMPOSE, or REVIEW. PLAN_REVIEW is execution-plan semantics review (at most 3); REVIEW is final interpretation review. All share the 13-call request budget."
+                    "description": "PLAN_INITIAL, REPLAN, PLAN_REVIEW, COMPOSE, ANSWER_REWRITE, PARTIAL_COMPOSE, or REVIEW. PLAN_REVIEW is condition-level execution-plan semantics review (at most 3). Internal schema 2 records condition IDs, native reason choices and original-source/plan-value evidence; REVIEW is final interpretation review. All share the 13-call request budget."
                   },
                   "key": {
                     "type": "string"

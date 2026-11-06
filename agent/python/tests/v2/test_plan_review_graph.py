@@ -45,7 +45,7 @@ class Models:
         self.reviews.append(deepcopy(context))
         if choice == "outage":
             return review_result(context, "UNAVAILABLE", reason="DECISIONS_TIMEOUT").model_dump(mode="json"), None
-        result = parse_plan_review({"answers": answers(choice)}, context).model_dump(mode="json")
+        result = parse_plan_review({"answers": answers("missing" if choice == "mismatch" else choice, context)}, context).model_dump(mode="json")
         return result, {}
 
     def compose(self, context):
@@ -209,3 +209,38 @@ def test_targets_supplied_outside_a_planned_confirmation_require_a_new_review():
     assert state["replans"] == 1 and len(models.reviews) == 2
     assert models.reviews[1]["confirmed_context"]["selected_runs"] == [e["ref"] for e in entries]
     assert state["answer"]["answerSnapshot"]["executionStatus"] == "COMPLETE"
+
+
+def test_replan_receives_and_durably_stores_condition_evidence():
+    from .test_condition_review import reply
+
+    class Precise(Models):
+        def review_plan(self, context):
+            bad = not self.reviews
+            self.reviews.append(deepcopy(context))
+            response = reply(context, 'filter.search.meanIonEnergy' if bad else None)
+            return parse_plan_review(response, context).model_dump(mode='json'), {}
+
+    models = Precise([example_plan().model_dump(mode='json'), correct_plan()])
+    state, port = invoke(models)
+    issue, = models.plan_inputs[1]['plan_review_feedback']['issues']
+    assert issue['condition_id'] == 'filter.search.meanIonEnergy'
+    assert issue['issue_type'] == 'value_changed'
+    assert issue['sources'][0]['quote'] == QUESTION
+    assert issue['plan_values'][0]['value']['value']['value'] == 0
+    saved = next(m['outcome']['data'] for m in port.models.values() if m['kind'] == 'PLAN_REVIEW')
+    assert next(c['issue'] for c in saved['checks'] if c['issue']) == issue
+    assert state['replans'] == 1 and list(port.steps) == ['execution-2-search']
+
+
+def test_truncated_stored_pass_cannot_open_execution_even_if_internally_consistent():
+    class Partial(Models):
+        def review_plan(self, context):
+            data, usage = super().review_plan(context)
+            data['checks'] = data['checks'][:2]
+            data['expected_check_names'] = data['expected_check_names'][:2]
+            return data, usage
+
+    state, port = invoke(Partial())
+    assert not port.steps
+    assert state['failure'] == 'PLAN_REVIEW_UNAVAILABLE'
