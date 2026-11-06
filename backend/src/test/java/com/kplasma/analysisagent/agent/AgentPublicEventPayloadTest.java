@@ -7,6 +7,14 @@ import org.junit.jupiter.api.Test;
 import static org.assertj.core.api.Assertions.*;
 
 class AgentPublicEventPayloadTest {
+    @Test void planReviewActivityIsDistinctFromFinalInterpretationReviewWithoutLeakingItsPlan() {
+        var activity = Map.<String,Object>of("activityId", "review-plan-1", "code", "PLAN_REVIEW", "phase", "started");
+        assertThat(AgentPublicEvents.validate("activity", activity)).isEqualTo(activity);
+        assertThatThrownBy(() -> AgentPublicEvents.validate("activity", Map.of(
+            "activityId", "review-plan-1", "code", "PLAN_REVIEW", "phase", "completed", "reviewInput", Map.of())))
+            .isInstanceOf(IntakeException.class);
+    }
+
     @Test void publicEventsRejectUnknownFieldsAndUnboundedOrInternalContent() {
         assertThatThrownBy(() -> AgentPublicEvents.validate("activity", Map.of(
             "activityId", "r0:plan", "code", "PLAN", "phase", "started", "rawPlan", "private")))

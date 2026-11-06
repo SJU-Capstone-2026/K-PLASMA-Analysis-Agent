@@ -126,7 +126,7 @@ def build_v2_graph(models, executions, checkpointer):
         permit = executions.reserve_model(kind, key)
         saved = permit.get("outcome")
         if saved is None and permit["callAllowed"]:
-            code = {"PLAN_INITIAL": "PLAN", "REPLAN": "REPLAN", "REVIEW": "REVIEW",
+            code = {"PLAN_INITIAL": "PLAN", "REPLAN": "REPLAN", "PLAN_REVIEW": "PLAN_REVIEW", "REVIEW": "REVIEW",
                     "ANSWER_REWRITE": "REWRITE"}.get(kind, "GENERAL_ANSWER" if context.get("mode") == "general_only" else "INTERPRET")
             identity = str(permit["attemptId"])
             progress.activity(code, identity=identity)

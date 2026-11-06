@@ -138,6 +138,16 @@ class StreamingModels:
                                                ("within_evidence", "overclaim", "unassessable")}}]}, {}
 
 
+def test_plan_review_reports_its_real_activity_without_starting_an_interpretation_stream():
+    port = DurablePort([{"runId": "A", "runVersionId": "A-v1", "pressure": 2},
+                        {"runId": "B", "runVersionId": "B-v1", "pressure": 4}])
+    invoke(StreamingModels(port, interpretation=False), port)
+    activities = [e["payload"]["code"] for e in port.events if e["kind"] == "activity"]
+    assert activities.count("PLAN_REVIEW") == 2
+    assert "INTERPRET" not in activities
+    assert not any(e["kind"] == "answer.start" for e in port.events)
+
+
 def invoke(models, port):
     entries = [{"key": f"R{index}", "ref": {key: row[key] for key in ("runId", "runVersionId")}}
                for index, row in enumerate(port.runs, 1)]

@@ -159,3 +159,12 @@ test('queue and user-input waits do not announce an earlier running activity as 
  expect(screen.queryByLabelText('작성 중인 답변')).not.toBeInTheDocument();
  expect(screen.queryByRole('status')).not.toBeInTheDocument();
 });
+test('plan meaning review has its own progress and completion does not claim it passed',()=>{
+ const {rerender}=render(<PendingRequest {...callbacks} request={{...request,
+  progress:progress([activity('plan-review','PLAN_REVIEW','started',1)])}}/>);
+ expect(screen.getByRole('status')).toHaveTextContent('질문 조건과 작업 계획을 대조하는 중');
+ rerender(<PendingRequest {...callbacks} request={{...request,
+  progress:progress([activity('plan-review','PLAN_REVIEW','completed',2)])}}/>);
+ expect(screen.getByText('작업 계획의 의미 검토를 마쳤어요')).toBeVisible();
+ expect(screen.queryByText(/계획.*통과/)).not.toBeInTheDocument();
+});
