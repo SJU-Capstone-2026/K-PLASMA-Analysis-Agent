@@ -4,7 +4,8 @@ import {RunComparisonCard} from './RunComparisonCard';
 import type {ComparisonResult} from './agent-contract';
 import type {ComparisonResultV2} from 'agent';
 import {RunSelectionPanel,ComparisonOptionsPanel} from './RunSelectionPanel';
-const stages:Record<string,string>={load_comparison_outputs:'원본 파형의 특징을 계산하고 있습니다.',select_tool:'처리할 도구를 선택하고 있습니다.',guard:'실행 조건을 확인하고 있습니다.',calculate:'실험 값을 계산하고 있습니다.',generate_answer:'질문에 맞는 답변을 작성하고 있습니다.',validate_answer:'답변의 근거를 확인하고 있습니다.',interpret:'질문을 해석하고 있습니다.',decide:'실행 조건을 확인하고 있습니다.',gather:'실제 Run 데이터를 확인하고 있습니다.',forward:'조건에 맞는 Run을 조회하고 있습니다.',reverse:'목표에 맞는 Run을 찾고 있습니다.',compare:'Run 차이를 계산하고 있습니다.',validate_result:'수치를 검증하고 있습니다.',generate_explanation:'설명을 작성하고 있습니다.',validate_explanation:'설명을 검증하고 있습니다.',present:'답변을 준비하고 있습니다.',commit:'답변을 저장하고 있습니다.',sync_result:'저장된 답변을 불러오고 있습니다.'};
+import {AgentProgress,CompletedAgentProgress} from './AgentProgress';
+import {StreamPreview} from './StreamPreview';
 const statusTitles:Partial<Record<AgentRequestView['status'],string>>={NEEDS_INPUT:'추가 정보가 필요합니다',FAILED:'분석을 완료하지 못했습니다',CANCELLED:'분석이 취소되었습니다'};
 export function PendingRequest({request,sending,onResume,onCancel,onError,hideQuestion=false,resultPreview}: {
  hideQuestion?:boolean;resultPreview?:AgentResultProjection|null;request:AgentRequestView;sending:boolean;onResume:(input:Snapshot)=>Promise<void>;
@@ -13,23 +14,26 @@ export function PendingRequest({request,sending,onResume,onCancel,onError,hideQu
  const [reply,setReply]=useState('');
  useEffect(()=>setReply(''),[request.requestId,request.pendingInput?.id]);
  const running=request.status==='RUNNING'||request.status==='QUEUED';
+ const cancelled=request.status==='CANCELLED';
  const pending=request.status==='NEEDS_INPUT'?request.pendingInput:null;
  const selectingRuns=pending?.type==='run_selection';
  const selectingOptions=pending?.type==='comparison_options';
  const partial=request.partialResult as unknown as ComparisonResult|ComparisonResultV2|null;
- const panelStyle=selectingRuns?'v1-pending--run-selection':selectingOptions?'v1-pending--comparison-options':'panel';
+ const panelStyle=running?'v1-pending--running':cancelled?'v1-pending--cancelled':selectingRuns?'v1-pending--run-selection':selectingOptions?'v1-pending--comparison-options':'panel';
  const pickerProps={request,sending,onResume,onError,onCancel};
 
  return <section className={`v1-pending ${panelStyle}`} aria-label="진행 중인 분석 요청">
-  {!selectingRuns&&!selectingOptions&&<h3>{statusTitles[request.status]??'분석 중'}</h3>}
+  {!running&&!cancelled&&!selectingRuns&&!selectingOptions&&<h3>{statusTitles[request.status]??'분석 중'}</h3>}
   {!hideQuestion&&<p>{request.question}</p>}
   {request.inputEvents?.map((event,index)=>{
    const input=event.input as Snapshot|undefined;
    return typeof input?.text==='string'?<p key={index} className="v1-user-input">추가 입력: {input.text}</p>:null;
   })}
   {running&&<>
-   <p role="status">{stages[request.stage]??'요청을 처리하고 있습니다.'}</p>
+   <AgentProgress progress={request.progress} stage={request.stage} queued={request.status==='QUEUED'}/>
+   <StreamPreview request={request} resultPreview={resultPreview}/>
   </>}
+  {(request.status==='FAILED'||request.status==='CANCELLED')&&<CompletedAgentProgress summary={request.executionSummary} status={request.status}/>}
   {pending&&(selectingRuns?<RunSelectionPanel {...pickerProps}/>:selectingOptions?<ComparisonOptionsPanel {...pickerProps}/>:<form onSubmit={event=>{
    event.preventDefault();
    onResume({text:reply}).then(()=>setReply('')).catch(onError);
@@ -49,6 +53,7 @@ export function PendingRequest({request,sending,onResume,onCancel,onError,hideQu
     <h4>비교 완료 / 설명 실패</h4><p>검증된 비교 결과만 표시합니다. 설명은 완료되지 않았습니다.</p><RunComparisonCard result={partial}/>
    </div>}
   </>}
-  {(running||pending)&&!selectingRuns&&!selectingOptions&&<button type="button" className="button button--ghost button--small" disabled={sending} onClick={()=>onCancel().catch(onError)}>분석 취소</button>}
+  {(request.status==='FAILED'||request.status==='CANCELLED')&&<StreamPreview request={request} resultPreview={resultPreview}/>}
+  {pending&&!selectingRuns&&!selectingOptions&&<button type="button" className="button button--ghost button--small" disabled={sending} onClick={()=>onCancel().catch(onError)}>분석 취소</button>}
  </section>;
 }
