@@ -267,13 +267,15 @@ def parse_plan_review(data: dict, context: PlanReviewContext) -> PlanReviewResul
 def review_result(context: PlanReviewContext, status, *, checks=None, reason=None) -> PlanReviewResult:
     return PlanReviewResult(status=status, checks=checks or [], reason=reason,
                             expected_check_names=[spec["name"] for spec in context["check_specs"]],
-                            **{key: context[key] for key in ("plan_revision", "plan_digest", "input_digest", "prompt_version")})
+                            plan_revision=context["plan_revision"], plan_digest=context["plan_digest"],
+                            input_digest=context["input_digest"], prompt_version=context["prompt_version"])
 
 
 def matches_review_context(result: PlanReviewResult, context: PlanReviewContext) -> bool:
     if result.schema_version != 2 or result.expected_check_names != [s["name"] for s in context["check_specs"]]:
         return False
-    if any(getattr(result, key) != context[key] for key in ("plan_revision", "plan_digest", "input_digest", "prompt_version")):
+    if (result.plan_revision, result.plan_digest, result.input_digest, result.prompt_version) != (
+            context["plan_revision"], context["plan_digest"], context["input_digest"], context["prompt_version"]):
         return False
     for check, spec in zip(result.checks, context["check_specs"], strict=False):
         expected_issue = rejection_evidence(context, spec, check.choice) if check.choice != "match" else None
