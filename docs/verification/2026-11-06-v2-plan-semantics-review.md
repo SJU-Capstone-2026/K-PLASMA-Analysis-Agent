@@ -12,7 +12,7 @@
 
 ## 품질 판정: 기본 활성화 보류
 
-인공 데이터의 고정 계획 13쌍을 각 3회 검토했다. 둘 다 코드 형식 검사를 통과하도록 작성한 정상·오류 계획을 별도 정답으로 사용했다.
+인공 데이터의 고정 계획 13쌍을 프롬프트 `plan-semantics-9`에서 각 3회 검토했다. 둘 다 코드 형식 검사를 통과하도록 작성한 정상·오류 계획을 별도 정답으로 사용했다.
 
 | 최종 고정 계획 평가 | 결과 |
 |---|---:|
@@ -29,7 +29,7 @@
 
 ## 실행한 코드 검증
 
-- Python: `agent/python/.venv/bin/python -m pytest agent/python/tests agent/python/evals -q` — 500 passed.
+- Python: `agent/python/.venv/bin/python -m pytest agent/python/tests agent/python/evals -q` — 최종 501 passed (2.35초).
 - 프론트엔드 테스트: 254 passed. 프론트엔드 타입 검사와 E2E TypeScript 검사 통과.
 - 관련 Java 계약·역할·이벤트 테스트 통과. Flyway V18의 PLAN_REVIEW 역할 상한 3회와 전체 13회 예산을 확인했다.
 - `JAVA_HOME=<Java21> npm run test:e2e:v2` — 인공 데이터 HTTP/브라우저 E2E 1 passed. 일반 개념 생략·구조화 HITL 재사용·조회·중첩 실행과 390/800/1008/1440px를 확인했다.
@@ -37,6 +37,12 @@
 - Ruff와 `git diff --check` 통과.
 
 초기 E2E는 Java 환경 미설정으로 빌드 실패했고 Java21로 재실행했다. 진행 이벤트 검사를 추가하면서 기존 인공 fixture가 사용자 선택을 계획에 넣지 않고 사후 복구에 의존한 점도 발견해, 명시적 선택 단계로 바로잡았다. 제품의 실제 선택 정책을 우회해 테스트를 통과시키지 않았다.
+
+## 최종 코드 검토
+
+별도 리뷰에서 `target_range`의 계약 불일치 한 건을 발견해 수정했다. 실제 실행은 양끝을 포함하는 범위 필터인데 검토 입력은 정렬이라고 설명하고 있었다. 검토 계약과 실행 효과 표시를 필터로 맞췄고, 같은 범위를 `constraints.between`으로 표현했을 때 실제 실행 인자와 검토 설명이 같아지는 회귀 테스트를 RED→GREEN으로 확인했다. 최대·최소 목표만 정렬에 남긴다.
+
+이 계약 수정은 프롬프트 `plan-semantics-10`으로 구분한다. 수정 뒤 유료 모델 평가를 추가하지 않았으므로 위 78회 점수와 웹 36회 결과는 수정 전 버전의 측정값이다. 이 수정만으로 정상 계획 오탐이 해결됐다고 주장하지 않으며 기본 비활성 정책을 유지한다. 별도 리뷰의 Critical·Minor는 없었고 Important 한 건을 수정했다. `general_only` 오분류 전체 해결은 범위 밖으로 유지한다.
 
 ## 재실행·데이터 보존
 

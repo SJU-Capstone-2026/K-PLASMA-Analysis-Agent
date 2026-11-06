@@ -92,6 +92,35 @@ def test_execution_view_is_derived_from_actual_inputs_not_requirement_prose():
     assert "150–160" in context["plan"]["requirements"][0]["text"]
 
 
+def test_target_range_review_effect_matches_the_executed_inclusive_filter():
+    from kplasma_agent.v2.bindings import resolve_inputs
+    from kplasma_agent.v2.plan_review import build_plan_review_context
+
+    raw = example_plan().model_dump(mode="json")
+    literal = raw["steps"][0]["inputs"]["constraints"][0]["value"]
+    bounds = {"field": "meanIonEnergy", "min": {**literal, "value": 150},
+              "max": {**literal, "value": 160}}
+    ranking = {"field": "ionFlux", "direction": "maximize"}
+    raw["steps"][0]["inputs"] = {"constraints": [], "goals": [
+        {**bounds, "direction": "target_range"}, ranking,
+    ]}
+    range_goal = PlanDraft.model_validate(raw)
+    raw["steps"][0]["inputs"] = {"constraints": [{**bounds, "operator": "between"}],
+                                  "goals": [ranking]}
+    explicit_filter = PlanDraft.model_validate(raw)
+    assert resolve_inputs(range_goal.steps[0], {}, {}) == resolve_inputs(explicit_filter.steps[0], {}, {})
+
+    contexts = [build_plan_review_context(plan, 1, QUESTION, [], {}, {})
+                for plan in (range_goal, explicit_filter)]
+    assert contexts[0]["program_effects"] == contexts[1]["program_effects"]
+    effect, = contexts[0]["program_effects"]
+    assert "150 eV <= meanIonEnergy <= 160 eV" in effect
+    assert "no numeric filter" not in effect
+    assert "rank by" in effect and "maximize" in effect
+    assert "target_range" not in effect
+    assert "target_range" in contexts[0]["tool_contracts"]["reverse_search"]["condition_inputs"]
+
+
 @pytest.mark.parametrize("choice,status", [("match", "PASS"), ("mismatch", "ISSUE"), ("unclear", "UNCLEAR")])
 def test_choice_drives_verdict_even_when_confidence_is_low_and_answers_arrive_out_of_order(choice, status):
     from kplasma_agent.v2.plan_review import parse_plan_review, plan_review_feedback

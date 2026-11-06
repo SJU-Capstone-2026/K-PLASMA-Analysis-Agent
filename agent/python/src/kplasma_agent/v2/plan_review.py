@@ -11,7 +11,7 @@ from ..contracts import MetricId
 from ..metric_registry import UNITS, normalize_value
 from .contracts import ClosedModel, Operation, PlanDraft
 
-PROMPT_VERSION = "plan-semantics-9"
+PROMPT_VERSION = "plan-semantics-10"
 CheckName = Literal["request_coverage", "condition_preservation", "target_operation_alignment"]
 Choice = Literal["match", "mismatch", "unclear"]
 Probability = Annotated[float, Field(ge=0, le=1)]
@@ -99,13 +99,14 @@ def tool_contracts() -> dict:
     return {
         "forward_lookup": {"description": "압력·소스·바이어스 조건으로 저장된 실제 Run 조회",
                            "inputs": ["pressure", "source_power", "bias_power"], "outputs": ["candidates"]},
-        "reverse_search": {"description": "모든 필수 조건으로 후보를 필터링한 뒤 goals 순서로 정렬",
-                           "constraint_logic": "한 호출의 constraints는 전부 AND. 독립 범위를 각각 조회하려면 별개 검색 단계가 필요하다. goals는 필터 통과 후 정렬이다.",
+        "reverse_search": {"description": "constraints와 target_range로 후보를 필터링한 뒤 maximize/minimize 순서로 정렬",
+                           "constraint_logic": "constraints와 goals의 target_range는 전부 AND 필터. 독립 범위를 각각 조회하려면 별개 검색 단계가 필요하다. maximize/minimize만 필터 통과 후 정렬이다.",
                            "fields": list(get_args(MetricId)),
                            "operators": ["eq", "lt", "lte", "gt", "gte", "between"],
                            "condition_inputs": {
                                "between": "min, max가 양끝 포함 하한·상한. value:null은 미사용 자리이며 0이라는 뜻이 아님.",
                                "eq,lt,lte,gt,gte": "value를 사용하며 min/max:null은 미사용 자리.",
+                               "target_range": "goals에 있어도 min/max 양끝 포함 between 필터로 실행하며 정렬에는 사용하지 않음.",
                            },
                            "goals": ["maximize", "minimize", "target_range"], "outputs": ["candidates"]},
         "compare_runs": {"description": "지정된 고정 Run들의 fields 값·절대 차이·범위·기준 대비 변화량과 plot_ids 그래프 제공. 두 Run 차이는 기본 계산한다.",
@@ -213,15 +214,20 @@ def program_effects(plan: PlanDraft) -> list[str]:
         inputs = item["inputs"]
         if item.get("tool") == "reverse_search":
             predicates = []
-            for c in inputs["constraints"]:
+            constraints = [*inputs["constraints"], *(
+                {**goal, "operator": "between"} for goal in inputs["goals"]
+                if goal["direction"] == "target_range"
+            )]
+            for c in constraints:
                 field = c["field"]
                 if c["operator"] == "between":
                     predicates.append(f"{_binding_text(c['min'], field)} <= {field} <= {_binding_text(c['max'], field)}")
                 else:
                     predicates.append(f"{field} {operators[c['operator']]} {_binding_text(c['value'], field)}")
             text = "all stored Runs satisfying " + (" AND ".join(predicates) or "no numeric filter")
-            if inputs["goals"]:
-                text += "; rank by " + json.dumps(inputs["goals"], ensure_ascii=False)
+            rankings = [goal for goal in inputs["goals"] if goal["direction"] != "target_range"]
+            if rankings:
+                text += "; rank by " + json.dumps(rankings, ensure_ascii=False)
         elif item.get("tool") == "compare_runs":
             fields = ", ".join(f"{f} ({FIELD_META[f]['label']})" for f in inputs["fields"])
             text = f"compare_runs computes {fields} for EVERY Run in {_binding_text(inputs['runs'])}"
