@@ -251,7 +251,10 @@ class V2ModelGateway:
         self.input_guard = input_guard
 
     def review_plan(self, context):
-        self.input_guard({"input": context, "questions": PLAN_REVIEW_QUESTIONS}, "plan_review")
+        try:
+            self.input_guard({"input": context, "questions": PLAN_REVIEW_QUESTIONS}, "plan_review")
+        except ValueError:
+            raise ModelError("PLAN_REVIEW_INPUT_INVALID") from None
         return review_plan(self.decisions, self.settings, context)
 
     def submit_plan(self, context):

@@ -4,7 +4,7 @@ from hashlib import sha256
 import json
 from typing import Annotated, Literal, TypedDict, get_args
 
-from pydantic import Field
+from pydantic import Field, model_validator
 
 from ..comparison_catalog import FIELD_META, PlotId
 from ..contracts import MetricId
@@ -67,6 +67,19 @@ class PlanReviewResult(ClosedModel):
     prompt_version: str
     checks: list[PlanReviewCheck]
     reason: str | None = None
+
+    @model_validator(mode="after")
+    def consistent_verdict(self):
+        if self.status in {"PASS", "ISSUE", "UNCLEAR"}:
+            if len(self.checks) != 3 or {c.name for c in self.checks} != set(PLAN_REVIEW_QUESTIONS):
+                raise ValueError("incomplete plan review checks")
+            if any(set(c.probabilities) != set(CHOICES) for c in self.checks):
+                raise ValueError("incomplete plan review probabilities")
+            expected = "ISSUE" if any(c.choice == "mismatch" for c in self.checks) else (
+                "UNCLEAR" if any(c.choice == "unclear" for c in self.checks) else "PASS")
+            if self.status != expected:
+                raise ValueError("plan review verdict conflicts with its choices")
+        return self
 
 
 def digest(value) -> str:

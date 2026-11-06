@@ -23,6 +23,10 @@ from ..v2.contracts import (
 )
 from ..v2.executor import SequentialExecutor
 from ..v2.plan_validation import InvalidPlan, validate_plan
+from ..v2.plan_review import (
+    PROMPT_VERSION, PlanReviewResult, build_plan_review_context, digest, plan_digest,
+    plan_review_feedback, review_result,
+)
 
 
 class State(TypedDict, total=False):
@@ -48,6 +52,11 @@ class State(TypedDict, total=False):
     rendered: str
     evidence: list[dict]
     review: dict
+    plan_review: dict | None
+    plan_review_input: dict
+    plan_review_feedback: dict | None
+    plan_review_enabled: bool
+    plan_review_binding_digest: str | None
     replans: int
     rewrites: int
     model_requests: int
@@ -86,6 +95,14 @@ def _budget(state, **extra):
 def _issue(reason):
     if not reason:
         return None
+    if reason in {"PLAN_SEMANTIC_MISMATCH", "PLAN_SEMANTIC_UNCLEAR"}:
+        return "질문의 조건에 맞는 처리 계획을 확정하지 못해 더 진행하지 않았습니다."
+    if reason == "PLAN_REVIEW_UNAVAILABLE":
+        return "작업 계획 검토를 완료하지 못해 실행을 중단했습니다."
+    if reason == "PLAN_REVIEW_INPUT_INVALID":
+        return "계획 검토에 필요한 정보를 구성하지 못해 실행하지 않았습니다."
+    if reason == "STALE_PLAN_REVIEW":
+        return "질문 또는 선택 정보가 변경되어 이전 검토로 실행할 수 없습니다."
     if reason == "INSUFFICIENT_CANDIDATES":
         return "검색 결과에서 비교에 필요한 수의 Run을 확보하지 못했습니다."
     if reason.startswith("MISSING_INPUT:"):
@@ -129,6 +146,8 @@ def build_v2_graph(models, executions, checkpointer):
                 if stream is not None:
                     stream.invalidate("writer_failed")
                 saved = {"data": None, "usage": None, "error": getattr(error, "code", "MODEL_OUTPUT_INVALID")}
+            if kind == "PLAN_REVIEW":
+                saved["reviewInput"] = context
             saved = executions.complete_model(permit["attemptId"], saved)["outcome"]
             progress.activity(code, "completed", identity=identity)
         elif saved is not None:
@@ -155,6 +174,7 @@ def build_v2_graph(models, executions, checkpointer):
             "base_revision": state.get("plan_revision"),
             "previous_plan": state.get("plan"),
             "feedback": state.get("feedback"),
+            "plan_review_feedback": state.get("plan_review_feedback"),
             "verified_results": {step: value.get("status")
                                  for step, value in state.get("step_results", {}).items()},
         }
@@ -163,7 +183,9 @@ def build_v2_graph(models, executions, checkpointer):
             state, "REPLAN" if replan else "PLAN_INITIAL",
             f"plan:{replan_number}:{len(history)}", models.submit_plan, payload,
         )
-        return {**counters, "plan_draft": data, "feedback": error, "replans": replan_number}
+        enabled = state.get("plan_review_enabled", getattr(getattr(models, "settings", None), "plan_review_enabled", True))
+        return {**counters, "plan_draft": data, "feedback": error, "replans": replan_number,
+                "plan_review_enabled": enabled}
 
     def plan(state):
         return request_plan(state)
@@ -207,18 +229,72 @@ def build_v2_graph(models, executions, checkpointer):
                 if step.id in state.get("step_inputs", {}):
                     used_inputs[step.id] = state["step_inputs"][step.id]
         stored = executions.accept_plan(accepted)
-        publish_results(reusable)
         return {"plan": stored["plan"], "plan_revision": stored["revision"], "mode": accepted.request_mode,
-                "route": "execute" if accepted.steps else "compose", "failure": None, "feedback": None,
+                "route": "plan_review" if accepted.steps else "compose", "failure": None, "feedback": None,
                 "step_results": reusable, "step_inputs": used_inputs,
                 "durable_steps": [key for key in reusable if key in state.get("durable_steps", [])],
-                "draft": None, "last_draft": None}
+                "draft": None, "last_draft": None, "plan_review": None, "plan_review_binding_digest": None}
 
     def validate(state):
         with progress.work("PLAN_VALIDATE"):
             return validate_plan_state(state)
 
+    def binding_digest(state, *, history=None, context=None):
+        return digest({"question": state["question"],
+                       "input_history": state.get("input_history", []) if history is None else history,
+                       "confirmed_context": _binding_context(state.get("context", {}) if context is None else context)})
+
+    def review_plan(state):
+        try:
+            payload = build_plan_review_context(PlanDraft.model_validate(state["plan"]), state["plan_revision"],
+                state["question"], state.get("input_history", []), _binding_context(state.get("context", {})),
+                state.get("step_results", {}))
+        except (ValueError, TypeError):
+            return {"route": "compose", "failure": "PLAN_REVIEW_INPUT_INVALID"}
+        if not state.get("plan_review_enabled", True):
+            decision = review_result(payload, "SKIPPED", reason="PLAN_REVIEW_DISABLED")
+            counts = {}
+        else:
+            key = f"plan-review:{state['plan_revision']}:{payload['input_digest']}:{payload['plan_digest'][:24]}:{PROMPT_VERSION}"
+            data, error, counts = model_call(state, "PLAN_REVIEW", key, models.review_plan, payload)
+            try:
+                decision = PlanReviewResult.model_validate(data) if data else review_result(payload, "UNAVAILABLE", reason=error)
+                if any(getattr(decision, key) != payload[key] for key in (
+                    "plan_revision", "plan_digest", "input_digest", "prompt_version",
+                )) or decision.status == "SKIPPED":
+                    raise ValueError("plan review belongs to another input")
+            except (ValueError, TypeError):
+                decision = review_result(payload, "UNAVAILABLE", reason="DECISIONS_INVALID_RESPONSE")
+        result = {**counts, "plan_review": decision.model_dump(mode="json"), "plan_review_input": payload,
+                  "plan_review_binding_digest": binding_digest(state)}
+        if decision.status in {"PASS", "SKIPPED"}:
+            publish_results(state.get("step_results", {}))
+            return {**result, "route": "execute", "failure": None, "plan_review_feedback": None}
+        if decision.status in {"ISSUE", "UNCLEAR"}:
+            feedback = plan_review_feedback(decision)
+            return {**result, "route": "replan" if state.get("replans", 0) < 2 else "compose",
+                    "failure": feedback["code"], "feedback": feedback["code"], "plan_review_feedback": feedback}
+        failure = "PLAN_REVIEW_INPUT_INVALID" if decision.reason == "PLAN_REVIEW_INPUT_INVALID" else "PLAN_REVIEW_UNAVAILABLE"
+        return {**result, "route": "compose", "failure": failure, "feedback": decision.reason}
+
+    def approved_plan(state):
+        if not state.get("plan_review_enabled", True):
+            return True
+        try:
+            decision = PlanReviewResult.model_validate(state.get("plan_review"))
+            return (decision.status == "PASS" and decision.plan_revision == state["plan_revision"]
+                    and decision.plan_digest == plan_digest(state["plan"])
+                    and decision.prompt_version == PROMPT_VERSION
+                    and decision.input_digest == state["plan_review_input"]["input_digest"]
+                    and state.get("plan_review_binding_digest") == binding_digest(state))
+        except (ValueError, TypeError, KeyError):
+            return False
+
     def execute(state):
+        if not state.get("plan_review"):
+            return {"route": "plan_review"}
+        if not approved_plan(state):
+            return {"route": "compose", "failure": "STALE_PLAN_REVIEW"}
         accepted = PlanDraft.model_validate(state["plan"])
         previous = {key: StepResult.model_validate(val) for key, val in state.get("step_results", {}).items()}
         current = next((s for s in accepted.steps if s.id not in previous), None)
@@ -331,6 +407,7 @@ def build_v2_graph(models, executions, checkpointer):
             confirmation = StepResult(executionId=f"selection:{step.id}", stepId=step.id, status="verified",
                                       outputs={"value": user_input[option_field]})
             return {"pending": pending, "input_history": history, "route": "execute", "failure": None,
+                    "plan_review_binding_digest": binding_digest(state, history=history),
                     "step_results": {**state.get("step_results", {}), step.id: confirmation.model_dump(mode="json")}}
         if not user_input.get("comparisonReference"):
             retry = isinstance(step, AwaitInputStep) and step.confirmation != "run_selection"
@@ -353,8 +430,15 @@ def build_v2_graph(models, executions, checkpointer):
                 executionId=f"selection:{step.id}", stepId=step.id, status="verified",
                 outputs={"selection": _binding_context(context)["selected_runs"]},
             ).model_dump(mode="json")
+        if replacement or not isinstance(step, AwaitInputStep):
+            return {"pending": pending, "input_history": history, "context": context,
+                    "replacement_pending": False, "route": "replan", "failure": "CONFIRMED_TARGETS_CHANGED",
+                    "feedback": "사용자가 비교 대상을 새로 확인했습니다. 새 고정 참조를 유지해 계획을 제출하세요.",
+                    "step_results": results, "plan_review": None, "plan_review_binding_digest": None,
+                    "durable_steps": [key for key in state.get("durable_steps", []) if key not in invalidated]}
         return {"pending": pending, "input_history": history, "context": context,
                 "replacement_pending": False, "route": "execute", "failure": None, "step_results": results,
+                "plan_review_binding_digest": binding_digest(state, history=history, context=context),
                 "durable_steps": [key for key in state.get("durable_steps", []) if key not in invalidated],
                 "last_draft": None, "draft": None, "review": {}}
 
@@ -391,7 +475,11 @@ def build_v2_graph(models, executions, checkpointer):
         evidence = collect_evidence(results)
         full_evidence = [entry.model_dump(mode="json") for entry in evidence]
         issue = _issue(state.get("failure"))
-        if "plan" not in state or results_only(state):
+        review_blocked = state.get("failure") in {
+            "PLAN_SEMANTIC_MISMATCH", "PLAN_SEMANTIC_UNCLEAR", "PLAN_REVIEW_UNAVAILABLE",
+            "PLAN_REVIEW_INPUT_INVALID", "STALE_PLAN_REVIEW",
+        }
+        if "plan" not in state or results_only(state) or review_blocked:
             return {"route": "finalize", "rendered": facts_only(evidence, issue),
                     "evidence": full_evidence, "draft": None}
         numeric_values = collect_numeric_values(results, evidence) if mode == "data_request" else {}
@@ -494,7 +582,7 @@ def build_v2_graph(models, executions, checkpointer):
 
     builder = StateGraph(State)
     for name, node in {
-        "plan": plan, "validate_plan": validate, "execute_step": execute, "await_input": wait_for_input,
+        "plan": plan, "validate_plan": validate, "review_plan": review_plan, "execute_step": execute, "await_input": wait_for_input,
         "guard_replan": guard_replan, "replan": replan, "compose_answer": compose,
         "guard_rewrite": rewrite, "review_answer": review, "finalize": finalize,
     }.items():
@@ -505,9 +593,10 @@ def build_v2_graph(models, executions, checkpointer):
     builder.add_edge("guard_rewrite", "compose_answer")
     builder.add_edge("finalize", END)
     routes: dict[Hashable, str] = {"execute": "execute_step", "await": "await_input", "replan": "guard_replan",
+              "plan_review": "review_plan",
               "compose": "compose_answer", "review": "review_answer", "rewrite": "guard_rewrite",
               "finalize": "finalize"}
-    for name in ("validate_plan", "execute_step", "await_input", "compose_answer", "review_answer"):
+    for name in ("validate_plan", "review_plan", "execute_step", "await_input", "compose_answer", "review_answer"):
         builder.add_conditional_edges(name, lambda s: s["route"], routes)
     builder.add_conditional_edges("guard_replan", lambda s: s["route"], {"replan": "replan", "compose": "compose_answer"})
     return builder.compile(checkpointer=checkpointer)

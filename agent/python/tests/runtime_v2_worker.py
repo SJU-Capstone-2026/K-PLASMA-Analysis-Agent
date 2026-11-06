@@ -8,6 +8,7 @@ from pathlib import Path
 from kplasma_agent import worker
 from kplasma_agent.config import Settings
 from kplasma_agent.v2.model_gateway import QUESTIONS
+from kplasma_agent.v2.plan_review import PLAN_REVIEW_QUESTIONS, PlanReviewCheck, review_result
 
 CONCEPT = "IED가 뭐야? 이온 에너지 분포라는 개념을 간단히 설명해줘."
 STRICT = "이온 플럭스가 40보다 높은 실제 Run을 모두 찾아줘."
@@ -17,6 +18,9 @@ NESTED = "비교할 두 Run은 내가 고를게. 선택한 두 Run 모두보다 
 class ScriptedGateway:
     def __init__(self, settings, decisions, input_guard):
         self.settings = settings
+
+    def review_plan(self, payload):
+        return matching_plan_review(payload)
 
     def submit_plan(self, payload):
         question = payload["messages"]["question"]
@@ -62,6 +66,12 @@ class ScriptedGateway:
              "confidence": 1.0}
             for name, (_, choices) in QUESTIONS.items()
         ]}, {}
+
+
+def matching_plan_review(payload):
+    checks = [PlanReviewCheck(name=name, choice="match", probabilities={"match": 1.0, "mismatch": 0.0, "unclear": 0.0},
+                              confidence=1.0) for name in PLAN_REVIEW_QUESTIONS]
+    return review_result(payload, "PASS", checks=checks).model_dump(mode="json"), {}
 
 
 def main():

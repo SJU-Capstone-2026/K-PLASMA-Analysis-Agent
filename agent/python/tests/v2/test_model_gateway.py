@@ -160,6 +160,22 @@ def test_new_requests_default_to_plan_review_with_explicit_rollback_flag(monkeyp
     assert V2Settings.from_env(Settings()).plan_review_enabled is False
 
 
+def test_oversized_plan_review_never_reaches_the_provider():
+    from kplasma_agent.model_client import ModelError
+    from .test_plan_review import example_context
+
+    def reject(*_):
+        raise ValueError("v2 input budget exceeded")
+
+    def transport(_):
+        raise AssertionError("invalid review input reached provider")
+
+    with httpx.Client(transport=httpx.MockTransport(transport)) as client:
+        gateway = V2ModelGateway(V2Settings.from_env(Settings()), client, reject)
+        with pytest.raises(ModelError, match="PLAN_REVIEW_INPUT_INVALID"):
+            gateway.review_plan(example_context())
+
+
 def test_gateway_streams_safe_prose_before_provider_completion_with_one_writer_request():
     from kplasma_agent.model_client import ModelClient
     from kplasma_agent.v2.composition import assemble_answer
