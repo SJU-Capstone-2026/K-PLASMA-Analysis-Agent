@@ -3,12 +3,12 @@ import type {AgentRequestView,RunOption,RunOptions,RunSelection,RunSelectionChan
 import {changeRunSelection,fetchRunOptions,fetchRunOptionCount,fetchRunSelection} from '../../api/agent';
 import {numberText,reasons} from './agent-contract';
 
-type Props={request:AgentRequestView;sending:boolean;onResume:(input:Snapshot)=>Promise<void>;onError:(error:unknown)=>void};
+type Props={request:AgentRequestView;sending:boolean;onResume:(input:Snapshot)=>Promise<void>;onError:(error:unknown)=>void;onCancel?:()=>Promise<void>};
 type Operation=Omit<RunSelectionChange,'pendingInputId'|'expectedRequestRevision'|'expectedSelectionRevision'>;
 const message=(error:unknown)=>error instanceof Error?error.message:String(error);
 
 /** The keyed parent resets this state only for a new request/pending revision. */
-export function RunPicker({request,sending,onResume,onError}:Props){
+export function RunPicker({request,sending,onResume,onError,onCancel}:Props){
  const pending=request.pendingInput!;
  const [page,setPage]=useState<RunOptions|null>(null),[selection,setSelection]=useState<RunSelection|null>(null);
  const current=useRef<RunSelection|null>(null),queue=useRef(Promise.resolve()),generation=useRef(0);
@@ -88,6 +88,7 @@ export function RunPicker({request,sending,onResume,onError}:Props){
  const valid=!!selection&&selectedCount>=(pending.minSelections??2)&&selection.unavailableCount===0&&(!pending.baselineRequired||!!baseline)&&!saving&&!saveError;
  const busy=sending||saving>0;
  return <div className="v1-run-selection">
+  {onCancel&&<button type="button" className="button button--ghost button--small" disabled={sending} onClick={()=>onCancel().catch(onError)}>분석 취소</button>}
   <p>{pending.message}</p>
   <div className="v1-picker-controls">
    <label>실험 검색<input type="search" value={draft} onChange={e=>setDraft(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'){setQuery(draft);setCursors([null]);}}} placeholder="Run 이름·버전·조건 검색"/></label>
