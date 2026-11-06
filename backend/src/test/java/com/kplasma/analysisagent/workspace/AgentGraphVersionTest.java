@@ -168,6 +168,15 @@ class AgentGraphVersionTest extends WorkspaceTestSupport {
             "requestRevision",claim.get("requestRevision"),"pendingInput",Map.of("type","run_selection",
                 "id","v2-picker","message","검색한 후보 중 두 Run을 선택해 주세요.","sourceExecutionId",execution,"minSelections",2,"maxSelections",2)));
         var picker=ok("GET","/api/agent"+root+"/run-options?pendingInputId=v2-picker",null,null);
+        for(String suffix:List.of("/run-options?format=2&pendingInputId=v2-picker",
+                "/run-options/count?pendingInputId=v2-picker","/run-selection?pendingInputId=v2-picker")) {
+            assertThat(send("GET","/api/agent"+root+suffix,null,null).statusCode()).isEqualTo(409);
+        }
+        assertThat(send("POST","/api/agent"+root+"/run-selection",Map.of(
+            "pendingInputId","v2-picker","expectedRequestRevision",0,"expectedSelectionRevision",0,
+            "operation","all"),"wrong-picker-format").statusCode()).isEqualTo(409);
+        assertThat(jdbc.queryForObject("select count(*) from agent_run_selection",Integer.class)).isZero();
+        assertThat(ok("GET","/api/agent"+root+"/run-options?pendingInputId=v2-picker",null,null)).isEqualTo(picker);
         var criteria=picker.path("searchCriteria");
         assertThat(criteria.path("constraints").get(0).path("operator").asString()).isEqualTo("gte");
         assertThat(criteria.path("constraints").get(0).path("value").asInt()).isEqualTo(50);
