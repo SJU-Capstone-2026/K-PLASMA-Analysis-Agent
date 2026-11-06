@@ -16,6 +16,7 @@
     "lint": "eslint frontend agent",
     "reference:check": "node scripts/reference/check.mjs",
     "test:e2e": "node scripts/agent/verify.mjs",
+    "test:e2e:v2": "node scripts/agent/verify-v2.mjs",
     "test:e2e:live": "node scripts/agent/verify.mjs --live",
     "test:agent:restart": "node scripts/agent/restart-verification.mjs",
     "test:e2e:legacy": "node scripts/reference/verify.mjs",
