@@ -5,6 +5,7 @@ import type {ComparisonResult} from './agent-contract';
 import type {ComparisonResultV2} from 'agent';
 import {RunSelectionPanel,ComparisonOptionsPanel} from './RunSelectionPanel';
 const stages:Record<string,string>={load_comparison_outputs:'원본 파형의 특징을 계산하고 있습니다.',select_tool:'처리할 도구를 선택하고 있습니다.',guard:'실행 조건을 확인하고 있습니다.',calculate:'실험 값을 계산하고 있습니다.',generate_answer:'질문에 맞는 답변을 작성하고 있습니다.',validate_answer:'답변의 근거를 확인하고 있습니다.',interpret:'질문을 해석하고 있습니다.',decide:'실행 조건을 확인하고 있습니다.',gather:'실제 Run 데이터를 확인하고 있습니다.',forward:'조건에 맞는 Run을 조회하고 있습니다.',reverse:'목표에 맞는 Run을 찾고 있습니다.',compare:'Run 차이를 계산하고 있습니다.',validate_result:'수치를 검증하고 있습니다.',generate_explanation:'설명을 작성하고 있습니다.',validate_explanation:'설명을 검증하고 있습니다.',present:'답변을 준비하고 있습니다.',commit:'답변을 저장하고 있습니다.',sync_result:'저장된 답변을 불러오고 있습니다.'};
+import {StreamPreview} from './StreamPreview';
 const statusTitles:Partial<Record<AgentRequestView['status'],string>>={NEEDS_INPUT:'추가 정보가 필요합니다',FAILED:'분석을 완료하지 못했습니다',CANCELLED:'분석이 취소되었습니다'};
 export function PendingRequest({request,sending,onResume,onCancel,onError,hideQuestion=false,resultPreview}: {
  hideQuestion?:boolean;resultPreview?:AgentResultProjection|null;request:AgentRequestView;sending:boolean;onResume:(input:Snapshot)=>Promise<void>;
@@ -29,6 +30,7 @@ export function PendingRequest({request,sending,onResume,onCancel,onError,hideQu
   })}
   {running&&<>
    <p role="status">{stages[request.stage]??'요청을 처리하고 있습니다.'}</p>
+   <StreamPreview request={request} resultPreview={resultPreview}/>
   </>}
   {pending&&(selectingRuns?<RunSelectionPanel {...pickerProps}/>:selectingOptions?<ComparisonOptionsPanel {...pickerProps}/>:<form onSubmit={event=>{
    event.preventDefault();
@@ -49,6 +51,7 @@ export function PendingRequest({request,sending,onResume,onCancel,onError,hideQu
     <h4>비교 완료 / 설명 실패</h4><p>검증된 비교 결과만 표시합니다. 설명은 완료되지 않았습니다.</p><RunComparisonCard result={partial}/>
    </div>}
   </>}
+  {(request.status==='FAILED'||request.status==='CANCELLED')&&<StreamPreview request={request} resultPreview={resultPreview}/>}
   {(running||pending)&&!selectingRuns&&!selectingOptions&&<button type="button" className="button button--ghost button--small" disabled={sending} onClick={()=>onCancel().catch(onError)}>분석 취소</button>}
  </section>;
 }

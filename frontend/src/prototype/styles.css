@@ -3193,3 +3193,8 @@ p.manual-limit { margin-bottom: 0; color: #826947; font-size: 9px; line-height: 
 .v2-answer-explanation{margin-top:14px;line-height:1.7;overflow-wrap:anywhere}
 .v2-answer-explanation p{margin:6px 0}
 .v2-answer-assumptions{margin:4px 0 10px;padding-left:20px;color:#56667b;font-size:13px}
+.agent-stream-preview { margin-top: 14px; }
+.agent-stream-status { color: #727b89; font-size: 14px; }
+.agent-stream-status span { color: #8a929e; }
+.agent-stream-preview .v1-markdown { min-width: 0; }
+.agent-stream-preview .katex-display { max-width: 100%; overflow-x: auto; overflow-y: hidden; }
