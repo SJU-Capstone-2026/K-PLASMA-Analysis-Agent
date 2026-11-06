@@ -1,14 +1,14 @@
 ---
 title: K-PLASMA v2 계획 의미 검토 구현 계획
 date: 2026-11-06
-status: proposed
-implementation_status: not-started
+status: implemented-with-quality-limitations
+implementation_status: implemented-opt-in
 scope: graph-v2-only
 ---
 
 # K-PLASMA v2 계획 의미 검토 구현 계획
 
-> **For agentic workers:** 구현을 요청받은 뒤 `superpowers:executing-plans`로 아래 작업을 순서대로 진행한다. 현재 요청은 계획서 작성이며 제품 코드 변경, 마이그레이션 적용, 서버 재실행, 유료 API 평가를 포함하지 않는다.
+> **실행 결과:** 사용자의 구현 승인을 받아 아래 흐름을 구현했다. 정상 계획 오탐이 남아 기본 활성화 기준은 충족하지 못했다. 기본 off·명시적 opt-in으로 두며, [검증 결과](../../verification/2026-11-06-v2-plan-semantics-review.md)를 따른다. 아래 제안·예상 항목은 작성 당시의 계획이며 실제 성공률 보장이 아니다.
 
 **Goal:** 도구 실행 전에 Decisions가 사용자 원문과 실제 실행 계획의 의미를 대조하고, 불일치하면 기존 재계획 경로로 보내 잘못된 조건의 조회·비교를 막는다.
 
@@ -352,4 +352,4 @@ npm run test:e2e:v2
 - [v2 설계](../specs/2026-10-31-agent-v2-design.md), [상세 계약](../specs/2026-11-01-agent-v2-contracts.md), [기존 구현 계획](2026-11-01-agent-v2-implementation-plan.md).
 - [진행 기록·스트리밍 계획](../../plans/2026-11-05-001-feat-agent-progress-and-answer-streaming-plan.md), [운영·평가 설명](../../development/agent-v2.md).
 
-현재 상태: **계획 문서 작성만 완료. 제품 코드·테스트·서버·DB·모델 API는 변경하거나 실행하지 않았다.**
+현재 상태: **구현·DB 적용·재실행·평가를 수행했다. 코드 테스트는 통과했지만 정상 계획 오탐이 남아 기본 활성화는 보류했다.** 12쌍 72회에 복합 선택 회귀 1쌍을 추가한 최종 78회와 실제 웹 36회 결과는 검증 문서에 기록했다. 실제 Run·원문 모델 응답·스크린샷·DB 백업은 Git 제외 로컬 경로에만 보관한다.
