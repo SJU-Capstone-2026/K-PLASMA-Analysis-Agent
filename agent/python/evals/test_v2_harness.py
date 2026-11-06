@@ -40,7 +40,8 @@ def test_final_review_does_not_make_a_wrong_search_pass():
     assert "missing ionFlux gt 20" in failure["execution"]
 
 
-def test_completed_search_preserves_measurements_and_skips_writer_without_interpretation():
+@pytest.mark.parametrize("plan_review_enabled", [True, False])
+def test_completed_search_preserves_measurements_and_skips_writer_without_interpretation(plan_review_enabled):
     from kplasma_agent.v2.composition import collect_search_evidence
     from kplasma_agent.v2.contracts import StepResult
 
@@ -60,14 +61,20 @@ def test_completed_search_preserves_measurements_and_skips_writer_without_interp
                                "inputs": {"constraints": [{"field": "ionFlux", "operator": "gt", "value": {
                                    "kind": "literal", "value": 20, "unit": None, "source": source}}]}}]}, {}
 
-    row = evaluate_case(case, Model())
+    row = evaluate_case(case, Model(), plan_review_enabled=plan_review_enabled)
     assert row["pass"], row["failures"]
     snapshot = row["snapshot"]
     assert snapshot["executionStatus"] == "COMPLETE"
     assert snapshot["draft"] is None
     assert snapshot["review"]["status"] == "SKIPPED"
     assert snapshot["budget"]["tool_invocations_used"] == 1
-    assert [attempt["kind"] for attempt in row["model_attempts"]] == ["PLAN_INITIAL", "PLAN_REVIEW"]
+    assert [attempt["kind"] for attempt in row["model_attempts"]] == (
+        ["PLAN_INITIAL", "PLAN_REVIEW"] if plan_review_enabled else ["PLAN_INITIAL"])
+    assert row["plan_review_enabled"] is plan_review_enabled
+    assert row["stage_metrics"]["PLAN_INITIAL"]["calls"] == 1
+    assert row["stage_metrics"]["PLAN_INITIAL"]["seconds"] >= 0
+    assert row["plan_reviews"][0]["status"] == ("PASS" if plan_review_enabled else "SKIPPED")
+    assert len(row["accepted_plans"]) == 1
     search, = collect_search_evidence([StepResult.model_validate(step) for step in snapshot["stepResults"]])
     rule, = search["constraints"]
     assert (rule["metric"], rule["operator"], rule["value"]) == ("ionFlux", "gt", 20)

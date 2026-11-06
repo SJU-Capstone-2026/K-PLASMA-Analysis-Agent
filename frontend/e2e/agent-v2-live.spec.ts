@@ -84,11 +84,19 @@ for (const graphVersion of ['v1', 'v2'] satisfies GraphVersion[]) {
         issue = '요청한 검색 또는 예상 후보가 누락됨';
       }
       if (process.env.KPLASMA_V2_MOCK === 'true') expect.soft(issue, item.id).toBeNull();
+      const activities = result.executionSummary?.activities ?? [];
+      if (process.env.KPLASMA_V2_MOCK === 'true' && graphVersion === 'v2') {
+        const planReviews = activities.filter(a => a.code === 'PLAN_REVIEW' && a.phase === 'started');
+        expect.soft(planReviews, `${item.id}: structured HITL must reuse its plan review`)
+          .toHaveLength(item.id === 'concept' ? 0 : 1);
+        expect.soft(activities.filter(a => a.code === 'REVIEW'), `${item.id}: no experimental interpretation`).toHaveLength(0);
+      }
       const answer = page.locator('.agent-response').last();
       const visible = result.status === 'COMPLETED' ? await answer.innerText({timeout: 12000})
         : await page.locator('.agent-page').innerText();
       rows.push({id: item.id, question: item.question, graphVersion, pass: issue === null,
-        issue, status: result.status, visible, actual, snapshot, expected: item.id === 'nested' ? expected : strictExpected});
+        issue, status: result.status, visible, actual, snapshot, activities,
+        expected: item.id === 'nested' ? expected : strictExpected});
       await writeFile(join(output!, `${graphVersion}-answers.json`), JSON.stringify(rows, null, 2));
       if (result.status === 'COMPLETED') {
         for (const width of [390, 800, 1008, 1440]) {

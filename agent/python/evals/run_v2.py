@@ -38,6 +38,7 @@ def main():
     parser.add_argument("--case")
     parser.add_argument("--repeat", type=int, default=3)
     parser.add_argument("--workers", type=int, default=4)
+    parser.add_argument("--plan-review", choices=("on", "off"), default="on")
     args = parser.parse_args()
     output = args.output.resolve()
     repo = Path(__file__).resolve().parents[3]
@@ -65,7 +66,7 @@ def main():
         v2 = replace(configured, planner=replace(base, model=model, reasoning_effort=effort))
         with httpx.Client(timeout=min(base.timeout, 30), transport=httpx.HTTPTransport(retries=0)) as client:
             gateway = V2ModelGateway(v2, client, check_payload)
-            row = evaluate_case(case, gateway)
+            row = evaluate_case(case, gateway, plan_review_enabled=args.plan_review == "on")
         return {**row, "model": model, "effort": effort, "trial": trial}
 
     with ThreadPoolExecutor(max_workers=args.workers) as pool, (output / "results.jsonl").open("w") as file:
