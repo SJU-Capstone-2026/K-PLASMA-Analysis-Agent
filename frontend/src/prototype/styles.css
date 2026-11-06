@@ -3162,6 +3162,25 @@ p.manual-limit { margin-bottom: 0; color: #826947; font-size: 9px; line-height: 
 .agent-example-groups { margin-bottom: 16px; }
 .agent-example-groups .agent-examples { margin-top: 0; }
 .agent-v2-examples > p { margin: 10px 0 5px; color: #55647a; font-size: 12px; font-weight: 600; }
+.agent-jump-latest {
+  position: absolute;
+  z-index: 6;
+  bottom: calc(100% - 24px);
+  left: 50%;
+  transform: translateX(-50%);
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid #cbd5e1;
+  border-radius: 50%;
+  color: #334967;
+  background: #fff;
+  cursor: pointer;
+}
+.agent-jump-latest:hover { background: #eef3f9; }
+.agent-composer-dock:has(.run-mention-suggestions) .agent-jump-latest { visibility: hidden; }
 
 .comparison-range-summary {
   display: flex;

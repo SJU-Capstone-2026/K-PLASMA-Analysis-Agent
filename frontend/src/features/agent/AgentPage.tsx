@@ -7,6 +7,7 @@ import {RunColorsProvider} from '../../components/RunColors';
 import {AnswerView} from './AnswerView';
 import {PendingRequest} from './PendingRequest';
 import {CompletedAgentProgress} from './AgentProgress';
+import {answerTextSize} from './progress-events';
 import {RunMentionComposer} from './RunMentionComposer';
 import type {ConversationController} from './useConversation';
 export interface AgentPageProps {conversation:ConversationController;records:DecisionRecord[];notify:(text:string,tone?:string)=>void;onDetail:(ref:RunRef,turn:TurnSnapshot)=>void;onRecord:(turn:TurnSnapshot,source?:V2RecordSource,target?:RunRef)=>void;onEvidence:(turn:TurnSnapshot,runId:string)=>void;onDemo:()=>Promise<void>}
@@ -49,7 +50,7 @@ export function AgentPage({conversation,notify,onDetail,onRecord,onEvidence,onDe
    return false;
   }
  }
- async function run(text:string,clarification?:Snapshot){try{const submitted=conversation.submit(text,clarification);setText(current=>current===text?'':current);await submitted;}catch(e){setText(current=>current||text);catchError(e);}}
+ async function run(text:string,clarification?:Snapshot){followingLatest.current=true;setShowLatestButton(false);try{const submitted=conversation.submit(text,clarification);setText(current=>current===text?'':current);await submitted;}catch(e){setText(current=>current||text);catchError(e);}}
  async function action(turn:TurnSnapshot,name:string,element:HTMLElement){const runId=element.dataset.runId;const ref=runId?(element.dataset.runVersionId?{runId,runVersionId:element.dataset.runVersionId}:resolveCandidateRef(turn,runId)):undefined;try{
   if(name==='select-candidate-card')await conversation.updateTurnUi(turn.id,{selectedCandidateRunId:turn.ui.selectedCandidateRunId===runId?null:runId!});
   else if(name==='candidate-group')await conversation.updateTurnUi(turn.id,{activeCandidateGroup:element.dataset.groupId!});
@@ -103,7 +104,83 @@ export function AgentPage({conversation,notify,onDetail,onRecord,onEvidence,onDe
   ...turns.map(turn=>({id:turn.id,at:turn.askedAt,turn,message:state.agentMessages?.find(message=>message.requestId===turn.id||message.turnId===turn.id)})),
   ...(state.agentMessages??[]).filter(message=>!turns.some(turn=>turn.id===message.requestId||turn.id===message.turnId)).map(message=>({id:message.requestId,at:message.createdAt,message})),
  ].sort((a,b)=>a.at.localeCompare(b.at));
- return <RunColorsProvider key={colorScope} scope={colorScope} enabled={conversation.ready}><div className="agent-page agent-page--wide"><header className="agent-page-header"><div><span className="eyebrow">CONVERSATIONAL EVIDENCE ANALYSIS</span><h1>K-PLASMA 분석 Agent</h1><p>결론과 실제 수치를 먼저 보고, 필요한 실험 상세만 펼쳐 확인합니다.</p></div><div className="agent-page-actions"><label className="agent-graph-choice">Agent 버전 <select aria-label="Agent 버전" value={conversation.graphVersion} disabled={!conversation.ready||pending||!!conversation.provisionalMessage||!!state.conversation.agentGraphVersion||turns.length>0} onChange={event=>conversation.selectGraphVersion(event.target.value==='v2'?'v2':'v1')}><option value="v1">v1</option><option value="v2">v2</option></select></label><div className="agent-trust-row"><span><i className="status-dot status-dot--success"/>등록된 실제 Run</span><span>예측·보간 없음</span></div><button className="button button--ghost button--small" type="button" data-action="new-conversation" disabled={!turns.length&&!conversation.activeRequest&&!state.conversation.agentGraphVersion&&!state.agentMessages?.length} onClick={()=>conversation.newConversation().catch(catchError)}>새 대화</button></div></header><section className="agent-conversation agent-conversation--wide"><details className="agent-help"><summary>사용 도움말</summary><details className="v1-unit-help"><summary>단위 없이도 조회할 수 있어요 · 기본 단위 보기</summary><ul>{Object.entries(queryDefaultUnits).map(([metric,unit])=><li key={metric}>{metricNames[metric]} <strong>{unit}</strong></li>)}</ul><p>예: 압력 8, 소스 300, 바이어스 600 · 이온 플럭스 400 이상</p><p>단위를 쓰면 입력한 단위를 우선합니다. 생략하면 적용한 기본 단위를 답변에서 알려드립니다.</p></details>{active?<div className="agent-quick-followups"><span>이 Run에서 이어서</span>{[['전체 결과·분포','이 Run의 전체 결과와 이온 에너지 분포 보여줘'],['Energy만 조금 높게','이 결과에서 이온 에너지만 조금 더 높은 실제 조건 찾아줘'],['왜 이런 결과인지','왜 이런 결과가 나왔는지 설명해줘']].map(([label,prompt])=><button key={label} type="button" data-action="use-followup" data-prompt={prompt} disabled={pending} onClick={()=>void run(prompt)}>{label}</button>)}</div>:null}<div className="memory-demo-actions"><span>기록 활용 시연 데이터가 필요하다면</span><button className="button button--ghost button--small" type="button" data-action="memory-demo" onClick={()=>onDemo().catch(catchError)}>데모 기록 불러오기</button><small>실제 사용자 기록과 구분되어 이 브라우저에만 저장됩니다.</small></div></details>
+ const latest = thread.at(-1);
+ const latestAnswer = Boolean(latest?.turn);
+ const latestAnswerId = thread.filter(item => item.turn).at(-1)?.id;
+ const lastSeenAnswer = useRef<{scope:string;id?:string} | null>(null);
+ const followingLatest = useRef(false);
+ const [showLatestButton,setShowLatestButton] = useState(false);
+ const liveRegion=useRef<HTMLElement|null>(null);
+ const jumpToLatest = useCallback(() => {
+  followingLatest.current = true;
+  setShowLatestButton(false);
+  const page = document.scrollingElement;
+  if (page) page.scrollTop = page.scrollHeight;
+ }, []);
+ useLayoutEffect(() => {
+  if (!conversation.ready) return;
+  let previousTop = document.scrollingElement?.scrollTop ?? 0;
+  let previousHeight = document.scrollingElement?.scrollHeight ?? 0;
+  const update = () => {
+   const page = document.scrollingElement;
+   if (!page) return;
+   const atBottom = page.scrollHeight - page.clientHeight - page.scrollTop <= 32;
+   const reachedPreviousBottom = page.scrollHeight > previousHeight
+    && previousHeight - page.clientHeight - page.scrollTop <= 32;
+   // Deferred Markdown can grow the page without the reader scrolling away.
+   if (atBottom || reachedPreviousBottom && page.scrollTop >= previousTop) {
+    followingLatest.current = true;
+    setShowLatestButton(false);
+   } else if (page.scrollTop < previousTop) followingLatest.current = false;
+   previousTop = page.scrollTop;
+   previousHeight = page.scrollHeight;
+  };
+  update();
+  window.addEventListener('scroll', update, {passive: true});
+  window.addEventListener('resize', update);
+  return () => {
+   window.removeEventListener('scroll', update);
+   window.removeEventListener('resize', update);
+  };
+ }, [colorScope, conversation.ready]);
+ useLayoutEffect(() => {
+  if (!conversation.ready) return;
+  const previous = lastSeenAnswer.current;
+  lastSeenAnswer.current = {scope:colorScope,id:latestAnswerId};
+  if (previous?.scope !== colorScope) setShowLatestButton(false);
+  else if (latestAnswerId && latestAnswerId !== previous.id && !followingLatest.current) {
+   setShowLatestButton(true);
+  }
+ }, [colorScope, conversation.ready, latestAnswerId]);
+ useLayoutEffect(() => {
+  if (!conversation.ready || !followingLatest.current) return;
+  jumpToLatest();
+ }, [conversation.ready, latest?.id, latestAnswer, conversation.provisionalMessage?.requestId,
+  conversation.activeRequest?.requestId, jumpToLatest]);
+ const liveAnswerSize=answerTextSize(conversation.activeRequest?.progress?.answer);
+ const liveAnswerRevision=conversation.activeRequest?.progress?.answer?.answerRevision;
+ const liveResultRevision=conversation.resultPreview?.resultRevision;
+ const liveSeen=useRef<{scope:string;size:number;result?:number} | null>(null);
+ useLayoutEffect(()=>{
+  const region=liveRegion.current;if(!region||typeof ResizeObserver==='undefined')return;
+  let frame=0;
+  const observer=new ResizeObserver(()=>{
+   if(!followingLatest.current)return;
+   cancelAnimationFrame(frame);frame=requestAnimationFrame(()=>{if(followingLatest.current)jumpToLatest();});
+  });
+  observer.observe(region);
+  return()=>{observer.disconnect();cancelAnimationFrame(frame);};
+ },[colorScope,jumpToLatest]);
+ useLayoutEffect(()=>{
+  if(!conversation.ready)return;
+  const previous=liveSeen.current;
+  liveSeen.current={scope:colorScope,size:liveAnswerSize,result:liveResultRevision};
+  if(previous?.scope!==colorScope)return;
+  if(followingLatest.current)jumpToLatest();
+  else if(liveAnswerSize>previous.size||liveResultRevision!==previous.result&&liveResultRevision!==undefined)setShowLatestButton(true);
+ },[colorScope,conversation.ready,liveAnswerSize,liveAnswerRevision,liveResultRevision,jumpToLatest]);
+
+ return <RunColorsProvider key={colorScope} scope={colorScope} enabled={conversation.ready}><div className="agent-page agent-page--wide"><header className="agent-page-header"><div><span className="eyebrow">CONVERSATIONAL EVIDENCE ANALYSIS</span><h1>K-PLASMA 분석 Agent</h1><p>결론과 실제 수치를 먼저 보고, 필요한 실험 상세만 펼쳐 확인합니다.</p></div><div className="agent-page-actions"><label className="agent-graph-choice">Agent 버전 <select aria-label="Agent 버전" value={conversation.graphVersion} disabled={!conversation.ready||pending||!!conversation.provisionalMessage||!!state.conversation.agentGraphVersion||turns.length>0} onChange={event=>conversation.selectGraphVersion(event.target.value==='v2'?'v2':'v1')}><option value="v1">v1</option><option value="v2">v2</option></select></label><div className="agent-trust-row"><span><i className="status-dot status-dot--success"/>등록된 실제 Run</span><span>예측·보간 없음</span></div><button className="button button--ghost button--small" type="button" data-action="new-conversation" disabled={!turns.length&&!conversation.activeRequest&&!state.conversation.agentGraphVersion&&!state.agentMessages?.length} onClick={()=>conversation.newConversation().catch(catchError)}>새 대화</button></div></header><section ref={liveRegion} className="agent-conversation agent-conversation--wide"><details className="agent-help"><summary>사용 도움말</summary><details className="v1-unit-help"><summary>단위 없이도 조회할 수 있어요 · 기본 단위 보기</summary><ul>{Object.entries(queryDefaultUnits).map(([metric,unit])=><li key={metric}>{metricNames[metric]} <strong>{unit}</strong></li>)}</ul><p>예: 압력 8, 소스 300, 바이어스 600 · 이온 플럭스 400 이상</p><p>단위를 쓰면 입력한 단위를 우선합니다. 생략하면 적용한 기본 단위를 답변에서 알려드립니다.</p></details>{active?<div className="agent-quick-followups"><span>이 Run에서 이어서</span>{[['전체 결과·분포','이 Run의 전체 결과와 이온 에너지 분포 보여줘'],['Energy만 조금 높게','이 결과에서 이온 에너지만 조금 더 높은 실제 조건 찾아줘'],['왜 이런 결과인지','왜 이런 결과가 나왔는지 설명해줘']].map(([label,prompt])=><button key={label} type="button" data-action="use-followup" data-prompt={prompt} disabled={pending} onClick={()=>void run(prompt)}>{label}</button>)}</div>:null}<div className="memory-demo-actions"><span>기록 활용 시연 데이터가 필요하다면</span><button className="button button--ghost button--small" type="button" data-action="memory-demo" onClick={()=>onDemo().catch(catchError)}>데모 기록 불러오기</button><small>실제 사용자 기록과 구분되어 이 브라우저에만 저장됩니다.</small></div></details>
  <div className="agent-example-groups">
   <div className="agent-examples" aria-label="분석 예시">{examples.map(([action,label,title,prompt])=><button key={action} type="button" data-action={action} disabled={pending||!conversation.ready} onClick={()=>void run(prompt)}><span>{label}</span><strong>{title}</strong></button>)}</div>
   {conversation.graphVersion==='v2'&&<section className="agent-v2-examples" aria-label="v2 평가 예시">
@@ -120,5 +197,12 @@ export function AgentPage({conversation,notify,onDetail,onRecord,onEvidence,onDe
  {conversation.activeRequest&&<PendingRequest request={conversation.activeRequest} resultPreview={conversation.resultPreview} hideQuestion sending={conversation.sending} onResume={conversation.resume} onCancel={conversation.cancel} onError={catchError}/>}
  {conversation.provisionalMessage&&!conversation.sending&&!conversation.activeRequest&&<div className="v1-card-actions"><span>{conversation.provisionalMessage.status==='SEND_UNCERTAIN'?'전송 수락 여부를 확인하지 못했습니다.':'아직 전송하지 않은 질문입니다.'}</span><button type="button" className="button button--ghost button--small" onClick={()=>void run(conversation.provisionalMessage!.question)}>같은 질문 다시 보내기</button></div>}
  {conversation.error&&<div className="alert alert--danger" role="alert">{conversation.error}</div>}<div className="agent-composer-dock">
+  {showLatestButton&&<button className="agent-jump-latest" type="button" aria-label="최신 답변으로 이동"
+    title="최신 답변으로 이동" onClick={jumpToLatest}>
+    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2"
+      strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+     <path d="M12 5v14m-6-6 6 6 6-6"/>
+    </svg>
+  </button>}
   <form id="agent-query-form" className="agent-composer panel" onSubmit={event=>{event.preventDefault();void run(text);}}>{composer&&<ReferenceTray references={composer.runs} onRemove={()=>void clear()} onRemoveRun={ref=>void conversation.setReference(state=>removeRunReference(state,ref)).catch(catchError)}/>}<RunMentionComposer text={text} onText={setText} add={ref=>addRunTag(ref,'catalog')} disabled={pending||!conversation.ready}/></form></div></section></div></RunColorsProvider>;
 }
