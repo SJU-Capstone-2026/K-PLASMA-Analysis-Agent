@@ -39,7 +39,7 @@ scope: graph-v2-only
 - `graphs/v2.py`: `validate_plan_state`가 통과한 계획을 저장하고 실행으로 보낸다. `replan`은 최초 계획과 같은 `submit_plan` 호출을 사용한다.
 - `v2/model_gateway.py`: 현재 Decisions 질문은 `interpretation_scope` 하나이며 질문 충족 여부를 검토 대상에서 제외한다.
 - `v2/contracts.py`: 최종 답변의 `ReviewDecision`과 모델 요청 상한 13회가 정의되어 있다.
-- `V2ExecutionRepository.java`와 `V9__agent_v2_executions.sql`: 호출 역할에 allowlist와 역할별 상한이 있어 새 역할을 Python에만 추가할 수 없다.
+- `V2ExecutionRepository.java`와 `V13__agent_v2_executions.sql`: 호출 역할에 allowlist와 역할별 상한이 있어 새 역할을 Python에만 추가할 수 없다.
 - `AgentPublicEvents.java`와 `AgentProgress.tsx`: 공개 진행 코드도 생산자·소비자를 함께 갱신해야 한다.
 
 ## 2. Global Constraints
@@ -217,12 +217,12 @@ Decisions: review_plan                    │
 
 ### Task 3. 호출 예약·저장과 백엔드 호환성
 
-**Files:** Modify `backend/src/main/java/com/kplasma/analysisagent/agent/v2/V2ExecutionRepository.java`; Create `backend/src/main/resources/db/migration/V14__agent_plan_review_attempts.sql`; extend `backend/src/test/java/com/kplasma/analysisagent/workspace/AgentGraphVersionTest.java`; update `docs/contracts/agent-v2.openapi.json`의 내부 모델 역할 설명.
+**Files:** Modify `backend/src/main/java/com/kplasma/analysisagent/agent/v2/V2ExecutionRepository.java`; Create `backend/src/main/resources/db/migration/V18__agent_plan_review_attempts.sql`; extend `backend/src/test/java/com/kplasma/analysisagent/workspace/AgentGraphVersionTest.java`; update `docs/contracts/agent-v2.openapi.json`의 내부 모델 역할 설명.
 
 **Interfaces:** 기존 `reserve_model(kind, key)`와 `complete_model(attempt_id, outcome)`를 그대로 사용하며 새 kind는 `PLAN_REVIEW`다. 공개 최종 답변 schema에 계획 검토 결과를 끼워 넣지 않는다.
 
 - [ ] **RED:** PLAN_REVIEW 3회 상한, 요청 전체 13회 공유, 같은 키의 저장 결과 복원·중복 호출 거절, 다른 역할·입력 revision 충돌, 취소·lease 만료 후 완료 거절을 검사한다.
-- [ ] **구현:** 역할 allowlist와 DB CHECK를 새 마이그레이션으로 확장한다. 적용된 V9를 수정하지 않는다. 구현 시작 시 최신 번호가 V14를 사용 중이면 다음 번호를 사용한다. 검토 결과의 digest·판정·usage는 기존 모델 outcome에 저장한다.
+- [ ] **구현:** 역할 allowlist와 DB CHECK를 새 마이그레이션으로 확장한다. 적용된 V9를 수정하지 않는다. 구현 시작 시 최신 번호가 V18을 사용 중이면 다음 번호를 사용한다. 검토 결과의 digest·판정·usage는 기존 모델 outcome에 저장한다.
 - [ ] **GREEN:** PostgreSQL 마이그레이션이 기존 계획·모델 기록을 보존하는지와 위 테스트를 확인한다. 기존 v1 요청·v2 예약·단계 불변성 회귀도 실행한다.
 - [ ] **커밋 단위:** `feat(backend): persist bounded plan review attempts`.
 
