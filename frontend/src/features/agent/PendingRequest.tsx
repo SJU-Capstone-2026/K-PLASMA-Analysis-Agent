@@ -14,15 +14,16 @@ export function PendingRequest({request,sending,onResume,onCancel,onError,hideQu
  const [reply,setReply]=useState('');
  useEffect(()=>setReply(''),[request.requestId,request.pendingInput?.id]);
  const running=request.status==='RUNNING'||request.status==='QUEUED';
+ const cancelled=request.status==='CANCELLED';
  const pending=request.status==='NEEDS_INPUT'?request.pendingInput:null;
  const selectingRuns=pending?.type==='run_selection';
  const selectingOptions=pending?.type==='comparison_options';
  const partial=request.partialResult as unknown as ComparisonResult|ComparisonResultV2|null;
- const panelStyle=running?'v1-pending--running':selectingRuns?'v1-pending--run-selection':selectingOptions?'v1-pending--comparison-options':'panel';
+ const panelStyle=running?'v1-pending--running':cancelled?'v1-pending--cancelled':selectingRuns?'v1-pending--run-selection':selectingOptions?'v1-pending--comparison-options':'panel';
  const pickerProps={request,sending,onResume,onError,onCancel};
 
  return <section className={`v1-pending ${panelStyle}`} aria-label="진행 중인 분석 요청">
-  {!running&&!selectingRuns&&!selectingOptions&&<h3>{statusTitles[request.status]??'분석 중'}</h3>}
+  {!running&&!cancelled&&!selectingRuns&&!selectingOptions&&<h3>{statusTitles[request.status]??'분석 중'}</h3>}
   {!hideQuestion&&<p>{request.question}</p>}
   {request.inputEvents?.map((event,index)=>{
    const input=event.input as Snapshot|undefined;

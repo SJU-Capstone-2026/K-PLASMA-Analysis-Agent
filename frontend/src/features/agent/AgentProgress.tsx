@@ -78,15 +78,19 @@ export function AgentProgress({progress,stage,queued=false}:{progress?:AgentProg
 }
 
 export function CompletedAgentProgress({summary,status='COMPLETED'}:{summary?:AgentExecutionSummary|null;status?:'COMPLETED'|'FAILED'|'CANCELLED'}){
+ const seconds=Math.floor(Math.max(0,summary?.durationMs??0)/1000);
+ const elapsed=seconds<60?`${seconds}초`:`${Math.floor(seconds/60)}분${seconds%60?` ${seconds%60}초`:''}`;
+ if(status==='CANCELLED')return <div className="agent-progress-complete">
+  <p className="agent-progress-cancelled">{summary?`${elapsed} 후에 중단했습니다`:'분석을 중단했습니다'}</p><hr/>
+ </div>;
  if(!summary)return null;
- const seconds=Math.floor(Math.max(0,summary.durationMs)/1000);
- const time=seconds===0?'1초 미만':seconds<60?`${seconds}초`:`${Math.floor(seconds/60)}분${seconds%60?` ${seconds%60}초`:''}`;
+ const time=seconds===0?'1초 미만':elapsed;
  // COMPLETED is persisted only after the final answer has been saved.
  const activities=latestActivities(summary.activities).map(activity=>status==='COMPLETED'&&activity.code==='COMMIT'
   &&activity.phase==='started'?{...activity,phase:'completed' as const}:activity);
  return <div className="agent-progress-complete">
   <details className="agent-progress-history">
-   <summary>{time} 동안 작업함{status==='FAILED'?' · 실패':status==='CANCELLED'?' · 취소':''}<span className="agent-progress-chevron" aria-hidden="true">›</span></summary>
+   <summary>{time} 동안 작업함{status==='FAILED'?' · 실패':''}<span className="agent-progress-chevron" aria-hidden="true">›</span></summary>
    {activities.length>0&&<ul aria-label="완료된 작업 기록">{activities.map(activity=><ActivityRecord key={activity.activityId} activity={activity}/>)}</ul>}
   </details>
   <hr/>

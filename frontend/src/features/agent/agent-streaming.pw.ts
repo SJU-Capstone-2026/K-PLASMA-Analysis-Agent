@@ -258,12 +258,14 @@ test('cancellation discards late draft chunks and remains cancelled after reload
  fixture.publish(draftStart,delta('취소하기 전의 임시 해석입니다.'));
  await expect(page.getByRole('region',{name:'작성 중인 답변'})).toContainText('취소하기 전의 임시 해석입니다.');
  await page.locator('#agent-query-form').getByRole('button',{name:'분석 중지',exact:true}).click();
- await expect(page.getByRole('heading',{name:'분석이 취소되었습니다'})).toBeVisible();
+ await expect(page.getByText('1초 후에 중단했습니다',{exact:true})).toBeVisible();
+ await expect(page.getByRole('region',{name:'진행 중인 분석 요청'})).not.toHaveClass(/\bpanel\b/);
+ await expect(page.getByRole('heading',{name:'분석이 취소되었습니다'})).toHaveCount(0);
  fixture.publish(delta('취소 뒤 도착한 오래된 조각입니다.','first',1,1));
  await expect(page.getByText('취소 뒤 도착한 오래된 조각입니다.',{exact:true})).toHaveCount(0);
  await expect(page.getByRole('region',{name:'작성 중인 답변'})).toHaveCount(0);
  await page.reload();
- await expect(page.getByRole('heading',{name:'분석이 취소되었습니다'})).toBeVisible();
+ await expect(page.getByText('1초 후에 중단했습니다',{exact:true})).toBeVisible();
  await expect(page.locator(`[data-turn-id="${fixture.request.requestId}"]`)).toHaveCount(0);
  expect(fixture.cancellations).toBe(1);expect(fixture.submissions).toBe(0);expect(fixture.errors).toEqual([]);
 });

@@ -89,11 +89,20 @@ test.each([{durationMs:999,label:'1초 미만'},{durationMs:38_000,label:'38초'
  expect(container).toBeEmptyDOMElement();
 });
 
-test('a cancelled work record does not mark an unfinished activity as completed',()=>{
- const {container}=render(<CompletedAgentProgress status="CANCELLED" summary={{durationMs:38_000,activities:[activity('write','INTERPRET','started',1)]}}/>);
- fireEvent.click(screen.getByText('38초 동안 작업함 · 취소'));
- expect(screen.getByRole('listitem')).not.toHaveTextContent('✓');
- expect(container.querySelector('[role=status]')).toBeNull();
+test.each([{durationMs:999,label:'0초'},{durationMs:38_000,label:'38초'},{durationMs:128_900,label:'2분 8초'}])(
+ 'cancellation is a minimal elapsed-time note without a panel or unfinished activities ($label)',({durationMs,label})=>{
+ const {container}=render(<PendingRequest {...callbacks} request={{...request,status:'CANCELLED',
+  executionSummary:{durationMs,activities:[activity('write','INTERPRET','started',1)]}}} hideQuestion/>);
+ expect(screen.getByText(`${label} 후에 중단했습니다`)).toBeVisible();
+ expect(screen.queryByRole('heading')).not.toBeInTheDocument();
+ expect(container.querySelector('.panel,details,[role=status],.agent-activity-spinner')).toBeNull();
+ expect(screen.getByRole('separator')).toBeInTheDocument();
+});
+
+test('an older cancellation without a recorded duration does not invent a time',()=>{
+ render(<CompletedAgentProgress status="CANCELLED"/>);
+ expect(screen.getByText('분석을 중단했습니다')).toBeVisible();
+ expect(screen.queryByText(/0초/)).not.toBeInTheDocument();
 });
 
 test('a failed rewrite keeps verified cards and removes the unfinished prose',()=>{
