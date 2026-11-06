@@ -75,6 +75,20 @@ def _check_literal_unit(field: str, binding) -> None:
             ) from error
 
 
+def _check_numeric_input(field: str, binding, steps: Mapping[str, StepSpec]) -> None:
+    _check_literal_unit(field, binding)
+    if not isinstance(binding, ResultRef) or binding.step_id not in steps:
+        return
+    source = steps[binding.step_id]
+    scalar = isinstance(source, DeriveStep) and isinstance(binding.scope, ScalarScope)
+    measured = isinstance(source, CompareStep) and isinstance(binding.scope, RunScope) and binding.field == field
+    if not scalar and not measured:
+        raise InvalidPlan(
+            f"{field} requires a single quantity, not a Run list or quantity collection. "
+            "Select one confirmed Run value or derive one threshold according to the original request; keep the condition."
+        )
+
+
 def _uses_builtin_difference(step: DeriveStep, compare: CompareStep, selected_run_keys: Set[str]) -> bool:
     if compare.inputs.runs != ContextRef(kind="context_ref", key="selected_runs"):
         return False
@@ -209,7 +223,7 @@ def validate_plan(
             conditions = {"pressure": step.inputs.pressure, "sourcePower": step.inputs.source_power,
                           "biasPower": step.inputs.bias_power}
             for field, binding in conditions.items():
-                _check_literal_unit(field, binding)
+                _check_numeric_input(field, binding, by_id)
         if isinstance(step, ReverseStep):
             for constraint in step.inputs.constraints:
                 if constraint.field not in allowed_search_fields:
@@ -221,12 +235,12 @@ def validate_plan(
                 if not valid:
                     raise InvalidPlan(f"invalid bounds for {constraint.field}")
                 for binding in (constraint.value, constraint.min, constraint.max):
-                    _check_literal_unit(constraint.field, binding)
+                    _check_numeric_input(constraint.field, binding, by_id)
             for goal in step.inputs.goals:
                 if goal.field not in allowed_search_fields:
                     raise InvalidPlan("unsupported search objective")
                 for binding in (goal.min, goal.max):
-                    _check_literal_unit(goal.field, binding)
+                    _check_numeric_input(goal.field, binding, by_id)
         if isinstance(step, CompareStep):
             if not set(step.inputs.fields) <= set(get_args(ComparisonField)):
                 raise InvalidPlan("unsupported comparison field")

@@ -89,6 +89,34 @@ def test_semantics_and_code_errors_share_the_two_replan_limit():
     assert len(port.steps) == 1 and state["answer"]["answerSnapshot"]["executionStatus"] == "COMPLETE"
 
 
+def test_list_threshold_replans_before_execution_or_user_data_prompt():
+    from .test_plan_validation import comparison, derive, draft
+    question = "선택한 두 Run의 플럭스를 비교하고 두 Run 모두보다 높은 플럭스의 Run을 찾아줘."
+    search = {"id": "search", "kind": "tool", "tool": "reverse_search", "depends_on": ["derive"],
+              "inputs": {"constraints": [{"field": "ionFlux", "operator": "gt", "value": {
+                  "kind": "result_ref", "step_id": "derive", "field": "value", "scope": {"kind": "scalar"}}}]}}
+    good = draft(comparison(), derive(), search).model_dump(mode="json")
+    bad = deepcopy(good)
+    bad["steps"].pop(1)
+    bad["requirements"][0]["handled_by"] = ["compare", "search"]
+    bad["steps"][-1]["depends_on"] = ["compare"]
+    bad["steps"][-1]["inputs"]["constraints"][0]["value"] = {
+        "kind": "result_ref", "step_id": "compare", "field": "ionFlux",
+        "scope": {"kind": "context_selection", "key": "selected_runs"},
+    }
+    port = journal()
+    models = Models([bad, good])
+    entries = [{"key": f"R{i+1}", "ref": {"runId": run["runId"], "runVersionId": run["runVersionId"]}}
+               for i, run in enumerate(port.source[:2])]
+    state = build_v2_graph(models, port, None).invoke({"request_id": "test", "question": question,
+        "context": {"comparisonReference": {"entries": entries}}, "input_history": []}, {"recursion_limit": 100})
+    assert not state.get("__interrupt__") and state["replans"] == 1
+    assert "single quantity" in models.plan_inputs[1]["feedback"]
+    assert [row["kind"] for row in port.models.values()] == ["PLAN_INITIAL", "REPLAN", "PLAN_REVIEW"]
+    assert len(models.reviews) == 1
+    assert state["answer"]["answerSnapshot"]["executionStatus"] == "COMPLETE"
+
+
 @pytest.mark.parametrize("choice", ["mismatch", "unclear", "outage"])
 def test_unapproved_or_unavailable_review_never_reserves_a_tool(choice):
     state, port = invoke(Models(choices=(choice,)))
