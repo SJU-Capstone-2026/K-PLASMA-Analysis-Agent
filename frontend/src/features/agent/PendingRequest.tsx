@@ -53,6 +53,6 @@ export function PendingRequest({request,sending,onResume,onCancel,onError,hideQu
    </div>}
   </>}
   {(request.status==='FAILED'||request.status==='CANCELLED')&&<StreamPreview request={request} resultPreview={resultPreview}/>}
-  {(running||pending)&&!selectingRuns&&!selectingOptions&&<button type="button" className="button button--ghost button--small" disabled={sending} onClick={()=>onCancel().catch(onError)}>분석 취소</button>}
+  {pending&&!selectingRuns&&!selectingOptions&&<button type="button" className="button button--ghost button--small" disabled={sending} onClick={()=>onCancel().catch(onError)}>분석 취소</button>}
  </section>;
 }

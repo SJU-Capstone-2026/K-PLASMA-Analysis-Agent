@@ -3152,6 +3152,8 @@ p.manual-limit { margin-bottom: 0; color: #826947; font-size: 9px; line-height: 
   color: #fff;
 }
 .agent-composer .agent-send:hover:not(:disabled) { background: #243955; }
+.agent-composer .agent-send--stop { background: #111827; }
+.agent-composer .agent-send--stop:hover:not(:disabled) { background: #000; }
 .agent-v2-answer .v1-comparison-table thead th {
   background: #e6eef9;
   color: #2e4563;

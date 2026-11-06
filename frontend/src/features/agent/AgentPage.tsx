@@ -39,6 +39,7 @@ export function AgentPage({conversation,notify,onDetail,onRecord,onEvidence,onDe
  }
  useLayoutEffect(()=>{setDrafts({});},[state.stateToken.workspaceEpoch]);
  const catchError=(e:unknown)=>notify(e instanceof Error?e.message:String(e),'info');
+ const canStop=conversation.activeRequest?.status==='RUNNING'||conversation.activeRequest?.status==='QUEUED';
  async function addRunTag(ref:RunRef,source?:V2RecordSource|'catalog'){
   if(pending||!conversation.ready)return false;
   try {
@@ -204,5 +205,5 @@ export function AgentPage({conversation,notify,onDetail,onRecord,onEvidence,onDe
      <path d="M12 5v14m-6-6 6 6 6-6"/>
     </svg>
   </button>}
-  <form id="agent-query-form" className="agent-composer panel" onSubmit={event=>{event.preventDefault();void run(text);}}>{composer&&<ReferenceTray references={composer.runs} onRemove={()=>void clear()} onRemoveRun={ref=>void conversation.setReference(state=>removeRunReference(state,ref)).catch(catchError)}/>}<RunMentionComposer text={text} onText={setText} add={ref=>addRunTag(ref,'catalog')} disabled={pending||!conversation.ready}/></form></div></section></div></RunColorsProvider>;
+  <form id="agent-query-form" className="agent-composer panel" onSubmit={event=>{event.preventDefault();void run(text);}}>{composer&&<ReferenceTray references={composer.runs} onRemove={()=>void clear()} onRemoveRun={ref=>void conversation.setReference(state=>removeRunReference(state,ref)).catch(catchError)}/>}<RunMentionComposer text={text} onText={setText} add={ref=>addRunTag(ref,'catalog')} disabled={pending||!conversation.ready} onStop={canStop?()=>conversation.cancel().catch(catchError):undefined}/></form></div></section></div></RunColorsProvider>;
 }

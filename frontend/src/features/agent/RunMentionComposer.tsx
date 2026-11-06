@@ -10,11 +10,12 @@ function mentionAt(text: string, caret: number) {
   return {query: match[1].toUpperCase(), start, end};
 }
 
-export function RunMentionComposer({text, onText, add, disabled}: {
+export function RunMentionComposer({text, onText, add, disabled, onStop}: {
   text: string;
   onText: (update: (current: string) => string) => void;
   add: (ref: RunRef) => Promise<boolean>;
   disabled: boolean;
+  onStop?: () => Promise<void>;
 }) {
   const input = useRef<HTMLTextAreaElement>(null);
   const suggestions = useRef<HTMLElement>(null);
@@ -25,6 +26,7 @@ export function RunMentionComposer({text, onText, add, disabled}: {
   const [index, setIndex] = useState(0);
   const [catalog, setCatalog] = useState<RunSummary[] | null>(null);
   const [failed, setFailed] = useState(false);
+  const [stopping, setStopping] = useState(false);
   const mention = focused && !dismissed && !disabled ? mentionAt(text, caret) : null;
   const open = Boolean(mention);
 
@@ -74,6 +76,13 @@ export function RunMentionComposer({text, onText, add, disabled}: {
     }
   }
 
+  async function stop() {
+    if (!onStop || stopping) return;
+    setStopping(true);
+    try { await onStop(); }
+    finally { setStopping(false); }
+  }
+
   return <>
     {open && <section ref={suggestions} className="run-mention-suggestions" aria-label="Run 자동완성">
       {matches.length ? <ul id={listId} role="listbox" aria-label="일치하는 Run">
@@ -118,12 +127,17 @@ export function RunMentionComposer({text, onText, add, disabled}: {
             else if (text.trim()) event.currentTarget.form?.requestSubmit();
           }
         }}/>
-      <button className="button agent-send" type="submit" aria-label="분석" disabled={disabled}>
+      {onStop ? <button className="button agent-send agent-send--stop" type="button"
+        aria-label="분석 중지" title="분석 중지" aria-busy={stopping} disabled={stopping} onClick={() => void stop()}>
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true">
+          <rect x="6" y="6" width="12" height="12" rx="2"/>
+        </svg>
+      </button> : <button className="button agent-send" type="submit" aria-label="분석" disabled={disabled}>
         <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2"
           strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
           <path d="M12 19V5m-6 6 6-6 6 6"/>
         </svg>
-      </button>
+      </button>}
     </div>
   </>;
 }
