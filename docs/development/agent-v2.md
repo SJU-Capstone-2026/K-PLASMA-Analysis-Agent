@@ -27,7 +27,7 @@ v1과 v2 모두 실제 실행 이벤트로 회색 진행 기록을 표시한다.
 
 입력창의 하단 여백은 `frontend/src/prototype/styles.css`의 `:root` 안에 있는 `--agent-composer-bottom-gap` 하나로 조절한다. 기본값은 28px이다. 값을 키우면 입력창이 위로, 줄이면 아래로 이동한다. 페이지 하단 여백과 sticky 위치에 같은 값을 사용하며 모바일 안전 영역은 보존한다.
 
-백엔드의 `V13__agent_public_events.sql`이 공개 이벤트와 실행 시간 필드를 추가한다. 이벤트는 요청별 순번과 중복 방지 키로 저장한다. worker의 claim generation·요청 revision·lease를 검사해 취소되거나 만료된 worker의 전송을 거절한다. 완료 저장과 종료 이벤트는 같은 트랜잭션으로 처리한다.
+백엔드의 `V17__agent_public_events.sql`이 공개 이벤트와 실행 시간 필드를 추가한다. 이벤트는 요청별 순번과 중복 방지 키로 저장한다. worker의 claim generation·요청 revision·lease를 검사해 취소되거나 만료된 worker의 전송을 거절한다. 완료 저장과 종료 이벤트는 같은 트랜잭션으로 처리한다.
 
 웹은 `GET /api/agent/requests/{id}/events?after={seq}`의 SSE를 구독한다. 연결 실패 시 같은 순번으로 `format=json` 이벤트 조회를 사용하며, 기존 요청 상태 조회도 최종 저장 상태 확인에 유지한다. `results.ready`는 해당 순번의 읽기 전용 결과 조회로 연결한다. 정확한 필드는 OpenAPI와 `agent/src/contracts/progress.ts`를 따른다.
 
@@ -60,3 +60,7 @@ uv run --frozen python -m evals.run_v2 --live --output /tmp/kplasma-v2-model-eva
 ```
 
 질문 24개를 계획 모델 설정 네 가지에서 각각 실행한다. 복합·경계·누락 사례 8개는 각각 3회씩 실행해 전체 160회다. 코드의 도구 실행과 인공 데이터는 동일하며 계획 모델·추론 수준만 바뀐다. 전체 모델 평가와 웹 비교는 별도 표본이다. 정답은 계획·실행·최종 답변 단계별로 확인한다.
+
+## main 병합 시 마이그레이션 번호
+
+2026-11-06 main의 실험 선택 V8–V11을 보존하고, 아직 main에 없던 v2 마이그레이션을 V12–V17로 옮겼다. SQL 내용과 기존 main 마이그레이션은 변경하지 않았다. 기존 main DB에는 V12부터 정상 적용한다. 이전 v2 미리보기 DB에는 적용된 SQL을 재실행하거나 테이블을 삭제하지 않고, 백업 후 동일 script·checksum의 Flyway 이력만 새 파일 번호로 연결한 뒤 누락된 main V8–V11을 일회성 out-of-order 적용한다. 이를 일반적인 checksum repair나 데이터 초기화로 대체하지 않는다.
