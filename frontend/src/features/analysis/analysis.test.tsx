@@ -17,6 +17,16 @@ test('fixed controls retain original grid selection and four page tabs',async()=
 test('seven modal graphs use immutable version API and preserve source files',async()=>{api();render(<RunDetail runRef={fixtureRuns[0]} onReference={vi.fn()}/>);const tabs=await screen.findAllByRole('tab');expect(tabs).toHaveLength(7);
  for(const tab of tabs){fireEvent.click(tab);expect(tab).toHaveAttribute('aria-selected','true');expect(screen.getByRole('tabpanel')).toBeInTheDocument();}expect(screen.getByText('synthetic.dat')).toBeInTheDocument();expect(fetch).toHaveBeenCalledWith('/api/run-versions/v-RUN-P06-S300-B0600',expect.anything());
 });
+test('modal reports the plotted samples for line and grid charts',async()=>{
+ const run=syntheticRun();
+ run.iedDistribution.push({energy:3,intensity:4});
+ render(<RunDetail runRef={run} run={run}/>);
+ expect(screen.getByRole('tabpanel')).toHaveTextContent('IED 원본 데이터 3점 표시');
+ fireEvent.click(screen.getByRole('tab',{name:'Ion Energy-Angle Distribution'}));
+ expect(screen.getByRole('tabpanel')).toHaveTextContent('IEAD 원본 데이터 2 × 2점 표시');
+ fireEvent.click(screen.getByRole('tab',{name:'RF Current'}));
+ expect(screen.getByRole('tabpanel')).toHaveTextContent('Current density (statampere/cm²)');
+});
 test('Bias-off modal disables unavailable files but keeps scalar values and residual',async()=>{api();render(<RunDetail runRef={syntheticRun(0)} onReference={vi.fn()}/>);await screen.findByRole('tab',{name:'Residual Convergence'});expect(screen.getByRole('tab',{name:'Ion Energy Distribution'})).toBeDisabled();expect(screen.getByRole('tab',{name:'Residual Convergence'})).toHaveAttribute('aria-selected','true');});
 test('missing API never inserts fixture Runs',async()=>{vi.stubGlobal('fetch',vi.fn(async()=>new Response(JSON.stringify({message:'Unavailable'}),{status:503})));render(<AnalysisPage/>);await screen.findByRole('alert');expect(screen.queryByRole('button',{name:/RUN-P/})).not.toBeInTheDocument();});
 test('late version response cannot overwrite newly selected immutable Run',async()=>{
