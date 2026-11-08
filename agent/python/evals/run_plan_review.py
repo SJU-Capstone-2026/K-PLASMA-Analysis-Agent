@@ -1,4 +1,4 @@
-"""Opt-in Decisions evaluation against fixed, human-labelled plan pairs."""
+"""Opt-in Decisions evaluation against fixed, labelled plan pairs."""
 
 import argparse
 from collections import Counter
@@ -18,10 +18,15 @@ from .plan_review_cases import cases
 
 
 def jobs(bank, repeats):
+    repeated = [case for case in bank if case.repeated]
     for repeat in range(repeats):
-        for case in bank:
+        for case in repeated:
             for bad in (False, True):
                 yield case, bad, repeat + 1
+    for case in bank:
+        if not case.repeated:
+            for bad in (False, True):
+                yield case, bad, 1
 
 
 def grade(bad, status):

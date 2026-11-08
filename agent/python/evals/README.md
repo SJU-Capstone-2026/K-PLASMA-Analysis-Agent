@@ -70,9 +70,15 @@ for the exercised HTTP, UI, database and recovery scope.
 
 ## v2 plan meaning and end-to-end evaluation
 
-`plan_review_cases.py` contains 13 human-labelled correct/incorrect plan pairs,
-all on artificial identities. Both variants pass the code validator. Three
-repeats make 78 Decisions requests; no planner is called in this experiment.
+`plan_review_cases.py` contains 14 labelled correct/incorrect plan pairs,
+all on artificial identities. Both variants pass the code validator. The default
+matrix preserves the original 13 pairs × 3 repeats (78 requests), then adds P14's
+correct and incorrect plans once each: **80 Decisions requests, 40 correct plans
+and 40 incorrect plans**. This is 28 distinct plans; the historical repetitions
+remain. P14 checks that an unrequested pressure filter is rejected. `--repeats`
+applies to P01–P13; P14 is included once even when selected with `--case P14`.
+No planner is called in this experiment. Historical 78-request measurements
+remain unchanged; adding two cases does not establish an 80/80 live result.
 The grader reports false acceptance, false rejection, unclear and API failure
 separately. Its labels never come from Decisions itself. Synthetic probes such
 as 9999.5 distinguish a range from equality even if both return no real Runs.

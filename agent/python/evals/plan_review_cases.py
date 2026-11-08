@@ -1,4 +1,4 @@
-"""Human-authored semantic pairs. All Run identities and data are artificial."""
+"""Fixed semantic pairs. All Run identities and data are artificial."""
 
 from copy import deepcopy
 from dataclasses import dataclass
@@ -13,6 +13,7 @@ class ReviewCase:
     good: PlanDraft
     bad: PlanDraft
     context: dict
+    repeated: bool = True
 
 
 def literal(value, unit, question):
@@ -72,11 +73,11 @@ def nested(question, energy=False):
 def cases():
     bank = []
 
-    def pair(id, question, steps, change, *, selected=False):
+    def pair(id, question, steps, change, *, selected=False, repeated=True):
         bad = deepcopy(steps)
         change(bad)
         bank.append(ReviewCase(id, question, plan(question, steps), plan(question, bad),
-                               selected_context() if selected else {}))
+                               selected_context() if selected else {}, repeated))
 
     q = "선택한 두 Run의 플럭스를 비교하고, 두 Run 모두보다 플럭스가 높고 평균 이온 에너지가 150–160 eV인 Run을 찾아줘."
     pair("P01", q, nested(q, True), lambda s: s[-1]["inputs"]["constraints"].__setitem__(1,
@@ -154,4 +155,9 @@ def cases():
                     compare(result_ref("choose", "selection", "scalar"), depends=["choose", "baseline"])],
          lambda s: s[1]["inputs"].__setitem__("selection_count", 3), selected=True)
     bank[-1].context["baseline"] = "R2"
+
+    q = "이온 플럭스가 50 이상인 모든 Run을 찾아줘. 단위는 10¹⁸ m⁻²s⁻¹이며 압력은 제한하지 마."
+    pair("P14", q, [search([constraint("ionFlux", "gte", 50, "10¹⁸ m⁻²s⁻¹", q)])],
+         lambda s: s[0]["inputs"]["constraints"].append(constraint("pressure", "gte", 8, "mTorr", q)),
+         repeated=False)
     return bank

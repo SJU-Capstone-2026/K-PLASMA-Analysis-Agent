@@ -7,18 +7,48 @@ from kplasma_agent.v2.plan_validation import validate_plan
 from .v2_cases import runs
 
 
-def test_review_bank_has_thirteen_valid_pairs_including_combined_hitl_regression():
+def test_review_bank_preserves_78_requests_and_adds_one_balanced_pair():
     from .plan_review_cases import cases
     from .run_plan_review import jobs
 
     bank = cases()
-    assert len(bank) == 13 and len({c.id for c in bank}) == 13
-    assert len(list(jobs(bank, 3))) == 78
+    assert len(bank) == 14 and len({c.id for c in bank}) == 14
+    matrix = list(jobs(bank, 3))
+    assert len(matrix) == 80
+    assert sum(bad for _, bad, _ in matrix) == 40
+    assert [(case.id, bad, trial) for case, bad, trial in matrix[:78]] == [
+        (f"P{number:02}", bad, trial)
+        for trial in range(1, 4) for number in range(1, 14) for bad in (False, True)
+    ]
+    assert [(case.id, bad, trial) for case, bad, trial in matrix[78:]] == [
+        ("P14", False, 1), ("P14", True, 1),
+    ]
     for case in bank:
         for plan in (case.good, case.bad):
             validate_plan(plan, messages={"question": case.question}, context_keys=set(case.context),
                           selected_run_keys={e["key"] for e in case.context.get("comparison_entries", [])})
         assert case.good.model_dump() != case.bad.model_dump()
+
+
+def test_added_pair_detects_an_unrequested_pressure_filter():
+    from .plan_review_cases import cases
+
+    case = next(c for c in cases() if c.id == "P14")
+    probe = deepcopy(runs()[0])
+    probe["metrics"]["ionFlux"] = 60
+    groups = [search_reverse(resolve_inputs(plan.steps[0], {}, {}), [probe])["commonRunIds"]
+              for plan in (case.good, case.bad)]
+    assert groups == [["SYN-A"], []]
+
+
+def test_added_pair_is_run_once_when_selected_alone():
+    from .plan_review_cases import cases
+    from .run_plan_review import jobs
+
+    pair = [c for c in cases() if c.id == "P14"]
+    assert [(case.id, bad, trial) for case, bad, trial in jobs(pair, 3)] == [
+        ("P14", False, 1), ("P14", True, 1),
+    ]
 
 
 def test_empty_real_results_do_not_hide_the_range_vs_equality_bug():
@@ -34,7 +64,7 @@ def test_empty_real_results_do_not_hide_the_range_vs_equality_bug():
     assert groups == [["SYN-A"], []]
 
 
-def test_grader_uses_human_labels_not_the_decisions_verdict_as_ground_truth():
+def test_grader_uses_expected_labels_not_the_decisions_verdict_as_ground_truth():
     from .run_plan_review import grade
 
     assert grade(False, "PASS") == "correct"
