@@ -19,7 +19,7 @@ class V2DecisionRecordsStepTest extends WorkspaceTestSupport {
     private JsonNode claim;
 
     @Test void searchGroupFeedsRecordsAndTheRemainingRunsFeedAComparison() throws Exception {
-        decision("EXP-1", experiment());
+        decision("EXP-1", decisionRecordFixture());
         start("검색 후보 중 비용 반려 후보를 빼고 비교해줘");
         plan(
             tool("search", "reverse_search", List.of(), Map.of()),
@@ -34,7 +34,7 @@ class V2DecisionRecordsStepTest extends WorkspaceTestSupport {
         assertThat(first).hasSize(1);
         assertThat(first.get(0).get("candidates").get(1).get("note").asString()).isEqualTo(COST_NOTE);
         assertThat(first.get(0).has("authorName")).isFalse();
-        decision("EXP-2", experiment());
+        decision("EXP-2", decisionRecordFixture());
         assertThat(records(records)).describedAs("the first read is pinned for the request").isEqualTo(first);
         assertThat(manifest().get("decisionRecords")).isEqualTo(first);
 
@@ -71,7 +71,7 @@ class V2DecisionRecordsStepTest extends WorkspaceTestSupport {
     }
 
     @Test void confirmedActiveRunIsAllowedAndOtherRunsAreRejected() throws Exception {
-        decision("EXP-1", experiment());
+        decision("EXP-1", decisionRecordFixture());
         var reference = new LinkedHashMap<String, Object>();
         reference.put("stateToken", token());
         reference.put("activeRun", refs.get(1));
@@ -216,7 +216,7 @@ class V2DecisionRecordsStepTest extends WorkspaceTestSupport {
         jdbc.update("insert into decision(review_id,workspace_id,record) values (?,1,?::jsonb)", id, mapper.writeValueAsString(stored));
     }
 
-    private Map<String, Object> experiment() {
+    private Map<String, Object> decisionRecordFixture() {
         return Map.of("id", "EXP-1", "version", 2, "authorName", "인공 작성자", "decision", "ADOPT",
             "question", "인공 질문", "overallComment", "인공 공통 코멘트", "createdAt", "2026-09-20T00:00:00Z",
             "candidates", List.of(
