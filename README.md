@@ -37,11 +37,13 @@ npm run lint
 npm run build
 backend/gradlew -p backend test --console=plain
 npm exec --workspace frontend -- playwright install chromium
+npm run test:ui:v2
 npm run test:e2e
+npm run test:agent:restart
 npm run verify:public-files
 ```
 
-`test:e2e`는 독립 PostgreSQL·backend·Python 그래프와 고정 모델 응답을 사용하는 인공 데이터 검증입니다. `test:e2e:live`는 실제 LLM을 연결합니다. 이전 fallback의 원본 비교 실행기는 보존했으며 현재 v1 통과 기준과의 차이는 [실행 문서](docs/development.md)에 설명합니다. 기본 CI는 실제 데이터나 API 키를 포함하지 않으며 검증 artifact를 업로드하지 않습니다. 새 대화에서 v2를 선택하는 방법과 모델 평가 명령은 [Agent v2 운영과 평가](docs/development/agent-v2.md)를 참고하세요.
+기본 CI의 Agent 실행·평가·브라우저 기준은 v2입니다. `test:agent`는 v2 그래프·평가기와 공통 계산을, `test:ui:v2`는 네 화면 폭의 그래프·대화방·스트리밍을 검사합니다. `test:e2e`와 `test:agent:restart`는 독립 PostgreSQL·backend·Python v2 그래프에서 고정 모델 응답을 사용합니다. `test:e2e:live`는 실제 LLM을 연결하므로 API 키와 호출 비용이 필요합니다. 공통 API·보안·과거 기록 호환성 검사는 유지합니다. 기본 CI는 실제 데이터나 API 키를 포함하지 않으며 검증 artifact를 업로드하지 않습니다. 자세한 범위와 실제 모델 평가 명령은 [Agent v2 운영과 평가](docs/development/agent-v2.md)를 참고하세요.
 
 [수용 검증](docs/verification/acceptance.md)과 [원본 102개 대응표](docs/verification/prototype-test-map.md)는 통과·실패·유예·미검증 범위를 구분합니다. D1–D5와 남은 차이가 있으므로 전체 100% 동등성으로 표현하지 않습니다. 새 대화와 데모 초기화는 업로드한 Run·그래프·원본을 유지합니다. 종료 절차는 DB volume과 원본을 보존합니다.
 

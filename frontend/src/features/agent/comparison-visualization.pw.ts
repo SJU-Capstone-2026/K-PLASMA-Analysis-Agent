@@ -92,7 +92,7 @@ for(const {width,version} of layouts)test(`${version} comparison charts and inde
  await chart.getByRole('button',{name:'전체 표시'}).click();
  for(const name of ['RF 전류 밀도 최댓값','RF 전류 밀도 최솟값','마지막 잔차']){
   await chart.getByRole('tab',{name,exact:true}).click();await expect(chart.locator('rect[data-run-key]')).toHaveCount(runCount);await expectChartLabelsInside(chart.getByRole('img'));
-  if(version==='v2')expect(waveformHeight).toBeCloseTo((await chart.getByRole('img').boundingBox())!.height,0);
+  if(version==='v2')await expect.poll(async()=>(await chart.getByRole('img').boundingBox())!.height).toBeCloseTo(waveformHeight,0);
   if(name==='마지막 잔차')await expect(chart.getByRole('img').getByText('1.00e-9',{exact:true})).toBeVisible();
   if(name==='RF 전류 밀도 최댓값')await chart.screenshot({path:info.outputPath(`synthetic-bar-labels-${width}.png`)});
  }

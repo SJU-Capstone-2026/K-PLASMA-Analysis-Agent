@@ -9,7 +9,7 @@ const output = await mkdtemp(join(tmpdir(), 'kplasma-v2-browser-'));
 console.log(`Browser evidence: ${output}`);
 const environment = await startV1Environment(output, live ? 'live' : 'stub-v2');
 try {
-  await command(join(repo, 'node_modules/.bin/playwright'), ['test', '--config', 'v2.playwright.config.ts', ...(live ? [] : ['--grep', 'v2 browser answers'])], {
+  await command(join(repo, 'node_modules/.bin/playwright'), ['test', '--config', 'v2.playwright.config.ts'], {
     cwd: join(repo, 'frontend'),
     env: {...process.env, KPLASMA_E2E_API: environment.url, KPLASMA_E2E_OUTPUT: output,
       KPLASMA_E2E_PORT: String(await freePort()), KPLASMA_V2_MOCK: String(!live)},
