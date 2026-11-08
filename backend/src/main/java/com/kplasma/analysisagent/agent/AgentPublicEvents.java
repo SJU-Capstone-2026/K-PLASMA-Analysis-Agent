@@ -13,7 +13,7 @@ import tools.jackson.databind.ObjectMapper;
 @Repository
 public class AgentPublicEvents {
     private static final TypeReference<Map<String,Object>> MAP = new TypeReference<>() {};
-    private static final Set<String> CODES = Set.of("QUEUED", "QUESTION_CHECK", "PLAN", "PLAN_VALIDATE",
+    private static final Set<String> CODES = Set.of("QUEUED", "QUESTION_CHECK", "PLAN", "PLAN_VALIDATE", "PLAN_REVIEW",
         "FORWARD_LOOKUP", "REVERSE_SEARCH", "SEARCH_COMPLETE", "SEARCH_EMPTY", "COMPARE_RUNS",
         "COMPARE_OUTPUTS", "COMPARE_IEAD", "DERIVE", "RESULT_VALIDATE", "REUSE_RESULT", "NEEDS_RUNS",
         "NEEDS_BASELINE", "NEEDS_CONDITIONS", "RESUMED", "REPLAN", "GENERAL_ANSWER", "INTERPRET",

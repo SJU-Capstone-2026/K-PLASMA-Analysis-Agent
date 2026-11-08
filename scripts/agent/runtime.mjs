@@ -30,9 +30,9 @@ export async function startV1Environment(output,mode='stub'){
     const metadata={url:backend.url,token,workerToken:token,output};
     await writeFile(connection,JSON.stringify(metadata),{mode:0o600});
     if(mode!=='none'){
-      const python=join(repo,'agent/python/.venv',process.platform==='win32'?'Scripts/python.exe':'bin/python');
-      const args=mode==='live'?['-m','kplasma_agent.worker']:['agent/python/tests/runtime_worker.py','--connection',connection];
-      const env={...process.env,AGENT_BACKEND_URL:backend.url,AGENT_WORKER_TOKEN:token,PYTHONPATH:join(repo,'agent/python/src')};
+      const python=process.env.KPLASMA_VERIFY_PYTHON??join(repo,'agent/python/.venv',process.platform==='win32'?'Scripts/python.exe':'bin/python');
+      const args=mode==='live'?['-m','kplasma_agent.worker',...(process.env.KPLASMA_VERIFY_ENV_FILE?['--env-file',process.env.KPLASMA_VERIFY_ENV_FILE]:[])]:[mode==='stub-v2'?'agent/python/tests/runtime_v2_worker.py':'agent/python/tests/runtime_worker.py','--connection',connection];
+      const env={...process.env,PHOENIX_COLLECTOR_ENDPOINT:'',PHOENIX_API_KEY:'',AGENT_BACKEND_URL:backend.url,AGENT_WORKER_TOKEN:token,PYTHONPATH:join(repo,'agent/python/src')};
       if(mode==='live'){env.OPENAI_MODEL='gpt-5.6-luna';env.OPENAI_REASONING_EFFORT='none';}
       if(mode!=='live')delete env.OPENAI_API_KEY;
       worker=spawn(python,args,{cwd:repo,env,stdio:['ignore','pipe','pipe']});
