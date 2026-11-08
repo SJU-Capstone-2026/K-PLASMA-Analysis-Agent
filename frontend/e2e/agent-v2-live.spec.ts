@@ -51,7 +51,7 @@ async function pick(page: Page, runs: RunSummary[]) {
 test('v2 browser answers', async ({page}) => {
   const allRuns = await (await page.request.get(`${api}/api/runs`)).json() as RunSummary[];
   const runs = allRuns.filter(run => run.catalogStatus === 'READY').sort((a, b) => a.metrics.ionFlux - b.metrics.ionFlux);
-  expect(runs.length).toBeGreaterThanOrEqual(2);
+  expect(runs.map(run => run.metrics.ionFlux), 'synthetic boundary and its two sides').toEqual([1, 40, 60]);
   const selected = runs.slice(0, 2);
   const expected = runs.filter(run => run.metrics.ionFlux > Math.max(...selected.map(r => r.metrics.ionFlux)))
     .map(r => r.runId).sort();

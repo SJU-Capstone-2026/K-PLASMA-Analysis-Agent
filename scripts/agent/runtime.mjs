@@ -22,7 +22,7 @@ export async function startV1Environment(output,mode='stub'){
     for(const pressure of [4,6]){
       const path=join(folder,`artificial-${pressure}/0d_result/log/solver.log`);
       const text=await readFile(path,'utf8');
-      await writeFile(path,text.replace('Ar+ 12.3456789',`Ar+ ${pressure*10}`).replace('Ar+ 1.e14',`Ar+ ${pressure}.e14`));
+      await writeFile(path,text.replace('Ar+ 12.3456789',`Ar+ ${pressure*10}`).replace('Ar+ 1.e14',`Ar+ ${pressure}.e15`));
     }
     const accepted=await upload(backend.url,folder,'FOLDER');
     if((await terminalBatch(backend.url,accepted.batchId)).status!=='SUCCESS')throw new Error('Synthetic import failed');

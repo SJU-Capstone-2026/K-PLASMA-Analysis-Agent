@@ -60,7 +60,7 @@ function searchIds(state) {
 try {
   environment = await startV1Environment(output, 'none');
   const runs = (await request('/api/runs')).filter(run => run.catalogStatus === 'READY').sort((a, b) => a.metrics.ionFlux - b.metrics.ionFlux);
-  assert.equal(runs.length, 3);
+  assert.deepEqual(runs.map(run => run.metrics.ionFlux), [1, 40, 60]);
   const queued = await submit('이온 플럭스가 40보다 높은 실제 Run을 모두 찾아줘.');
   assert.equal(queued.status, 'QUEUED');
   await environment.restartBackend();
