@@ -4,6 +4,7 @@ import {createRecord,executeFallback,toRunSummary,type ReviewRecord,type Workspa
 import {App} from '../../App';
 import {fixtureRuns} from '../../test/runs';
 import {emptyWorkspace,initialTurnUi} from './useConversation';
+import v2Contracts from '../../../../agent/tests/support/v2/contracts.json';
 const ref=(run:import('agent').RunRef)=>({runId:run.runId,runVersionId:run.runVersionId});
 async function setup(){const answer=await executeFallback({text:'평균 이온 에너지가 뭐야?',candidateReferences:[]},{candidateRunsLatest:[],referenceRunsByVersion:new Map(),decisionRecords:[],hydrateFullRun:async()=>{throw Error('unexpected hydration');}});const turn:TurnSnapshot={id:'seed-turn',askedAt:'2026-01-01T00:00:00Z',question:'평균 이온 에너지가 뭐야?',intent:answer.intent,context:null,answerRunRefs:answer.usedRunRefs,answerSnapshot:answer.answerSnapshot,ui:structuredClone(initialTurnUi)};let workspace:WorkspaceView={...structuredClone(emptyWorkspace),conversation:{version:1,activeRun:ref(fixtureRuns[0]),turns:[turn]},candidateReference:{kind:'후보 집합',runs:fixtureRuns.slice(1,3).map(ref)}};const raw=createRecord({targetRunId:fixtureRuns[0].runId,decision:'HOLD',comment:'검토 메모',authorName:'작성자',analysisType:'FORWARD'},fixtureRuns);let records:ReviewRecord[]=[{...raw,targetRunRef:ref(fixtureRuns[0]),comparedRunRefs:[],runSnapshots:raw.runSnapshots.map(snapshot=>({...snapshot,...ref(fixtureRuns[0])}))} as ReviewRecord];const mutations:{path:string;body:unknown}[]=[];vi.stubGlobal('scrollTo',vi.fn());vi.stubGlobal('fetch',vi.fn(async(path:string,init:RequestInit={})=>{const body=init.body?JSON.parse(init.body as string):null;if(init.method)mutations.push({path,body});if(path==='/api/runs')return Response.json(fixtureRuns.map(toRunSummary));if(path.startsWith('/api/run-versions/'))return Response.json(fixtureRuns.find(run=>path.endsWith(run.runVersionId)));if(path==='/api/decisions')return Response.json(records);if(path.endsWith('/new-conversation')||path.endsWith('/reset')){workspace={...workspace,candidateReference:null,conversation:{version:1,activeRun:null,turns:[]},stateToken:{...workspace.stateToken,conversationEpoch:workspace.stateToken.conversationEpoch+1,revision:workspace.stateToken.revision+1,workspaceEpoch:workspace.stateToken.workspaceEpoch+(path.endsWith('/reset')?1:0)}};if(path.endsWith('/reset'))records=[];}else if(path.endsWith('/reference'))workspace={...workspace,candidateReference:body.candidateReference,conversation:{...workspace.conversation,activeRun:body.activeRun}};return Response.json(workspace);}));return {mutations,getWorkspace:()=>workspace};}
 afterEach(()=>vi.unstubAllGlobals());
@@ -11,3 +12,40 @@ test('archive applied filters survive navigation; new conversation retains decis
 test('analysis to Agent preserves current candidateReference and writes only the selected active Run',async()=>{const server=await setup();render(<App/>);await screen.findByText('쉽게 기억하면:');await waitFor(()=>expect(document.getElementById('archive-count')).toHaveTextContent('1'));fireEvent.click(screen.getByRole('button',{name:'실험 데이터 탐색'}));fireEvent.click((await screen.findAllByRole('button',{name:'이 Run으로 Agent에게 질문'}))[0]);await waitFor(()=>expect(server.mutations).toHaveLength(1));expect(server.mutations[0]).toEqual({path:'/api/workspace/reference',body:{stateToken:emptyWorkspace.stateToken,candidateReference:{kind:'후보 집합',runs:fixtureRuns.slice(1,3).map(ref)},activeRun:ref(fixtureRuns[0])}});await waitFor(()=>expect(document.querySelector('#agent-query')).toHaveFocus());expect(server.getWorkspace().conversation.turns).toHaveLength(1);});
 
 test('late initial decision-list response cannot discard a record saved while the list was loading',async()=>{await setup();const original=globalThis.fetch;const oldList=await original('/api/decisions');let resolve!:(response:Response)=>void;vi.stubGlobal('fetch',vi.fn((path:string,init:RequestInit={})=>path==='/api/decisions'?(init.method==='POST'?Promise.resolve(Response.json(JSON.parse(init.body as string).record)):new Promise<Response>(r=>resolve=r)):original(path,init)));render(<App/>);await screen.findByText('쉽게 기억하면:');fireEvent.click(screen.getByRole('button',{name:'실험 데이터 탐색'}));fireEvent.click((await screen.findAllByRole('button',{name:'실험 기록'}))[0]);fireEvent.click(await screen.findByRole('radio',{name:/보류/}));fireEvent.change(screen.getByRole('textbox',{name:/판단 근거 코멘트/}),{target:{value:'새로 저장한 판단'}});fireEvent.click(screen.getByRole('button',{name:'코멘트와 결정 저장'}));await waitFor(()=>expect(screen.queryByRole('dialog')).not.toBeInTheDocument());await act(async()=>resolve(oldList));fireEvent.click(screen.getByRole('button',{name:/의사결정 기록/}));expect(document.querySelectorAll('.archive-row')).toHaveLength(2);});
+
+
+test('v2 result records keep the clicked Run and exact saved execution source through App',async()=>{
+ const run=fixtureRuns[1];const selected=ref(run);
+ const source={turnId:'v2-record-turn',executionId:'record-execution',stepId:'search',groupId:'common'};
+ const question='인공 Run 검색 결과를 기록해줘';
+ const snapshot=JSON.parse(JSON.stringify({...v2Contracts.general_answer,intent:'COMPOSITE_ANSWER',question,draft:null,
+  stepResults:[{executionId:source.executionId,stepId:source.stepId,status:'verified',groupId:null,reason:null,
+   outputs:{toolResult:{kind:'forward_lookup',resultStatus:'EXACT',candidates:[toRunSummary(run)]}},runRefs:[selected]}],
+ }));
+ const turn:TurnSnapshot={id:source.turnId,askedAt:'2026-01-01T00:00:00Z',question,intent:'COMPOSITE_ANSWER',
+  context:null,answerRunRefs:[selected],answerSnapshot:snapshot,ui:structuredClone(initialTurnUi)};
+ const workspace:WorkspaceView={...structuredClone(emptyWorkspace),conversation:{version:1,activeRun:null,turns:[turn],agentGraphVersion:'v2'}};
+ const writes:import('agent').DecisionWrite[]=[];
+ vi.stubGlobal('scrollTo',vi.fn());
+ vi.stubGlobal('fetch',vi.fn(async(path:string,init:RequestInit={})=>{
+  if(path==='/api/workspace')return Response.json(workspace);
+  if(path==='/api/runs')return Response.json(fixtureRuns.map(toRunSummary));
+  if(path.startsWith('/api/run-versions/'))return Response.json(fixtureRuns.find(item=>path.endsWith(item.runVersionId)));
+  if(path==='/api/decisions'){
+   if(init.method==='POST'){const body=JSON.parse(init.body as string) as import('agent').DecisionWrite;writes.push(body);return Response.json(body.record);}
+   return Response.json([]);
+  }
+  throw new Error(`Unexpected artificial test API request: ${path}`);
+ }));
+ render(<App/>);
+ fireEvent.click(await screen.findByRole('button',{name:`${run.runId} 판단 기록`}));
+ fireEvent.click(await screen.findByRole('radio',{name:/보류/}));
+ const dialog=screen.getByRole('dialog');
+ expect(within(dialog).queryAllByRole('checkbox')).toHaveLength(0);
+ fireEvent.change(within(dialog).getByRole('textbox',{name:/판단 근거 코멘트/}),{target:{value:'인공 Run을 수동 검토'}});
+ fireEvent.click(within(dialog).getByRole('button',{name:'코멘트와 결정 저장'}));
+ await waitFor(()=>expect(writes).toHaveLength(1));
+ expect(writes[0].record.source).toEqual(source);
+ expect(writes[0].record.targetRunRef).toEqual(selected);
+ expect(writes[0].runRefs).toEqual([selected]);
+});

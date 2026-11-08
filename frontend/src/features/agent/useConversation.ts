@@ -1,9 +1,10 @@
 import {useEffect,useRef,useState} from 'react';
-import {isV1AnswerSnapshot,type AgentMessage,type AgentRequestView,type AgentSubmission,type WorkspaceView,type ReferenceState,type RunRef,type TurnUiSnapshot,type Snapshot,type StateToken} from 'agent';
-import {cancelAgentRequest,fetchAgentRequest,resumeAgentRequest,submitAgentRequest} from '../../api/agent';
+import {isV1AnswerSnapshot,type GraphVersion,type AgentMessage,type AgentPublicEvent,type AgentRequestView,type AgentResultProjection,type AgentSubmission,type WorkspaceView,type ReferenceState,type RunRef,type TurnUiSnapshot,type Snapshot,type StateToken} from 'agent';
+import {cancelAgentRequest,fetchAgentEvents,fetchAgentRequest,fetchAgentResults,openAgentEvents,resumeAgentRequest,submitAgentRequest} from '../../api/agent';
+import {applyProgressEvent,mergeRequestSnapshot} from './progress-events';
 import {ApiClientError} from '../../api/client';
 import {resolveCandidateRef,explicitReferences} from './references';
-import {fetchWorkspace,patchTurnUi,replaceConversation,writeReference} from '../../api/workspace';
+import {activateConversation,fetchWorkspace,patchTurnUi,replaceConversation,writeReference} from '../../api/workspace';
 export const emptyWorkspace:WorkspaceView={stateToken:{workspaceEpoch:0,conversationEpoch:0,revision:0},conversation:{version:1,activeRun:null,turns:[]},candidateReference:null};
 export const initialTurnUi:TurnUiSnapshot={collapsed:false,openRunIds:[],runDetailTabs:{},activeCandidateGroup:'common',continuedRunId:null,lookupExpanded:false,selectedCandidateRunId:null};
 const sameEpoch=(a:StateToken,b:StateToken)=>a.workspaceEpoch===b.workspaceEpoch&&a.conversationEpoch===b.conversationEpoch;
@@ -22,7 +23,10 @@ function selectedCandidate(workspace:WorkspaceView):RunRef|undefined{
 }
 export function useConversation(){
  const [state,setState]=useState(emptyWorkspace);const current=useRef(state);const [ready,setReady]=useState(false);const [error,setError]=useState('');
+ const [draftGraphVersion,setDraftGraphVersion]=useState<GraphVersion>('v1');
+ const draftGraph=useRef<GraphVersion>('v1');
  const [activeRequest,setActiveRequest]=useState<AgentRequestView|null>(null);const active=useRef<AgentRequestView|null>(null);const [sending,setSending]=useState(false);const busy=useRef(false);
+ const [resultPreview,setResultPreview]=useState<AgentResultProjection|null>(null);
  const initialization=useRef<Promise<void>>(Promise.resolve());const generation=useRef(0);const controllers=useRef(new Set<AbortController>());const queue=useRef<Promise<unknown>>(Promise.resolve());const mounted=useRef(true);
  const workspaceNeedsSync=useRef(false);const [subscriptionRevision,setSubscriptionRevision]=useState(0);
  const pendingUi=useRef(new Map<string,PendingTurnUi[]>());const uiGeneration=useRef(0);
@@ -32,7 +36,13 @@ export function useConversation(){
  const provisionalRef=useRef<AgentMessage|null>(null);
  function showMessage(message:AgentMessage|null){provisionalRef.current=message;if(mounted.current)setProvisionalMessage(message);}
  const submission=useRef<{key:string;body:AgentSubmission;posted?:boolean}|null>(null);const resumption=useRef<{key:string;requestId:string;body:{expectedRequestRevision:number;pendingInputId:string;input:Snapshot}}|null>(null);
- function showRequest(next:AgentRequestView|null){if(JSON.stringify(active.current)===JSON.stringify(next))return;active.current=next;if(mounted.current)setActiveRequest(next);}
+ function showRequest(next:AgentRequestView|null){
+  if(next===active.current)return;
+  if(next&&active.current?.requestId===next.requestId&&active.current.requestRevision>next.requestRevision)return;
+  if(next)next=mergeRequestSnapshot(active.current,next);
+  if(JSON.stringify(active.current)===JSON.stringify(next))return;
+  active.current=next;if(mounted.current)setActiveRequest(next);
+ }
  // Overlay display choices only; current keeps the server's snapshots and revision.
  function displayedWorkspace():WorkspaceView{
   const next=current.current;
@@ -59,11 +69,65 @@ export function useConversation(){
   async function poll(){try{const next=await fetchAgentRequest(id,c.signal);if(active.current?.requestId!==id)return;await accept(next,c,epoch);if(!c.signal.aborted&&epoch===generation.current&&running(next))timer=setTimeout(poll,750);}catch(e){if(!c.signal.aborted&&epoch===generation.current){setError(`연결을 다시 확인하는 중입니다. ${e instanceof Error?e.message:String(e)}`);timer=setTimeout(poll,2000);}}}
   timer=setTimeout(poll,350);return()=>{clearTimeout(timer);c.abort();controllers.current.delete(c);};
  },[activeRequest?.requestId,activeRequest?.status,subscriptionRevision]);
+ // The event subscription never submits or executes work. Status polling remains
+ // the recovery path for final turn storage and older servers without events.
+ const eventEnabled=!!activeRequest?.progress;
+ useEffect(()=>{
+  if(!activeRequest||!eventEnabled||!['QUEUED','RUNNING'].includes(activeRequest.status))return;
+  const id=activeRequest.requestId;const epoch=generation.current;const token={...current.current.stateToken};
+  const c=controller();let source:EventSource|undefined;let timer:ReturnType<typeof setTimeout>|undefined;
+  const valid=()=>!c.signal.aborted&&epoch===generation.current&&active.current?.requestId===id&&sameEpoch(token,current.current.stateToken);
+  const receive=(event:AgentPublicEvent,reconcile=true)=>{
+   if(!valid()||event.workspaceEpoch!==token.workspaceEpoch||event.conversationEpoch!==token.conversationEpoch)return;
+   const previous=active.current!;const next=applyProgressEvent(previous,event);
+   if(next!==previous){active.current=next;if(mounted.current)setActiveRequest(next);}
+   if(reconcile&&event.type==='request.state')void fetchAgentRequest(id,c.signal).then(next=>valid()?accept(next,c,epoch):undefined).catch(()=>{});
+  };
+  const recover=async()=>{
+   if(!valid())return;
+   source?.close();source=undefined;
+   try{
+    const page=await fetchAgentEvents(id,active.current?.progress?.lastEventSeq??0,c.signal);
+    if(!valid())return;
+    page.events.forEach(event=>receive(event,false));
+    const finished=['COMPLETED','FAILED','CANCELLED','NEEDS_INPUT'].includes(page.status);
+    if(finished||page.events.some(event=>event.type==='request.state'))await accept(await fetchAgentRequest(id,c.signal),c,epoch);
+    if(finished)return;
+    if(page.hasMore){timer=setTimeout(()=>void recover(),0);return;}
+   }catch{if(!valid())return;}
+   timer=setTimeout(connect,750);
+  };
+  function connect(){
+   if(!valid())return;
+   if(typeof EventSource==='undefined'){void recover();return;}
+   source=openAgentEvents(id,active.current?.progress?.lastEventSeq??0,receive,()=>{
+    source?.close();clearTimeout(timer);timer=setTimeout(()=>void recover(),250);
+   });
+  }
+  connect();
+  return()=>{clearTimeout(timer);source?.close();c.abort();controllers.current.delete(c);};
+ },[activeRequest?.requestId,activeRequest?.requestRevision,activeRequest?.status,eventEnabled,subscriptionRevision]);
+ useEffect(()=>{setResultPreview(null);},[activeRequest?.requestId]);
+ const resultRevision=activeRequest?.progress?.resultRevision;
+ useEffect(()=>{
+  if(!activeRequest||resultRevision==null)return;
+  const id=activeRequest.requestId;const epoch=generation.current;const c=controller();
+  let timer:ReturnType<typeof setTimeout>|undefined;let attempts=0;
+  setResultPreview(previous=>previous?.resultRevision===resultRevision?previous:null);
+  const valid=()=>!c.signal.aborted&&epoch===generation.current&&active.current?.requestId===id&&
+   active.current.progress?.resultRevision===resultRevision;
+  async function load(){
+   try{const result=await fetchAgentResults(id,resultRevision!,c.signal);if(valid())setResultPreview(result);}
+   catch{if(valid()){if(++attempts<3)timer=setTimeout(()=>void load(),750);else setError('확인된 결과를 불러오지 못했습니다. 연결을 확인하고 대화를 다시 열어 주세요.');}}
+  }
+  void load();
+  return()=>{clearTimeout(timer);c.abort();controllers.current.delete(c);};
+ },[activeRequest?.requestId,resultRevision,subscriptionRevision]);
  async function submit(text:string,_clarification?:Snapshot,requestContext?:{candidateReference:ReferenceState;activeRun:RunRef|null}):Promise<void>{
   if(!text.trim()||!ready)return;if(reservation.current||busy.current||inProgress(active.current))throw new Error('진행 중인 요청을 완료하거나 취소해 주세요.');
   reservation.current=true;setSending(true);
   const token={...current.current.stateToken};const intendedSelection=selectedCandidate(displayedWorkspace());
-  try{if(!submission.current){const explicit=explicitReferences(displayedWorkspace(),requestContext);const key=crypto.randomUUID();submission.current={key,posted:false,body:{text,stateToken:token,attachedRunRefs:explicit.refs.map(asRef),referenceOrigins:explicit.origins,...(intendedSelection?{selectedRunRef:asRef(intendedSelection)}:{}),...(requestContext?.activeRun?{baseline:asRef(requestContext.activeRun)}:{}),...(requestContext?.candidateReference?{candidateReferences:requestContext.candidateReference.runs.map(asRef)}:{})}};showMessage({requestId:key,clientMessageId:key,createdAt:new Date().toISOString(),question:text,submittedRunRefs:explicit.refs.map(asRef),status:'SENDING',turnId:null});saveOutbox();}}catch(e){reservation.current=false;setSending(false);throw e;}
+  try{if(!submission.current){const explicit=explicitReferences(displayedWorkspace(),requestContext);const key=crypto.randomUUID();submission.current={key,posted:false,body:{text,stateToken:token,...(current.current.conversation.agentGraphVersion===null&&draftGraph.current==='v2'?{graphVersion:'v2' as const}:{}),attachedRunRefs:explicit.refs.map(asRef),referenceOrigins:explicit.origins,...(intendedSelection?{selectedRunRef:asRef(intendedSelection)}:{}),...(requestContext?.activeRun?{baseline:asRef(requestContext.activeRun)}:{}),...(requestContext?.candidateReference?{candidateReferences:requestContext.candidateReference.runs.map(asRef)}:{})}};showMessage({requestId:key,clientMessageId:key,createdAt:new Date().toISOString(),question:text,submittedRunRefs:explicit.refs.map(asRef),status:'SENDING',turnId:null});saveOutbox();}}catch(e){reservation.current=false;setSending(false);throw e;}
   const newSubmission=submission.current;const recoveringDifferentText=newSubmission.body.text!==text;
   // The reservation precedes every await; clicks and Enter cannot allocate a second key.
   try{
@@ -103,7 +167,7 @@ export function useConversation(){
   });
  };
  // Resolve additions/removals inside the queue, after reconciling the latest saved references.
- const setReference=(reference:ReferenceState|((state:WorkspaceView)=>ReferenceState),activeRun?:RunRef|null)=>serialize(async()=>{invalidate(true);const c=controller();const epoch=generation.current;try{if(!await reconcile(c,epoch))return;const resolved=typeof reference==='function'?reference(current.current):reference;const target=activeRun===undefined?(resolved?.runs.length===1?resolved.runs[0]:null):activeRun;const next=await writeReference(current.current.stateToken,resolved?{kind:resolved.kind,runs:resolved.runs.map(asRef)}:null,target?asRef(target):null,c.signal);if(!c.signal.aborted&&epoch===generation.current)apply(next);}catch(e){if(!c.signal.aborted&&epoch===generation.current){try{await reconcile(c,epoch);}catch{/* The last restored request stays visible while offline. */}throw e;}}finally{controllers.current.delete(c);}});
+ const setReference=(reference:ReferenceState|((state:WorkspaceView)=>ReferenceState),activeRun?:RunRef|null)=>serialize(async()=>{invalidate(true);const c=controller();const epoch=generation.current;try{if(!await reconcile(c,epoch))return;const resolved=typeof reference==='function'?reference(current.current):reference;const target=activeRun===undefined?(resolved?.runs.length===1?resolved.runs[0]:null):activeRun;const next=await writeReference(current.current.stateToken,resolved?{...resolved,runs:resolved.runs.map(asRef)}:null,target?asRef(target):null,c.signal);if(!c.signal.aborted&&epoch===generation.current)apply(next);}catch(e){if(!c.signal.aborted&&epoch===generation.current){try{await reconcile(c,epoch);}catch{/* The last restored request stays visible while offline. */}throw e;}}finally{controllers.current.delete(c);}});
  async function refresh(){invalidate(true);await serialize(async()=>{const c=controller();try{const next=await fetchWorkspace(c.signal);if(!c.signal.aborted){apply(next);setError('');}}finally{controllers.current.delete(c);}});}
  async function replace(reset:boolean){if(ready)invalidate();await serialize(async()=>{
   if(!ready)invalidate();const c=controller();const epoch=generation.current;
@@ -111,9 +175,32 @@ export function useConversation(){
    // A UI write may have committed even if its response or recovery read was interrupted.
    if(!await reconcile(c,epoch))return;
    const next=await replaceConversation(current.current.stateToken,reset);
-   if(!c.signal.aborted&&epoch===generation.current){apply(next);setError('');}
+   if(!c.signal.aborted&&epoch===generation.current){draftGraph.current='v1';setDraftGraphVersion('v1');apply(next);setError('');}
   }finally{controllers.current.delete(c);}
  });}
- return {state,ready,error,provisionalMessage,pending:sending||polling(activeRequest)||activeRequest?.status==='NEEDS_INPUT',activeRequest,sending,submit,resume,cancel,updateTurnUi,setReference,refresh,newConversation:()=>replace(false),reset:()=>replace(true)};
+ async function selectConversation(conversationEpoch:number){
+  if(conversationEpoch===current.current.stateToken.conversationEpoch)return;
+  if(ready)invalidate();
+  await serialize(async()=>{
+   const c=controller();const epoch=generation.current;
+   try{
+    if(!await reconcile(c,epoch))return;
+    const next=await activateConversation(current.current.stateToken,conversationEpoch,c.signal);
+    if(!c.signal.aborted&&epoch===generation.current){
+     draftGraph.current='v1';setDraftGraphVersion('v1');apply(next);setError('');
+    }
+   }catch(e){
+    if(!c.signal.aborted&&epoch===generation.current){try{await reconcile(c,epoch);}catch{/* Keep the last loaded conversation available. */}throw e;}
+   }finally{controllers.current.delete(c);}
+  });
+ }
+ function selectGraphVersion(version:GraphVersion){
+  if(!ready||reservation.current||busy.current||submission.current||inProgress(active.current)
+    ||current.current.conversation.agentGraphVersion||current.current.conversation.turns.length)return;
+  draftGraph.current=version;setDraftGraphVersion(version);
+ }
+ return {state,ready,error,provisionalMessage,selectGraphVersion,selectConversation,
+  graphVersion:state.conversation.agentGraphVersion??draftGraphVersion,
+pending:sending||polling(activeRequest)||activeRequest?.status==='NEEDS_INPUT',activeRequest,resultPreview,sending,submit,resume,cancel,updateTurnUi,setReference,refresh,newConversation:()=>replace(false),reset:()=>replace(true)};
 }
-export type ConversationController=ReturnType<typeof useConversation>;
+export type ConversationController=Omit<ReturnType<typeof useConversation>,'resultPreview'>&{resultPreview?:AgentResultProjection|null};

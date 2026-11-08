@@ -3,7 +3,7 @@ import {createRequire} from 'node:module';
 import {execFileSync,spawnSync} from 'node:child_process';
 import {join} from 'node:path';
 import {once} from 'node:events';
-import {loadReference,sha256} from './load.mjs';
+import {loadReference,sha256,withFullReferenceGraphs} from './load.mjs';
 import {compareRuns} from './compare-runs.mjs';
 import {comparePrototypeAssertions} from './compare-tests.mjs';
 import {repo,startBackend,command,createZip,upload,get,terminalBatch,syntheticFolder} from './runtime.mjs';
@@ -36,9 +36,35 @@ try {
   const folderBatch=await terminalBatch(backend.url,folderAccepted.batchId);
   if(folderBatch.status!=='SUCCESS')throw new Error('Folder registration did not finish SUCCESS.');
   const firstSummaries=await get(backend.url,'/api/runs');
-  const first=await Promise.all(firstSummaries.map(run=>get(backend.url,`/api/run-versions/${run.runVersionId}`)));
-  if(reference){summary.folder=compareRuns(expected,first);console.log(`Folder: Runs=${summary.folder.runCount}, assertions=${summary.folder.assertions}, mismatches=${summary.folder.mismatches}.`);if(summary.folder.mismatches)throw new Error('Folder physical parity failed.');}
-  else if(first.length!==3)throw new Error('Expected three artificial Runs.');
+  // Keep only one full Run in memory while comparing the large original grids.
+  const expectedById = new Map(expected?.map(run => [run.runId, run]));
+  async function compareFullRuns(label, summaries, checkProjection) {
+    const report = {runCount: summaries.length, assertions: 0, mismatches: 0, failures: []};
+    const seen = new Set();
+    for (const run of summaries) {
+      const full = await get(backend.url,`/api/run-versions/${run.runVersionId}`);
+      if (reference) {
+        if (seen.has(run.runId) || !expectedById.has(run.runId)) report.failures.push('runs.identity/count');
+        else {
+          const raw = await withFullReferenceGraphs(reference, expectedById.get(run.runId));
+          const compared = compareRuns([raw], [full]);
+          report.assertions += compared.assertions;
+          report.failures.push(...compared.failures);
+        }
+      }
+      seen.add(run.runId);
+      checkProjection?.(run, full);
+    }
+    if (reference) {
+      if (seen.size !== expectedById.size) report.failures.push('runs.identity/count');
+      report.mismatches = report.failures.length;
+      console.log(`${label}: Runs=${report.runCount}, assertions=${report.assertions}, mismatches=${report.mismatches}.`);
+      if (report.mismatches) throw new Error(`${label} physical parity failed.`);
+    }
+    return report;
+  }
+  if (reference) summary.folder=await compareFullRuns('Folder',firstSummaries);
+  else if(firstSummaries.length!==3)throw new Error('Expected three artificial Runs.');
   const zip=join(output,'sources.zip');await createZip(folder,zip);
   if(reference){
     // An independent empty DB forces ZIP intake to parse/publish all 150 rather than reuse folder versions.
@@ -47,17 +73,22 @@ try {
   const zipAccepted=await upload(backend.url,folder,'ZIP',zip);const zipBatch=await terminalBatch(backend.url,zipAccepted.batchId);
   const wanted=reference?'READY':'DUPLICATE';
   if(zipBatch.status!=='SUCCESS'||zipBatch.jobs.some(job=>job.status!==wanted))throw new Error(`ZIP did not resolve every Run as ${wanted}.`);
-  const zipSummaries=await get(backend.url,'/api/runs');const zipFull=await Promise.all(zipSummaries.map(run=>get(backend.url,`/api/run-versions/${run.runVersionId}`)));
-  if(reference){summary.zip=compareRuns(expected,zipFull);console.log(`ZIP: Runs=${summary.zip.runCount}, assertions=${summary.zip.assertions}, mismatches=${summary.zip.mismatches}.`);if(summary.zip.mismatches)throw new Error('ZIP physical parity failed.');}
-  if(!reference&&JSON.stringify(first.map(run=>run.runVersionId).sort())!==JSON.stringify(zipFull.map(run=>run.runVersionId).sort()))throw new Error('Duplicate ZIP changed immutable versions.');
+  const zipSummaries=await get(backend.url,'/api/runs');
+  if(!reference&&JSON.stringify(firstSummaries.map(run=>run.runVersionId).sort())!==JSON.stringify(zipSummaries.map(run=>run.runVersionId).sort()))throw new Error('Duplicate ZIP changed immutable versions.');
   summary.upload={folderJobs:folderBatch.jobs.length,zipJobs:zipBatch.jobs.length,zipJobStatus:wanted,independentActualDatabases:!!reference,duplicateVersionsStable:!reference};
   // API-produced summary/catalog projections must agree with full immutable versions, without graph leakage into summaries.
   const catalog=await get(backend.url,'/api/catalog');
-  for(const full of zipFull){const {iedDistribution,sourceFiles,analysis,...scalar}=full;const {residualTrace,iad,iead,current,potential,density,...analysisScalars}=analysis;
-    if(JSON.stringify({...scalar,analysis:analysisScalars})!==JSON.stringify(zipSummaries.find(run=>run.runId===full.runId)))throw new Error('Summary projection differs from full version.');
-    if(JSON.stringify(catalog.sourceFilesByVersion[full.runVersionId])!==JSON.stringify(sourceFiles))throw new Error('Catalog metadata differs from immutable version.');}
-  summary.projections={summaries:zipFull.length,catalogFiles:zipFull.reduce((count,run)=>count+run.sourceFiles.length,0)};
-  summary.physicalCounts={runs:zipFull.length,biasOn:zipFull.filter(run=>run.analysis.hasDistribution).length,biasOff:zipFull.filter(run=>!run.analysis.hasDistribution).length,strictTrue:zipFull.filter(run=>run.analysis.strictConvergence).length};
+  let catalogFiles=0;
+  const zipReport=await compareFullRuns('ZIP',zipSummaries,(run,full)=>{
+    const {iedDistribution,sourceFiles,analysis,...scalar}=full;
+    const {residualTrace,iad,iead,current,potential,density,...analysisScalars}=analysis;
+    if(JSON.stringify({...scalar,analysis:analysisScalars})!==JSON.stringify(run))throw new Error('Summary projection differs from full version.');
+    if(JSON.stringify(catalog.sourceFilesByVersion[full.runVersionId])!==JSON.stringify(sourceFiles))throw new Error('Catalog metadata differs from immutable version.');
+    catalogFiles+=sourceFiles.length;
+  });
+  if(reference) summary.zip=zipReport;
+  summary.projections={summaries:zipSummaries.length,catalogFiles};
+  summary.physicalCounts={runs:zipSummaries.length,biasOn:zipSummaries.filter(run=>run.analysis.hasDistribution).length,biasOff:zipSummaries.filter(run=>!run.analysis.hasDistribution).length,strictTrue:zipSummaries.filter(run=>run.analysis.strictConvergence).length};
   const env={...process.env,KPLASMA_E2E_API:backend.url,KPLASMA_E2E_PORT:String(await (await import('./runtime.mjs')).freePort()),KPLASMA_E2E_REFERENCE:actual?'true':'false',KPLASMA_PROTOTYPE_URL:prototype?.url??'',KPLASMA_E2E_OUTPUT:join(output,'browser'),KPLASMA_E2E_SYNTHETIC_FOLDER:reference?'':folder,KPLASMA_E2E_INSTANT:instants[0]};
   summary.browserAttempts=[];
   for(let attempt=1;;attempt++){
