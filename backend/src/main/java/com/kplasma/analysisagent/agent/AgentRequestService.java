@@ -457,13 +457,53 @@ public class AgentRequestService {
         var current=workspace.lock();var row=fence(id,generation,revision);epochs(row,current);
         require(Set.of("decision_records","reverse_search").contains(String.valueOf(row.operationKind())),"Only record reuse reads decisions");
         require(row.manifest()!=null,"Load the Run context before decision records");
-        Map<String,Object> manifest=new LinkedHashMap<>(row.manifest());
-        // Pin the first read so a resumed or retried worker classifies the same records.
+        return Map.of("records",pinnedDecisionRecords(id,row));
+    }
+    /**
+     * v2 decision_records step. The Runs come from the active reservation, never from the request body:
+     * a whole saved candidate group, or Runs the user confirmed in this request's context.
+     */
+    @Transactional public Map<String,Object> v2DecisionRecords(UUID id, UUID executionId, V2Write body) {
+        v2Fence(id, body);
+        require(v2.isToolStep(id, executionId, "decision_records"), "Decision records require a decision_records step");
+        JsonNode inputs = v2.activeStepInputs(id, body.claimGeneration(), body.requestRevision(), executionId);
+        require(inputs.path("runs").isArray(), "Decision record Runs are required");
+        List<RunRef> refs = new ArrayList<>();
+        for (var node : inputs.path("runs")) refs.add(mapper.treeToValue(node, RunRef.class));
+        var row = requests.get(id, false);
+        JsonNode source = inputs.path("candidateExecutionId");
+        boolean authorized = source.isString()
+            ? v2.matchesSearchCandidates(id, executionId, source.asString(), inputs.path("runs"))
+            : confirmedContextRefs(row.context()).containsAll(refs);
+        require(!refs.isEmpty() && new HashSet<>(refs).size() == refs.size() && authorized,
+            "Decision records must use confirmed Run versions or a whole saved candidate group");
+        validate.bulkRefs(refs, INVALID);
+        v2.pinStepSources(id, executionId, refs);
+        return Map.of("records", pinnedDecisionRecords(id, row));
+    }
+    /** Runs the user confirmed for this request: attached references, the current candidate group and the active Run. */
+    private Set<RunRef> confirmedContextRefs(Map<String,Object> context) {
+        Set<RunRef> refs = new HashSet<>();
+        if (context == null) return refs;
+        refs.addAll(entryRefs(context.get("comparisonReference")));
+        if (context.get("candidateReferences") instanceof List<?> candidates)
+            for (Object value : candidates) if (value instanceof Map<?,?>) refs.add(mapper.convertValue(value, RunRef.class));
+        if (context.get("activeRun") instanceof Map<?,?> active) refs.add(mapper.convertValue(active, RunRef.class));
+        return refs;
+    }
+    /** Pin the first read so a resumed, retried or replanned worker classifies the same records. */
+    private Object pinnedDecisionRecords(UUID id, AgentRequestRepository.Row row) {
+        Map<String,Object> manifest;
+        if (row.manifest() == null) {
+            // Same empty base as a references-only context, so a later context() call can still materialize it.
+            manifest = new LinkedHashMap<>();
+            manifest.put("runs",List.of());manifest.put("referencedRuns",List.of());manifest.put("context",row.context());manifest.put("createdAt",Instant.now().toString());
+        } else manifest = new LinkedHashMap<>(row.manifest());
         if(!(manifest.get("decisionRecords") instanceof List<?>)){
             manifest.put("decisionRecords",decisions.recordsInSaveOrder().stream().map(requests::read).map(this::reuseEvidence).toList());
             jdbc.update("update agent_request set manifest=?::jsonb,updated_at=now() where id=?",requests.json(manifest),id);
         }
-        return Map.of("records",manifest.get("decisionRecords"));
+        return manifest.get("decisionRecords");
     }
     /** Only the fields the reuse rules read; authors, objectives and metrics stay out of the Agent context. */
     private Map<String,Object> reuseEvidence(Map<String,Object> record){
