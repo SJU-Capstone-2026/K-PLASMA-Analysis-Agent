@@ -179,9 +179,61 @@ class GeneralAnswerResult(StrictModel):
         return self
 
 
+class RecordEntry(StrictModel):
+    recordId: str | None
+    runId: str
+    # Named apart from runVersionId: a past record may cite a version outside the answer inventory.
+    recordRunVersionId: str | None
+    decision: str | None
+    note: str
+    sharedComment: str
+    reason: Literal["COST", "NO_COST", "UNCLEAR", "OTHER", "MISSING"]
+    createdAt: str | None
+    question: str
+    conditions: dict
+    demo: bool
+
+
+class RecordSummary(StrictModel):
+    runId: str
+    runVersionId: str
+    count: int = Field(ge=0)
+    status: str
+    mixed: bool
+    entries: list[RecordEntry]
+
+
+class DecisionRecordsResult(StrictModel):
+    kind: Literal["decision_records"]
+    resultStatus: Literal["RECORDS_READY", "EXCLUSION_APPLIED", "NO_EXCLUSION", "NOTICE"]
+    action: Literal["view", "exclude"]
+    threshold: int | None = Field(ge=1)
+    summaryText: str
+    notice: str | None
+    remaining: list[RecordSummary]
+    excluded: list[RecordSummary]
+    canUndo: bool
+    recordPolicyVersion: Literal["cost-regex-1"]
+    usedRunRefs: list[RunRef]
+
+    @model_validator(mode="after")
+    def record_inventory(self):
+        rows = [*self.remaining, *self.excluded]
+        refs = [RunRef(runId=row.runId, runVersionId=row.runVersionId) for row in rows]
+        if refs != self.usedRunRefs or len({ref.runId for ref in refs}) != len(refs):
+            raise ValueError("record rows must match the answer inventory")
+        if (self.resultStatus == "NOTICE") != (self.notice is not None) or (self.notice is not None and rows):
+            raise ValueError("notices do not carry record rows")
+        if self.resultStatus in ("EXCLUSION_APPLIED", "NO_EXCLUSION") and (self.action != "exclude" or self.threshold is None):
+            raise ValueError("exclusion requires a threshold")
+        if (self.resultStatus == "EXCLUSION_APPLIED") != bool(self.excluded) and self.resultStatus != "NOTICE":
+            raise ValueError("exclusion status mismatch")
+        return self
+
+
 class ToolSelection(StrictModel):
     call_id: str
-    name: Literal["forward_lookup", "reverse_search", "compare_runs", "generate_answer"]
+    name: Literal["forward_lookup", "reverse_search", "compare_runs", "generate_answer", "decision_records"]
     arguments: dict
 
 
@@ -194,7 +246,7 @@ class AnswerSnapshotV2(StrictModel):
     implementationId: Literal["v1"]
     graphVersion: Literal["v1"]
     schemaVersion: Literal[2]
-    kind: Literal["forward_lookup", "reverse_search", "compare_runs", "generate_answer"]
+    kind: Literal["forward_lookup", "reverse_search", "compare_runs", "generate_answer", "decision_records"]
     summary: str
     originalQuestion: str
     toolSelection: ToolSelection
@@ -243,6 +295,10 @@ class AnswerSnapshotV2(StrictModel):
                 raise ValueError("comparison answer/inventory mismatch")
         elif self.answer is not None:
             raise ValueError("only comparisons have structured answers")
+        if self.kind == "decision_records":
+            records = DecisionRecordsResult.model_validate(self.result)
+            if records.usedRunRefs != self.usedRunRefs:
+                raise ValueError("record answer/inventory mismatch")
         if self.kind == "generate_answer":
             GeneralAnswerResult.model_validate(self.result)
             if self.resolvedInputs or self.contextProvenance or self.usedRunRefs:

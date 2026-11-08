@@ -1,4 +1,4 @@
-"""The four native selection contracts. Execution stays in the fixed graph."""
+"""The five native selection contracts. Execution stays in the fixed graph."""
 
 from pydantic import model_validator
 
@@ -32,11 +32,16 @@ class GeneralInputs(StrictModel):
     pass
 
 
+class DecisionRecordInputs(StrictModel):
+    action: Literal["view", "exclude"]
+
+
 TOOL_MODELS: dict[str, type[StrictModel]] = {
     "forward_lookup": ForwardInputs,
     "reverse_search": ReverseInputs,
     "compare_runs": CompareToolInputs,
     "generate_answer": GeneralInputs,
+    "decision_records": DecisionRecordInputs,
 }
 TOOL_DESCRIPTIONS = {
     "forward_lookup": "저장된 실제 Run을 압력·소스 전력·바이어스 전력 조건으로 조회한다. "
@@ -61,6 +66,10 @@ TOOL_DESCRIPTIONS = {
     "generate_answer": "실험의 실제 값을 비교·조회하지 않는 일반 개념·물리 원리·관계 질문에 원문 그대로 답한다. "
     "태그가 있어도 순수 정의 질문은 이 도구다. 개념 목록이나 개수 제한은 없다. "
     "실험 비교 요청을 참조 부족 때문에 이 도구로 우회하지 않는다. 인자는 빈 객체다.",
+    "decision_records": "저장된 의사결정 기록(채택·보류·반려 이력과 사유)을 조회하거나 "
+    "현재 후보에서 과거에 비용 때문에 반려된 Run을 제외한다. 기록·이유 조회는 action=view, "
+    "제외·빼기 요청은 action=exclude. 수치 조건이 함께 있는 탐색은 이 도구가 아니라 reverse_search다. "
+    "기록 내용이나 반려 사유를 추측하지 않는다. 사유 판별과 제외 기준은 코드가 처리한다.",
 }
 
 
@@ -107,6 +116,9 @@ prior_interpretation의 확정된 조건을 유지하며 부족한 필드만 채
 예: 바이어스 조건을 물은 뒤 '0 W'를 받으면 기존 pressure/sourcePower를 유지하고
 biasPower={value:0,unit:W}를 추가한다. context_rules를 새로 만들지 않는다.
 일반 개념의 '다른가/차이'와 실제 실험의 비교를 구별한다.
+과거 판단·반려 이유 조회와 '비용 때문에 반려된 후보 빼줘'는 decision_records다.
+'Flux 500 이상 찾되 비용 때문에 반려된 건 제외'처럼 수치 조건이 있으면 reverse_search로
+수치 조건만 추출한다. 기록 제외는 코드가 원문으로 적용하므로 인자로 만들지 않는다.
 """
 
 GENERAL_PROMPT = """플라즈마 질문에 originalQuestion을 그대로 읽고 한국어로 명료하게 답한다.

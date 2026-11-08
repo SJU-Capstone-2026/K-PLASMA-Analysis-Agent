@@ -11,7 +11,7 @@ def test_waveform_comparison_is_a_native_tool_argument_without_an_extra_tool():
     })
     assert parsed.comparison_fields == ["current.maximum", "current.halfPeakToPeak"]
     assert parsed.plot_ids == ["current"]
-    assert len(native_tools()) == 4
+    assert len(native_tools()) == 5
 
 
 @pytest.mark.parametrize("arguments", [

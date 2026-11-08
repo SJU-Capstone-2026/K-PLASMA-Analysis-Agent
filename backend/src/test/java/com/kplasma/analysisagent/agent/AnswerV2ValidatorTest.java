@@ -82,4 +82,32 @@ class AnswerV2ValidatorTest {
         var general=wire("general");general.put("unitAssumptions",List.of(Map.of("metric","pressure","unit","mTorr")));
         assertThatThrownBy(()->validator.answer(response(general),(String)general.get("originalQuestion"))).hasMessageContaining("unit assumptions");
     }
+    @SuppressWarnings("unchecked") private Map<String,Object> records(String key)throws Exception{
+        return (Map<String,Object>)mapper.readValue(Files.readString(Path.of("../agent/tests/support/answer-records-wire.json")),Map.class).get(key);
+    }
+    @SuppressWarnings("unchecked") private AgentResponse recorded(Map<String,Object> answer){
+        var inventory=((List<Map<String,Object>>)answer.get("usedRunRefs")).stream().map(r->mapper.convertValue(r,RunRef.class)).toList();
+        return new AgentResponse((String)answer.get("intent"),(String)answer.get("status"),((List<Map<String,Object>>)answer.get("candidates")).stream().map(r->mapper.convertValue(r,RunRef.class)).toList(),null,(Map<String,Object>)answer.get("answerSnapshot"),inventory);
+    }
+    @SuppressWarnings("unchecked") private String question(Map<String,Object> answer){return (String)((Map<String,Object>)answer.get("answerSnapshot")).get("originalQuestion");}
+    @SuppressWarnings("unchecked") private Map<String,Object> result(Map<String,Object> answer){return (Map<String,Object>)((Map<String,Object>)answer.get("answerSnapshot")).get("result");}
+    @Test void recordReuseAnswersFromTheGraphAreAcceptedExactly()throws Exception{
+        for(String key:List.of("records","notice","reverse")){var answer=records(key);validator.answer(recorded(answer),question(answer));}
+    }
+    @Test @SuppressWarnings("unchecked") void recordReuseRejectsMismatchedIntentRowsAndExclusions()throws Exception{
+        var intent=records("records");intent.put("intent","REVERSE_SEARCH");
+        assertThatThrownBy(()->validator.answer(recorded(intent),question(intent))).hasMessageContaining("Intent/tool mismatch");
+        var status=records("records");result(status).put("excluded",List.of());
+        assertThatThrownBy(()->validator.answer(recorded(status),question(status))).hasMessageContaining("inventory mismatch");
+        var reason=records("records");var entry=(Map<String,Object>)((List<Map<String,Object>>)((List<Map<String,Object>>)result(reason).get("excluded")).getFirst().get("entries")).getFirst();entry.put("reason","GUESSED");
+        assertThatThrownBy(()->validator.answer(recorded(reason),question(reason))).hasMessageContaining("Unknown record reason");
+        var notice=records("notice");result(notice).put("canUndo",true);
+        assertThatThrownBy(()->validator.answer(recorded(notice),question(notice))).hasMessageContaining("Notice cannot carry records");
+        var threshold=records("records");result(threshold).put("threshold",1.5);
+        assertThatThrownBy(()->validator.answer(recorded(threshold),question(threshold))).hasMessageContaining("Invalid record threshold");
+        var hidden=records("reverse");var exclusion=(Map<String,Object>)result(hidden).get("recordExclusion");exclusion.put("canUndo",false);
+        assertThatThrownBy(()->validator.answer(recorded(hidden),question(hidden))).hasMessageContaining("Invalid record exclusion");
+        var forward=wire("forward");((Map<String,Object>)forward.get("result")).put("recordExclusion",Map.of());
+        assertThatThrownBy(()->validator.answer(response(forward),(String)forward.get("originalQuestion"))).hasMessageContaining("Only compact searches");
+    }
 }

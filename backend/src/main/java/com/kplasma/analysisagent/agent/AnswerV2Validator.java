@@ -40,18 +40,53 @@ final class AnswerV2Validator {
     void answer(AgentResponse answer,String originalQuestion){
         var snapshot=answer.answerSnapshot();var requiredFields=new HashMap<>(snapshot);requiredFields.remove("unitAssumptions");fields(requiredFields,"implementationId","graphVersion","schemaVersion","kind","summary","originalQuestion","toolSelection","resolvedInputs","result","answer","contextProvenance","inputHistory","usedRunRefs","versions");
         require("v1".equals(snapshot.get("graphVersion"))&&snapshot.get("schemaVersion") instanceof Number n&&n.doubleValue()==(extended?3:2),"Unknown answer version");text(snapshot.get("summary"));require(Objects.equals(snapshot.get("originalQuestion"),originalQuestion),"Original question mismatch");
-        String kind=text(snapshot.get("kind"));require(!extended||kind.equals("compare_runs"),"Schema 3 is comparison only");enumeration(kind,"forward_lookup","reverse_search","compare_runs","generate_answer");var selection=object(snapshot.get("toolSelection"));fields(selection,"call_id","name","arguments");text(selection.get("call_id"));require(kind.equals(selection.get("name")),"Tool selection mismatch");object(selection.get("arguments"));object(snapshot.get("resolvedInputs"));object(snapshot.get("contextProvenance"));array(snapshot.get("inputHistory"));object(snapshot.get("versions"));
+        String kind=text(snapshot.get("kind"));require(!extended||kind.equals("compare_runs"),"Schema 3 is comparison only");enumeration(kind,"forward_lookup","reverse_search","compare_runs","generate_answer","decision_records");var selection=object(snapshot.get("toolSelection"));fields(selection,"call_id","name","arguments");text(selection.get("call_id"));require(kind.equals(selection.get("name")),"Tool selection mismatch");object(selection.get("arguments"));object(snapshot.get("resolvedInputs"));object(snapshot.get("contextProvenance"));array(snapshot.get("inputHistory"));object(snapshot.get("versions"));
         require(refs(snapshot.get("usedRunRefs")).equals(answer.usedRunRefs()),"Snapshot inventory mismatch");
         if(snapshot.containsKey("unitAssumptions"))unitAssumptions(snapshot,kind);
         var result=object(snapshot.get("result"));require(kind.equals(result.get("kind"))&&Objects.equals(answer.status(),result.get("resultStatus")),"Result/status mismatch");
-        String intent=Map.of("forward_lookup","FORWARD_LOOKUP","reverse_search","REVERSE_SEARCH","compare_runs","RUN_COMPARISON","generate_answer","GENERAL_ANSWER").get(kind);require(intent.equals(answer.intent()),"Intent/tool mismatch");
+        String intent=Map.of("forward_lookup","FORWARD_LOOKUP","reverse_search","REVERSE_SEARCH","compare_runs","RUN_COMPARISON","generate_answer","GENERAL_ANSWER","decision_records","RECORD_REUSE").get(kind);require(intent.equals(answer.intent()),"Intent/tool mismatch");
         if(kind.equals("compare_runs")){require(answer.candidates().isEmpty()&&answer.explanation()==null,"Comparison has no legacy candidates/explanation");comparison(result,answer.usedRunRefs(),false);if(snapshot.get("answer")!=null)comparisonAnswer(snapshot.get("answer"),result);}
         else require(snapshot.get("answer")==null,"Only comparisons have an answer object");
-        if(kind.equals("reverse_search")&&result.containsKey("searchResultVersion"))compactSearch(result);
+        if(kind.equals("reverse_search")&&result.containsKey("searchResultVersion"))compactSearch(result,answer.usedRunRefs());
+        else require(!result.containsKey("recordExclusion"),"Only compact searches carry record exclusions");
+        if(kind.equals("decision_records"))records(result,answer);
         if(kind.equals("generate_answer")){fields(result,"kind","resultStatus","markdown","knowledgeBasis","usedRunRefs");require("ANSWER_READY".equals(result.get("resultStatus"))&&"LLM_GENERAL_KNOWLEDGE".equals(result.get("knowledgeBasis")),"Invalid general answer");text(result.get("markdown"));require(answer.usedRunRefs().isEmpty()&&refs(result.get("usedRunRefs")).isEmpty()&&answer.candidates().isEmpty()&&answer.explanation()==null,"General answer cannot depend on Run refs");require(object(snapshot.get("resolvedInputs")).isEmpty()&&object(snapshot.get("contextProvenance")).isEmpty()&&object(selection.get("arguments")).isEmpty(),"General inputs must be empty");}
     }
-    void compactSearch(Map<?,?> result){
-        fields(result,"kind","resultStatus","status","processMode","constraints","goals","objectives","totalCount","searchResultVersion","runsByVersion","commonRunRefs","commonRunIds","commonRecommendation","objectiveResults","goalResults","candidateEvaluations","usedRunRefs","excludedRuns","defaultedUnits","numericPolicyVersion");
+    private static final Set<String> RECORD_REASONS=Set.of("COST","NO_COST","UNCLEAR","OTHER","MISSING");
+    private void nullableText(Object value){require(value==null||value instanceof String,"String or null required");}
+    private void plainText(Object value){require(value instanceof String,"String required");}
+    private boolean threshold(Object value){return value instanceof Number n&&Double.isFinite(n.doubleValue())&&n.doubleValue()>=1&&n.doubleValue()==Math.rint(n.doubleValue());}
+    /** One Run's past decisions. Entry versions use recordRunVersionId: they cite the saved snapshot, not the answer inventory. */
+    private RunRef recordRow(Object value){
+        var row=object(value);fields(row,"runId","runVersionId","count","status","mixed","entries");var ref=new RunRef(text(row.get("runId")),text(row.get("runVersionId")));
+        require(row.get("count") instanceof Number n&&n.doubleValue()==n.intValue()&&n.intValue()>=0,"Invalid record count");text(row.get("status"));require(row.get("mixed") instanceof Boolean,"mixed must be boolean");
+        for(Object item:array(row.get("entries"))){var entry=object(item);fields(entry,"recordId","runId","recordRunVersionId","decision","note","sharedComment","reason","createdAt","question","conditions","demo");
+            require(ref.runId().equals(entry.get("runId")),"Record entry Run mismatch");for(String field:List.of("recordId","recordRunVersionId","decision","createdAt"))nullableText(entry.get(field));for(String field:List.of("note","sharedComment","question"))plainText(entry.get(field));
+            require(RECORD_REASONS.contains(String.valueOf(entry.get("reason"))),"Unknown record reason");object(entry.get("conditions"));require(entry.get("demo") instanceof Boolean,"demo must be boolean");}
+        return ref;
+    }
+    private void records(Map<?,?> result,AgentResponse answer){
+        fields(result,"kind","resultStatus","action","threshold","summaryText","notice","remaining","excluded","canUndo","recordPolicyVersion","usedRunRefs");
+        require("cost-regex-1".equals(result.get("recordPolicyVersion")),"Unknown record policy");enumeration(result.get("resultStatus"),"RECORDS_READY","EXCLUSION_APPLIED","NO_EXCLUSION","NOTICE");enumeration(result.get("action"),"view","exclude");text(result.get("summaryText"));require(result.get("canUndo") instanceof Boolean,"canUndo must be boolean");
+        require(answer.candidates().isEmpty()&&answer.explanation()==null,"Record answers have no legacy candidates/explanation");
+        String status=(String)result.get("resultStatus");boolean exclusion=Set.of("EXCLUSION_APPLIED","NO_EXCLUSION").contains(status);
+        List<RunRef> rows=new ArrayList<>();for(Object value:array(result.get("remaining")))rows.add(recordRow(value));var excluded=array(result.get("excluded"));for(Object value:excluded)rows.add(recordRow(value));
+        require(rows.equals(refs(result.get("usedRunRefs")))&&rows.equals(answer.usedRunRefs())&&rows.stream().map(RunRef::runId).distinct().count()==rows.size(),"Record inventory mismatch");
+        if("NOTICE".equals(status)){text(result.get("notice"));require(rows.isEmpty()&&result.get("threshold")==null&&Boolean.FALSE.equals(result.get("canUndo")),"Notice cannot carry records");}
+        else{require(result.get("notice")==null,"Only notices carry notice text");require(exclusion==("exclude".equals(result.get("action")))&&exclusion==Boolean.TRUE.equals(result.get("canUndo")),"Record action mismatch");
+            require(exclusion?threshold(result.get("threshold")):result.get("threshold")==null,"Invalid record threshold");require("EXCLUSION_APPLIED".equals(status)==!excluded.isEmpty(),"Exclusion status mismatch");}
+    }
+    private void recordExclusion(Object value,Set<RunRef> displayed,List<RunRef> inventory){
+        var exclusion=object(value);fields(exclusion,"threshold","excluded","canUndo","recordPolicyVersion");
+        require(threshold(exclusion.get("threshold"))&&Boolean.TRUE.equals(exclusion.get("canUndo"))&&"cost-regex-1".equals(exclusion.get("recordPolicyVersion")),"Invalid record exclusion");
+        Set<String> runIds=new HashSet<>();for(Object row:array(exclusion.get("excluded"))){var ref=recordRow(row);require(runIds.add(ref.runId())&&!displayed.contains(ref)&&inventory.contains(ref),"Excluded Run must be outside the candidates and inside the answer inventory");}
+    }
+    /** Step results of v2 have no answer inventory, so they never carry a record exclusion. */
+    void compactSearch(Map<?,?> result){compactSearch(result,null);}
+    private void compactSearch(Map<?,?> result,List<RunRef> inventoryRefs){
+        var searchFields=new HashMap<>(result);searchFields.remove("recordExclusion");
+        fields(searchFields,"kind","resultStatus","status","processMode","constraints","goals","objectives","totalCount","searchResultVersion","runsByVersion","commonRunRefs","commonRunIds","commonRecommendation","objectiveResults","goalResults","candidateEvaluations","usedRunRefs","excludedRuns","defaultedUnits","numericPolicyVersion");
+        require(inventoryRefs!=null||!result.containsKey("recordExclusion"),"Only answer searches carry record exclusions");
         require(result.get("searchResultVersion") instanceof Number n&&n.doubleValue()==2,"Unknown search result version");
         var runs=object(result.get("runsByVersion"));
         Map<String,RunRef> inventory=new HashMap<>();
@@ -76,6 +111,7 @@ final class AnswerV2Validator {
         Set<RunRef> evaluated=new HashSet<>();
         for(Object value:array(result.get("candidateEvaluations"))){var entry=object(value);var ref=new RunRef(text(entry.get("runId")),text(entry.get("runVersionId")));require(displayed.contains(ref)&&evaluated.add(ref),"Unknown or duplicate candidate evaluation");array(entry.get("evaluations"));nullableNumber(entry.get("matchPercent"));}
         require(evaluated.equals(displayed),"Search evaluations incomplete");
+        if(result.containsKey("recordExclusion"))recordExclusion(result.get("recordExclusion"),displayed,inventoryRefs);
     }
     private void unitAssumptions(Map<?,?> snapshot,String kind){
         var assumptions=array(snapshot.get("unitAssumptions"));

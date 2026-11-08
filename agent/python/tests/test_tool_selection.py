@@ -66,6 +66,7 @@ def test_native_tools_and_original_units():
         "reverse_search",
         "compare_runs",
         "generate_answer",
+        "decision_records",
     }
     assert all(t["strict"] and not t["parameters"]["additionalProperties"] for t in body["tools"])
     assert body["reasoning"] == {"effort": "none"} and body["store"] is False

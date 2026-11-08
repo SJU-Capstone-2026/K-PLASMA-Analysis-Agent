@@ -90,6 +90,7 @@ components:
           - reverse_search
           - compare_runs
           - generate_answer
+          - decision_records
           title: Name
           type: string
         arguments:
@@ -123,6 +124,7 @@ components:
           - reverse_search
           - compare_runs
           - generate_answer
+          - decision_records
           title: Kind
           type: string
         summary:
@@ -906,3 +908,73 @@ components:
           items: {$ref: '#/components/schemas/RunRef'}
         excludedRuns: {type: array, items: {type: object}}
         defaultedUnits: {type: array, items: {type: object}}
+        recordExclusion:
+          description: Optional. Present only when a cost-rejection exclusion was applied before ranking.
+          $ref: '#/components/schemas/RecordExclusion'
+    # RECORD_REUSE (decision_records). Notes and comments are user text: they are shown as
+    # plain text, never sent to the LLM, and masked in traces.
+    RecordEntry:
+      type: object
+      additionalProperties: false
+      required: [recordId, runId, recordRunVersionId, decision, note, sharedComment, reason, createdAt, question, conditions, demo]
+      properties:
+        recordId: {type: [string, 'null']}
+        runId: {type: string}
+        recordRunVersionId:
+          type: [string, 'null']
+          description: Version saved with the past record. Named apart from runVersionId because it may be outside the answer inventory.
+        decision: {type: [string, 'null']}
+        note: {type: string}
+        sharedComment: {type: string}
+        reason: {enum: [COST, NO_COST, UNCLEAR, OTHER, MISSING]}
+        createdAt: {type: [string, 'null']}
+        question: {type: string}
+        conditions: {type: object}
+        demo: {type: boolean}
+    RecordSummary:
+      type: object
+      additionalProperties: false
+      required: [runId, runVersionId, count, status, mixed, entries]
+      properties:
+        runId: {type: string}
+        runVersionId: {type: string}
+        count: {type: integer, minimum: 0, description: Cost-reason rejections counted by the cost-regex-1 rule.}
+        status: {type: string}
+        mixed: {type: boolean}
+        entries: {type: array, items: {$ref: '#/components/schemas/RecordEntry'}}
+    DecisionRecordsResult:
+      type: object
+      additionalProperties: false
+      required: [kind, resultStatus, action, threshold, summaryText, notice, remaining, excluded, canUndo, recordPolicyVersion, usedRunRefs]
+      description: >-
+        remaining followed by excluded equals usedRunRefs and the answer inventory. NOTICE has a notice,
+        no rows, no threshold and canUndo=false. Exclusion statuses need action=exclude, an integer
+        threshold of at least 1 and canUndo=true; EXCLUSION_APPLIED exactly when excluded is not empty.
+      properties:
+        kind: {const: decision_records}
+        resultStatus: {enum: [RECORDS_READY, EXCLUSION_APPLIED, NO_EXCLUSION, NOTICE]}
+        action: {enum: [view, exclude]}
+        threshold: {type: [integer, 'null'], minimum: 1}
+        summaryText: {type: string}
+        notice: {type: [string, 'null']}
+        remaining: {type: array, items: {$ref: '#/components/schemas/RecordSummary'}}
+        excluded: {type: array, items: {$ref: '#/components/schemas/RecordSummary'}}
+        canUndo: {type: boolean}
+        recordPolicyVersion: {const: cost-regex-1}
+        usedRunRefs: {type: array, items: {$ref: '#/components/schemas/RunRef'}}
+    RecordExclusion:
+      type: object
+      additionalProperties: false
+      required: [threshold, excluded, canUndo, recordPolicyVersion]
+      description: Excluded Runs satisfy the numeric conditions alone, are not candidates, and are listed in the answer inventory.
+      properties:
+        threshold: {type: integer, minimum: 1}
+        excluded: {type: array, items: {$ref: '#/components/schemas/RecordSummary'}}
+        canUndo: {const: true}
+        recordPolicyVersion: {const: cost-regex-1}
+    DecisionRecordInputs:
+      type: object
+      additionalProperties: false
+      required: [action]
+      properties:
+        action: {enum: [view, exclude]}
