@@ -54,18 +54,40 @@ class EvaluationJournal:
         return {"outcome": outcome}
 
 
-def evaluate_case(case: Case, models) -> dict:
+class TimedModels:
+    """Measure provider calls without changing the graph's durable call counts."""
+
+    def __init__(self, models):
+        self.models = models
+        self.calls = []
+
+    def __getattr__(self, name):
+        value = getattr(self.models, name)
+        if name not in {"submit_plan", "review_plan", "compose", "stream_compose", "review"}:
+            return value
+
+        def timed(*args, **kwargs):
+            start = monotonic()
+            try:
+                return value(*args, **kwargs)
+            finally:
+                self.calls.append({"method": name, "seconds": monotonic() - start})
+        return timed
+
+
+def evaluate_case(case: Case, models, *, plan_review_enabled=True) -> dict:
     source = runs()
     journal = EvaluationJournal(source)
     entries = [{"ref": run_ref(run), "key": f"R{i}", "origin": {"kind": "run_tag"}}
                for i, run in enumerate(source[:2], start=1)] if case.selected else []
-    graph = build_v2_graph(models, journal, InMemorySaver())
+    timed = TimedModels(models)
+    graph = build_v2_graph(timed, journal, InMemorySaver())
     config = {"configurable": {"thread_id": case.id}, "recursion_limit": 80}
     start = monotonic()
     try:
         state = graph.invoke({"request_id": case.id, "question": case.question,
                               "context": {"comparisonReference": {"entries": entries, "baselineKey": None}},
-                              "input_history": []}, config)
+                              "input_history": [], "plan_review_enabled": plan_review_enabled}, config)
         interrupted = bool(state.get("__interrupt__"))
         if interrupted and case.blocked:
             state = graph.invoke(Command(resume={"type": "text", "text": "부분 결과로 마치기"}), config)
@@ -75,11 +97,26 @@ def evaluate_case(case: Case, models) -> dict:
         failures = score_case(case, plan, snapshot, journal.steps, interrupted)
         return {"case": case.id, "question": case.question, "expected": asdict(case), "pass": not failures,
                 "failures": failures, "plan": plan, "snapshot": snapshot,
-                "seconds": monotonic() - start, "model_attempts": list(journal.models.values())}
+                "seconds": monotonic() - start, **evaluation_details(journal, timed, state, plan_review_enabled)}
     except Exception as exc:
         return {"case": case.id, "question": case.question, "pass": False,
                 "failures": {"execution": [f"runtime:{type(exc).__name__}"]},
-                "seconds": monotonic() - start, "model_attempts": list(journal.models.values())}
+                "seconds": monotonic() - start, **evaluation_details(journal, timed, {}, plan_review_enabled)}
+
+
+def evaluation_details(journal, timed, state, enabled):
+    metrics = {}
+    for attempt, call in zip(journal.models.values(), timed.calls):
+        metric = metrics.setdefault(attempt["kind"], {"calls": 0, "seconds": 0})
+        metric["calls"] += 1
+        metric["seconds"] += call["seconds"]
+    reviews = [(item.get("outcome") or {}).get("data") for item in journal.models.values()
+               if item["kind"] == "PLAN_REVIEW"]
+    if not enabled and state.get("plan_review"):
+        reviews.append(state["plan_review"])
+    return {"model_attempts": list(journal.models.values()), "accepted_plans": journal.revisions,
+            "plan_reviews": reviews, "plan_review_enabled": enabled,
+            "replans": state.get("replans", 0), "stage_metrics": metrics}
 
 
 def score_case(case, plan, snapshot, steps, interrupted):

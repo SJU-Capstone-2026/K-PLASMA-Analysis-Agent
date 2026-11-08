@@ -20,6 +20,37 @@ def comparison():
             "inputs": {"runs": {"kind": "context_ref", "key": "selected_runs"}, "fields": ["ionFlux"]}}
 
 
+@pytest.mark.parametrize("scope", [
+    {"kind": "context_selection", "key": "selected_runs"},
+    {"kind": "confirmed_selection", "step_id": "choose"},
+])
+def test_search_threshold_rejects_quantity_lists_before_tools_run(scope):
+    search = {"id": "search", "kind": "tool", "tool": "reverse_search", "depends_on": ["compare"],
+              "inputs": {"constraints": [{"field": "ionFlux", "operator": "gt", "value": {
+                  "kind": "result_ref", "step_id": "compare", "field": "ionFlux", "scope": scope}}]}}
+    # context_selection is structurally valid today but has list cardinality.
+    if scope["kind"] == "confirmed_selection":
+        choose = {"id": "choose", "kind": "await_input", "confirmation": "run_selection",
+                  "inputs": {"target_step_id": "compare", "field": "runs", "selection_count": 2}}
+        compared = comparison()
+        compared["depends_on"] = ["choose"]
+        plan = draft(choose, compared, search)
+    else:
+        plan = draft(comparison(), search)
+    with pytest.raises(InvalidPlan, match="single quantity"):
+        validate_plan(plan, messages={"question": "비교해줘"}, context_keys={"selected_runs"})
+
+
+def test_single_confirmed_run_measurement_is_a_valid_numeric_threshold():
+    search = {"id": "search", "kind": "tool", "tool": "reverse_search", "depends_on": ["compare"],
+              "inputs": {"constraints": [{"field": "ionFlux", "operator": "gt", "value": {
+                  "kind": "result_ref", "step_id": "compare", "field": "ionFlux",
+                  "scope": {"kind": "confirmed_run", "key": "R1"}}}]}}
+    accepted = validate_plan(draft(comparison(), search), messages={"question": "비교해줘"},
+                             context_keys={"selected_runs", "R1"}, selected_run_keys={"R1"})
+    assert [step.id for step in accepted.steps] == ["compare", "search"]
+
+
 def derive(field="ionFlux"):
     return {"id": "derive", "kind": "derive", "operation": "max", "depends_on": ["compare"],
             "inputs": {"values": {"kind": "result_ref", "step_id": "compare", "field": field,

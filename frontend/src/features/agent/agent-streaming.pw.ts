@@ -158,6 +158,9 @@ for(const width of [390,800,1008,1440])test(`inline work, real draft, rewrite, a
  const fixture=new ControlledAgent();await fixture.install(page);await page.goto('/');
  await expect(page.getByRole('region',{name:'진행 중인 분석 요청'})).toBeVisible();
  await expect.poll(()=>fixture.sseConnections).toBeGreaterThan(0);
+ fixture.publish({type:'activity',payload:{activityId:'plan-review',code:'PLAN_REVIEW',phase:'started'}});
+ await expect(page.getByRole('status')).toContainText('질문 조건과 작업 계획을 대조하는 중');
+ fixture.publish({type:'activity',payload:{activityId:'plan-review',code:'PLAN_REVIEW',phase:'completed'}});
  fixture.publish(
   {type:'activity',payload:{activityId:'question',code:'QUESTION_CHECK',phase:'completed'}},
   {type:'activity',payload:{activityId:'plan',code:'PLAN',phase:'completed'}},
@@ -168,8 +171,7 @@ for(const width of [390,800,1008,1440])test(`inline work, real draft, rewrite, a
  await expect(pending.getByRole('list',{name:'최근 작업 기록'}).getByRole('listitem')).toHaveCount(4);
  await expect(pending.getByRole('heading',{name:'분석 중',exact:true})).toHaveCount(0);
  await expect(pending).not.toHaveClass(/\bpanel\b/);
- const questionFont=await page.locator('.agent-user-message p').last().evaluate(element=>getComputedStyle(element).fontSize);
- expect(questionFont).toBe('15px');
+ await expect(page.locator('.agent-user-message p').last()).toHaveCSS('font-size','15px');
  await expect(pending.locator('.agent-progress')).toHaveCSS('font-size','14px');
  await expect(pending.getByRole('button',{name:'분석 취소',exact:true})).toHaveCount(0);
  await expect(page.locator('#agent-query-form').getByRole('button',{name:'분석 중지',exact:true})).toBeEnabled();
@@ -179,7 +181,7 @@ for(const width of [390,800,1008,1440])test(`inline work, real draft, rewrite, a
  fixture.publish(draftStart,delta(String.raw`처음 해석입니다. \(\Gamma_i`));
  const preview=page.getByRole('region',{name:'작성 중인 답변'});
  await expect(preview).toContainText('처음 해석입니다.');
- await expect(preview.locator('.v1-markdown p').first()).toHaveCSS('font-size',questionFont);
+ await expect(preview.locator('.v1-markdown p').first()).toHaveCSS('font-size','15px');
  await expect(preview.locator('.agent-stream-status')).toHaveCSS('font-size','14px');
  await expect(preview.locator('.katex')).toHaveCount(0);
  await expect(preview).not.toContainText('Gamma_i');
@@ -206,7 +208,7 @@ for(const width of [390,800,1008,1440])test(`inline work, real draft, rewrite, a
  await expect(page.getByRole('region',{name:'작성 중인 답변'})).toHaveCount(0);
  await expect(final.locator('.agent-progress-complete summary')).toContainText('38초 동안 작업함');
  await expect(final.locator('.agent-progress-complete summary')).toHaveCSS('font-size','14px');
- await expect(final.locator('.v1-markdown p').first()).toHaveCSS('font-size',questionFont);
+ await expect(final.locator('.v1-markdown p').first()).toHaveCSS('font-size','15px');
  await expect(final.locator('.agent-progress-complete details')).not.toHaveAttribute('open');
  const divider=await final.getByRole('separator').boundingBox();
  const answer=await final.getByRole('region',{name:'조건 조회 결과'}).boundingBox();
