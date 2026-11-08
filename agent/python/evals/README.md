@@ -83,6 +83,25 @@ The grader reports false acceptance, false rejection, unclear and API failure
 separately. Its labels never come from Decisions itself. Synthetic probes such
 as 9999.5 distinguish a range from equality even if both return no real Runs.
 
+The **paid 80-request evaluation is local and manual only**. It is not a GitHub
+Actions job, a PR gate or an automatic evaluation. CI keeps offline unit tests
+of the evaluator; those tests do not call Decisions.
+
+Run this explicitly from the repository root when ready to make paid API calls:
+
+```sh
+npm run eval:decisions:local -- --env-file /path/to/local.env --output /tmp/kplasma-decisions80-live
+```
+
+Use a new output directory for each experiment. The env file supplies
+`OPENAI_API_KEY` and optional `AGENT_V2_DECISIONS_MODEL` / `AGENT_V2_DECISIONS_BASE_URL`.
+The command calls Decisions 80 times with the default configuration; no backend,
+database, browser or planner is needed. Results stay local in `results.jsonl`
+and `summary.json`. The command is never invoked by the CI workflow.
+
+To inspect the matrix without paid calls, run the first command below from
+`agent/python`. The remaining commands explicitly call live models.
+
 ```sh
 PYTHONPATH=src:. .venv/bin/python -m evals.run_plan_review --output /private/tmp/kplasma-plan-review
 PYTHONPATH=src:. .venv/bin/python -m evals.run_plan_review --live --env-file /path/to/local.env --output /private/tmp/kplasma-plan-review

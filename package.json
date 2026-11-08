@@ -10,6 +10,7 @@
     "dev": "npm run dev -w frontend",
     "dev:agent": "node scripts/agent/worker.mjs",
     "test:agent": "cd agent/python && uv run --frozen --extra tracing pytest -c pytest-v2.ini",
+    "eval:decisions:local": "cd agent/python && uv run --frozen python -m evals.run_plan_review --live",
     "build": "npm run build --workspaces",
     "typecheck": "npm run typecheck --workspaces && tsc --project frontend/e2e/tsconfig.json",
     "test": "npm run test --workspaces && node --test scripts/reference/*.test.mjs",

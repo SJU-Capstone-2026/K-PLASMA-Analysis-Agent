@@ -78,6 +78,20 @@ v1 전용 Python 그래프/평가기, TypeScript fallback 평가, v1 브라우�
 
 ## 실제 LLM의 판단 평가
 
+Decisions의 계획 검토 80회 평가는 **CI와 별개로 로컬에서 수동 실행**한다.
+기존 78회에 정상·오류 계획을 각 1개 추가한 정상 40 / 오류 40 구성이다.
+기존 반복을 포함하며 서로 다른 계획은 28개다. 저장소 루트에서 다음 명령을
+직접 실행할 때만 유료 API를 호출한다.
+
+```sh
+npm run eval:decisions:local -- --env-file /path/to/local.env --output /tmp/kplasma-decisions80-live
+```
+
+`OPENAI_API_KEY`와 필요한 Decisions 모델 설정은 로컬 env 파일에 둔다.
+실험마다 새로운 출력 경로를 사용하며 결과의 `results.jsonl`과 `summary.json`은
+로컬에 보관한다. backend·DB·브라우저를 시작할 필요는 없다. GitHub Actions나
+PR 필수 검사에 이 명령을 연결하지 않는다. CI의 평가기 유닛 검사는 API를 호출하지 않는다.
+
 모델 비교는 `agent/python`에서 실행한다. 기본 실행은 평가 목록만 작성하며 `--live`가 실제 API를 사용한다.
 
 ```sh
