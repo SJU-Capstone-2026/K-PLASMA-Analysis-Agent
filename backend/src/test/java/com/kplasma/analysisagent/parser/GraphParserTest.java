@@ -1,6 +1,8 @@
 package com.kplasma.analysisagent.parser;
 
 import com.kplasma.analysisagent.contract.RunDto;
+import com.kplasma.analysisagent.contract.RunOutputDto.Display;
+import com.kplasma.analysisagent.contract.RunOutputDto.Point;
 import com.kplasma.analysisagent.ingestion.StoredBatch;
 import com.kplasma.analysisagent.ingestion.StoredSource;
 import java.nio.file.Files;
@@ -14,18 +16,18 @@ import static org.assertj.core.api.Assertions.*;
 
 class GraphParserTest {
     @TempDir Path directory;
-    private final KPlasmaGraphParser parser = new KPlasmaGraphParser();
+    private final KPlasmaGraphParser parser = new KPlasmaGraphParser(new ComparisonFeatureExtractor());
+    private final RunDto.RunRef ref = new RunDto.RunRef("SYNTHETIC", UUID.randomUUID().toString());
 
     @Test void biasOffKeepsResidualAndNormalNullsAndOnlyWhitelistedEvidence() throws Exception {
         var source = source(false);
-        var graph = parser.parse(source, scalars(false));
-        assertThat(graph.iedDistribution()).isEmpty();
-        assertThat(graph.iad()).isNull(); assertThat(graph.iead()).isNull();
-        assertThat(graph.current()).isNull(); assertThat(graph.potential()).isNull(); assertThat(graph.density()).isNull();
-        assertThat(graph.iedWidth()).isNull(); assertThat(graph.hasDistribution()).isFalse();
-        assertThat(graph.unavailableReasons()).containsKeys("iedDistribution", "iad", "iead", "current", "potential", "density");
-        assertThat(graph.residualTrace()).hasSize(81);
-        assertThat(graph.residualTrace().get(80)).isEqualTo(new RunDto.Pair(101, 1010));
+        var graph = parser.parse(source, scalars(false), ref);
+        assertThat(graph.iedWidth()).isNull();
+        assertThat(graph.hasDistribution()).isFalse();
+        assertThat(graph.outputs()).hasSize(1);
+        var residual = display(graph, "residual");
+        assertThat(residual.samples()).hasSize(101);
+        assertThat(residual.samples().getLast()).isEqualTo(new Point(101, 1010));
         assertThat(graph.sourceFiles()).extracting(RunDto.SourceFile::name).containsExactly("0d_setting.ini", "solver.log", "residual.log");
         assertThat(graph.sourceFiles().get(0).path()).isEqualTo("PRS_02/Source_100/Bias_0000/0d_setting.ini");
         assertThat(graph.sourceFiles().get(0).size()).isEqualTo("1.2 KB");
@@ -33,54 +35,55 @@ class GraphParserTest {
     }
     @Test void singleRunAndWrappedUploadsShareCanonicalDisplayPathsWithoutChangingManifest() throws Exception {
         var original = source(true);
-        var canonical = parser.parse(original, scalars(true)).sourceFiles();
+        var canonical = parser.parse(original, scalars(true), ref).sourceFiles();
         for (String root : new String[]{"", "selected-folder/", "outer/PRS_02/Source_100/Bias_0200/"}) {
             var changed = new StoredSource(original.sourceId(), root, original.files(), original.sha256());
-            assertThat(parser.parse(changed, scalars(true)).sourceFiles()).isEqualTo(canonical);
+            assertThat(parser.parse(changed, scalars(true), ref).sourceFiles()).isEqualTo(canonical);
             assertThat(changed.relativeRoot()).isEqualTo(root);
             assertThat(changed.files()).isEqualTo(original.files());
         }
     }
     @Test void sourceIndicesPreserveOriginalValuesAndVariableWaveformLengths() throws Exception {
-        var result = parser.parse(source(true), scalars(true));
-        assertThat(result.hasDistribution()).isTrue(); assertThat(result.unavailableReasons()).isEmpty();
-        assertThat(result.iedDistribution()).hasSize(161);
-        assertThat(result.iedDistribution().get(1).energy()).isEqualTo(2);
-        assertThat(result.iedDistribution().get(160).energy()).isEqualTo(400);
+        var result = parser.parse(source(true), scalars(true), ref);
+        assertThat(result.hasDistribution()).isTrue();
+        var ied = display(result, "ied").samples();
+        assertThat(ied).hasSize(401);
+        assertThat(ied.get(1)).isEqualTo(new Point(1, 1));
+        assertThat(ied.getLast()).isEqualTo(new Point(400, 1));
         assertThat(result.iedWidth()).isEqualTo(320);
-        assertThat(result.iad()).hasSize(101);
-        assertThat(result.current().sourceCount()).isEqualTo(151);
-        assertThat(result.current().points()).hasSize(121);
-        assertThat(result.current().points().get(1)).isEqualTo(new RunDto.Pair(1, -1));
-        assertThat(result.potential().sourceCount()).isEqualTo(301);
-        assertThat(result.potential().points().get(1)).isEqualTo(new RunDto.Pair(2, -2));
+        assertThat(display(result, "iad").samples()).hasSize(201);
+        var current = display(result, "current").samples();
+        assertThat(current).hasSize(151);
+        assertThat(current.get(1)).isEqualTo(new Point(1, -1));
+        var potential = display(result, "potential").samples();
+        assertThat(potential).hasSize(301);
+        assertThat(potential.get(1)).isEqualTo(new Point(1, -1));
         assertThat(result.sourceFiles()).extracting(RunDto.SourceFile::type).containsExactly("SETTING", "LOG", "LOG", "IED", "IAD", "IEAD", "CURRENT", "POTENTIAL", "DENSITY");
         assertThat(result.sourceFiles()).extracting(RunDto.SourceFile::status).containsOnly("PARSED");
     }
     @Test void twoDimensionalGridsKeepAngleEnergyOrderAndIrregularDistances() throws Exception {
-        var result = parser.parse(source(true), scalars(true));
-        assertThat(result.iead().sourceShape()).isEqualTo(new RunDto.Pair(41, 81));
-        assertThat(result.iead().angles()).hasSize(31);
-        assertThat(result.iead().energies()).hasSize(61);
-        assertThat(result.iead().values()).hasSize(1891);
-        assertThat(result.iead().values().subList(0, 3)).containsExactly(0.0, 1.0, 3.0);
-        assertThat(result.iead().values().get(61)).isEqualTo(1000);
-        assertThat(result.iead().values().get(1890)).isEqualTo(40080);
-        assertThat(result.density().rows()).hasSize(41);
-        assertThat(result.density().sourceShape()).isEqualTo(new RunDto.Pair(51, 31));
-        assertThat(result.density().rows().get(1).phase()).isEqualTo(1);
-        assertThat(result.density().rows().get(1).distances().subList(0, 4)).containsExactly(0.0, 1.0, 4.0, 9.0);
-        assertThat(result.density().rows().get(1).densities().get(30)).isEqualTo(1030);
+        var result = parser.parse(source(true), scalars(true), ref);
+        var iead = display(result, "iead").rows();
+        assertThat(iead).hasSize(41);
+        assertThat(iead).allSatisfy(row -> assertThat(row.values()).hasSize(81));
+        assertThat(iead.getFirst().values().subList(0, 3)).containsExactly(0.0, 1.0, 2.0);
+        assertThat(iead.get(1).values().getFirst()).isEqualTo(1000);
+        assertThat(iead.getLast().values().getLast()).isEqualTo(40080);
+        var density = display(result, "density").rows();
+        assertThat(density).hasSize(51);
+        assertThat(density.get(1).x()).isEqualTo(1);
+        assertThat(density.get(1).coordinates().subList(0, 4)).containsExactly(0.0, 1.0, 4.0, 9.0);
+        assertThat(density.get(1).values().get(30)).isEqualTo(1030);
     }
     @Test void densityPreservesDistancesThatChangeWithPhase() throws Exception {
         var original = source(true);
         String content = grid("DENSITY", "time (rf cycle)", "distance (cm)", 2, 31, true);
         content = content.replace("1 4 1002", "1 5 1002");
         rewrite(original, KPlasmaGraphParser.DENSITY, content);
-        var rows = parser.parse(original, scalars(true)).density().rows();
-        assertThat(rows.get(0).distances().get(2)).isEqualTo(4);
-        assertThat(rows.get(1).distances().get(2)).isEqualTo(5);
-        assertThat(rows.get(1).densities().get(2)).isEqualTo(1002);
+        var rows = display(parser.parse(original, scalars(true), ref), "density").rows();
+        assertThat(rows.get(0).coordinates().get(2)).isEqualTo(4);
+        assertThat(rows.get(1).coordinates().get(2)).isEqualTo(5);
+        assertThat(rows.get(1).values().get(2)).isEqualTo(1002);
     }
     @Test void missingBiasOnGraphIsIncompleteRatherThanBiasOffFallback() throws Exception {
         var original = source(true); var files = new HashMap<>(original.files()); files.remove(KPlasmaGraphParser.IAD);
@@ -107,8 +110,12 @@ class GraphParserTest {
         original = source(true); rewrite(original, KPlasmaGraphParser.IED, one("IEDs", "energy (eV)", "IED (a.u.)", 2, false).replace("0 1", "0 0").replace("1 1", "1 0"));
         failure(original, "PARSE_FAILED", KPlasmaGraphParser.IED, 0);
     }
+    private static Display display(GraphBundle bundle, String id) {
+        return bundle.outputs().stream().filter(output -> output.metadata().outputId().equals(id))
+            .findFirst().orElseThrow().display();
+    }
     private void failure(StoredSource source, String status, String path, int line) {
-        assertThatThrownBy(() -> parser.parse(source, scalars(true))).isInstanceOfSatisfying(ParseFailure.class, failure -> {
+        assertThatThrownBy(() -> parser.parse(source, scalars(true), ref)).isInstanceOfSatisfying(ParseFailure.class, failure -> {
             assertThat(failure.status()).isEqualTo(status); assertThat(failure.path()).isEqualTo(path); assertThat(failure.line()).isEqualTo(line);
         });
     }

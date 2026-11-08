@@ -1,12 +1,8 @@
 package com.kplasma.analysisagent.run;
 
-import com.kplasma.analysisagent.contract.RunDto;
-import com.kplasma.analysisagent.contract.RunDto.RunRef;
 import com.kplasma.analysisagent.contract.RunOutputDto.*;
-import com.kplasma.analysisagent.ingestion.*;
-import com.kplasma.analysisagent.parser.*;
-import java.nio.file.*;
-import java.security.*;
+import com.kplasma.analysisagent.ingestion.IntakeException;
+import com.kplasma.analysisagent.parser.ComparisonFeatureExtractor;
 import java.util.*;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -14,50 +10,85 @@ import tools.jackson.databind.ObjectMapper;
 
 @Service
 public class RunOutputService {
-    private static final org.slf4j.Logger LOG=org.slf4j.LoggerFactory.getLogger(RunOutputService.class);
-    private final JdbcTemplate jdbc;private final ObjectMapper mapper;private final SourceStore store;private final ComparisonFeatureExtractor extractor;
-    private final Map<String,Output> cache=new LinkedHashMap<>(64,.75f,true);
-    public RunOutputService(JdbcTemplate jdbc,ObjectMapper mapper,SourceStore store,ComparisonFeatureExtractor extractor){this.jdbc=jdbc;this.mapper=mapper;this.store=store;this.extractor=extractor;}
-    private static void require(boolean valid){if(!valid)throw new IntakeException("INVALID_OUTPUT_QUERY",400,"Exact Run references and supported output IDs are required (maximum 50 Runs)");}
-    public Response outputs(Request body,boolean display){
-        require(body!=null&&body.runRefs()!=null&&body.plotIds()!=null);
-        long started=System.nanoTime();int cacheHits=0,extractions=0;var refs=body.runRefs();var ids=body.plotIds();require(!refs.isEmpty()&&refs.size()<=50&&new HashSet<>(refs).size()==refs.size()&&!ids.isEmpty()&&ids.size()<=7&&new HashSet<>(ids).size()==ids.size()&&ComparisonFeatureExtractor.IDS.containsAll(ids));
-        List<UUID> versions=new ArrayList<>();for(var ref:refs){require(ref!=null&&ref.runId()!=null&&ref.runVersionId()!=null);try{versions.add(UUID.fromString(ref.runVersionId()));}catch(IllegalArgumentException ex){require(false);}}
-        record Source(RunDto.Summary summary,UUID id,String hash,Map<String,StoredBatch.File> files) {}
-        Map<String,Source> sources=new HashMap<>();
-        // One bounded SQL statement for all requested versions and retained file manifests; no full_run hydration.
-        jdbc.query("select v.id,v.summary,s.id source_id,s.sha256,f.relative_path,f.storage_path,f.size,f.sha256 file_hash,f.kind from run_version v join source_set s on s.id=v.source_id left join source_file f on f.source_id=s.id where v.id in ("+String.join(",",Collections.nCopies(versions.size(),"?"))+")",rs->{
-            String version=rs.getString("id");var source=sources.get(version);if(source==null){source=new Source(mapper.readValue(rs.getString("summary"),RunDto.Summary.class),rs.getObject("source_id",UUID.class),rs.getString("sha256"),new HashMap<>());sources.put(version,source);}
-            String relative=rs.getString("relative_path");if(relative!=null){Path path=store.root().resolve(rs.getString("storage_path")).toAbsolutePath().normalize();require(path.startsWith(store.root().toAbsolutePath().normalize()));source.files().put(relative,new StoredBatch.File(relative,path,rs.getLong("size"),rs.getString("file_hash"),rs.getString("kind")));}
-        },versions.toArray());
-        List<Output> result=new ArrayList<>();
-        for(var ref:refs)for(String id:ids){
-            var source=sources.get(ref.runVersionId());Output output;
-            if(source==null||!source.summary().runId().equals(ref.runId()))output=extractor.unavailable(ref,id,"VERSION_UNAVAILABLE",null);
-            else {
-                var stored=new StoredSource(source.id(),"",source.files(),source.hash());String key=ref.runVersionId()+":"+id+":"+source.hash()+":"+ComparisonFeatureExtractor.POLICY;
-                // Synchronization also coalesces identical concurrent source reads; the cache is bounded.
-                synchronized(cache){
-                    output=cache.get(key);if(output!=null)cacheHits++;
-                    var file=source.files().get(KPlasmaGraphParser.path(id));
-                    if(file!=null&&!Files.isRegularFile(file.path(),LinkOption.NOFOLLOW_LINKS)){cache.remove(key);output=extractor.unavailable(ref,id,"SOURCE_MISSING",source.hash());}
-                    else if(output==null){
-                        extractions++;
-                        try {
-                            if(file!=null&&!hashMatches(file))output=extractor.unavailable(ref,id,"SOURCE_INTEGRITY_MISMATCH",source.hash());
-                            else output=extractor.extract(stored,ref,id,source.summary().biasPower()>0);
-                        }catch(ParseFailure|java.io.IOException ex){output=extractor.unavailable(ref,id,"SOURCE_INVALID",source.hash());}
-                        if(output.metadata().status().equals("AVAILABLE")||"BIAS_OFF".equals(output.metadata().reason()))cache.put(key,output);if(cache.size()>512)cache.remove(cache.keySet().iterator().next());
-                    }
-                }
-            }
-            result.add(display?output:output.compact());
-        }
-        LOG.debug("comparison outputs: runs={} outputs={} manifestQueries=1 cacheHits={} extractions={} durationMs={}",refs.size(),result.size(),cacheHits,extractions,(System.nanoTime()-started)/1_000_000.0);
-        return new Response(List.copyOf(result));
+    private final JdbcTemplate jdbc;
+    private final ObjectMapper mapper;
+    private final ComparisonFeatureExtractor extractor;
+
+    public RunOutputService(JdbcTemplate jdbc, ObjectMapper mapper, ComparisonFeatureExtractor extractor) {
+        this.jdbc = jdbc;
+        this.mapper = mapper;
+        this.extractor = extractor;
     }
-    private boolean hashMatches(StoredBatch.File file)throws java.io.IOException{
-        try(var input=Files.newInputStream(file.path())){var digest=MessageDigest.getInstance("SHA-256");byte[] buffer=new byte[8192];int n;while((n=input.read(buffer))!=-1)digest.update(buffer,0,n);return HexFormat.of().formatHex(digest.digest()).equals(file.sha256());}
-        catch(NoSuchAlgorithmException ex){throw new IllegalStateException(ex);}
+
+    private static void require(boolean valid) {
+        if (!valid) throw new IntakeException("INVALID_OUTPUT_QUERY", 400,
+            "Exact Run references and supported output IDs are required (maximum 50 Runs)");
+    }
+
+    private record Version(String runId, boolean biasOn, String sourceHash, Map<String, Output> outputs) {}
+
+    public Response outputs(Request body, boolean display) {
+        require(body != null && body.runRefs() != null && body.plotIds() != null);
+        var refs = body.runRefs();
+        var ids = body.plotIds();
+        require(!refs.isEmpty() && refs.size() <= 50 && new HashSet<>(refs).size() == refs.size()
+            && !ids.isEmpty() && ids.size() <= 7 && new HashSet<>(ids).size() == ids.size()
+            && ids.stream().allMatch(id -> id != null && ComparisonFeatureExtractor.IDS.contains(id)));
+
+        var args = new ArrayList<Object>();
+        args.addAll(ids);
+        for (var ref : refs) {
+            require(ref != null && ref.runId() != null && ref.runVersionId() != null);
+            try {
+                args.add(UUID.fromString(ref.runVersionId()));
+            } catch (IllegalArgumentException ex) {
+                require(false);
+            }
+        }
+
+        Map<String, Version> versions = new HashMap<>();
+        var sql = """
+            select v.id, v.run_id, (v.summary->>'biasPower')::double precision>0 as bias_on,
+                   s.sha256, o.output_id, o.compact_output, %s as display
+            from run_version v join source_set s on s.id=v.source_id
+            left join run_output_snapshot o on o.run_version_id=v.id and o.output_id in (%s)
+            where v.id in (%s)
+            """.formatted(display ? "o.display" : "null", String.join(",", Collections.nCopies(ids.size(), "?")),
+                String.join(",", Collections.nCopies(refs.size(), "?")));
+        jdbc.query(sql, rs -> {
+            String versionId = rs.getString("id");
+            var version = versions.get(versionId);
+            if (version == null) {
+                version = new Version(rs.getString("run_id"), rs.getBoolean("bias_on"), rs.getString("sha256"),
+                    new HashMap<>());
+                versions.put(versionId, version);
+            }
+            String id = rs.getString("output_id");
+            if (id == null) return;
+            var compact = mapper.readValue(rs.getString("compact_output"), Output.class);
+            var output = display
+                ? new Output(compact.metadata(), compact.features(), mapper.readValue(rs.getString("display"), Display.class))
+                : compact;
+            version.outputs().put(id, output);
+        }, args.toArray());
+
+        List<Output> result = new ArrayList<>();
+        for (var ref : refs) {
+            var version = versions.get(ref.runVersionId());
+            for (var id : ids) {
+                if (version == null || !version.runId().equals(ref.runId())) {
+                    result.add(extractor.unavailable(ref, id, "VERSION_UNAVAILABLE", null));
+                    continue;
+                }
+                var output = version.outputs().get(id);
+                if (output == null) {
+                    String reason = !version.biasOn() && !id.equals("residual") ? "BIAS_OFF"
+                        : id.equals("iad") ? "IAD_NOT_INDEXED" : "OUTPUT_NOT_INDEXED";
+                    output = extractor.unavailable(ref, id, reason, version.sourceHash());
+                }
+                result.add(output);
+            }
+        }
+        return new Response(List.copyOf(result));
     }
 }

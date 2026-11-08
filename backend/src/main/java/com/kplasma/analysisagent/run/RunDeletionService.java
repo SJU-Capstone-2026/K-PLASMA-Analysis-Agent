@@ -137,6 +137,15 @@ public class RunDeletionService {
     }
 
     private void releaseCurrentReferences(Set<String> ids) {
+        for (var room : jdbc.queryForList("select workspace_epoch,conversation_epoch,active_run::text,candidate_reference::text from workspace_conversation")) {
+            boolean active = containsReference((String)room.get("active_run"), ids);
+            boolean candidates = containsReference((String)room.get("candidate_reference"), ids);
+            if (active || candidates) jdbc.update("""
+                update workspace_conversation set active_run=case when ? then null else active_run end,
+                    candidate_reference=case when ? then null else candidate_reference end
+                where workspace_epoch=? and conversation_epoch=?
+                """, active, candidates, room.get("workspace_epoch"), room.get("conversation_epoch"));
+        }
         CurrentReferences current = jdbc.queryForObject("select active_run::text,candidate_reference::text from workspace where id=1",
                 (rs, n) -> new CurrentReferences(rs.getString(1), rs.getString(2)));
         boolean active = current != null && containsReference(current.active(), ids);

@@ -1,3 +1,5 @@
+import type { GraphVersion } from './v2.js';
+
 /** Wire contracts: finite binary64 numbers, ISO 8601 timestamps, immutable version references. */
 export interface RunRef { runId: string; runVersionId: string }
 export interface RunDeleteRequest { runIds: string[] }
@@ -49,7 +51,7 @@ export function toRunSummary(full: FullRun): RunSummary {
 /** Compact original engine objects; physical Run/analysis/graph payloads are forbidden in persisted snapshots. */
 export type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
 export type Snapshot = { [key: string]: JsonValue };
-export type Intent = 'FORWARD_LOOKUP' | 'REVERSE_SEARCH' | 'RUN_COMPARISON' | 'GENERAL_ANSWER' | 'CHANGE_EXPLANATION' | 'CONCEPT_EXPLANATION' | 'RECORD_REUSE' | 'CLARIFICATION' | 'UNSUPPORTED';
+export type Intent = 'FORWARD_LOOKUP' | 'REVERSE_SEARCH' | 'RUN_COMPARISON' | 'GENERAL_ANSWER' | 'CHANGE_EXPLANATION' | 'CONCEPT_EXPLANATION' | 'RECORD_REUSE' | 'CLARIFICATION' | 'UNSUPPORTED' | 'COMPOSITE_ANSWER';
 export interface AgentRequest { text: string; baseline?: RunRef; candidateReferences: RunRef[]; clarification?: Snapshot }
 export interface AgentResponse { intent: Intent; status: string; candidates: RunRef[]; explanation: Snapshot | null; answerSnapshot: Snapshot; usedRunRefs: RunRef[] }
 export interface AgentContext {
@@ -63,11 +65,12 @@ export interface TurnUiSnapshot {
   activeCandidateGroup: string; continuedRunId: string | null; lookupExpanded: boolean; selectedCandidateRunId: string | null;
 }
 export interface TurnSnapshot { id: string; askedAt: string; question: string; intent: Intent; context: RunRef | null; answerRunRefs: RunRef[]; answerSnapshot: Snapshot; ui: TurnUiSnapshot }
-export type ReferenceState = { kind: '단일 Run' | '후보 집합'; runs: RunRef[] } | null;
+export type ReferenceState = { kind: '단일 Run' | '후보 집합'; runs: RunRef[]; v2Origins?: {ref: RunRef; source: V2RecordSource}[]; catalogRefs?: RunRef[] } | null;
 export interface ReferenceWrite { stateToken: StateToken; candidateReference: ReferenceState; activeRun: RunRef | null }
-export interface Conversation { version: 1; activeRun: RunRef | null; turns: TurnSnapshot[] }
-export interface AgentMessage {requestId:string;clientMessageId:string|null;createdAt:string;question:string;submittedRunRefs:RunRef[];status:AgentRequestStatus|'SENDING'|'SEND_UNCERTAIN';turnId:string|null}
-export interface WorkspaceView {agentMessages?:AgentMessage[]; stateToken: StateToken; conversation: Conversation; candidateReference: ReferenceState; activeAgentRequest?:AgentRequestView|null; failedAgentRequest?:AgentRequestView|null }
+export interface Conversation { version: 1; activeRun: RunRef | null; turns: TurnSnapshot[]; agentGraphVersion?: GraphVersion | null }
+export interface AgentMessage {requestId:string;clientMessageId:string|null;createdAt:string;question:string;submittedRunRefs:RunRef[];status:AgentRequestStatus|'SENDING'|'SEND_UNCERTAIN';turnId:string|null;executionSummary?:import('./progress.js').AgentExecutionSummary|null}
+export interface ConversationSummary {conversationEpoch:number;title:string;createdAt:string;updatedAt:string}
+export interface WorkspaceView {conversations?:ConversationSummary[];agentMessages?:AgentMessage[]; stateToken: StateToken; conversation: Conversation; candidateReference: ReferenceState; activeAgentRequest?:AgentRequestView|null; failedAgentRequest?:AgentRequestView|null }
 export type Decision = 'ADOPT' | 'HOLD' | 'REJECT';
 export type ExperimentDecision = Decision | 'ALTERNATIVE' | 'COMPARISON';
 export interface RunSnapshot extends RunRef { conditions: Conditions; metrics: Metrics; supportingMetrics: { electronDensity: number; electronTemperature: number } }
@@ -84,7 +87,8 @@ export interface ExperimentRecord {
   targetRunId: string; comparedRunIds: string[]; targetRunRef: RunRef; comparedRunRefs: RunRef[];
   decision: ExperimentDecision; comment: string; analysisType: 'REVERSE'; processMode: 'GOAL_RECOMMENDATION'; goals: Snapshot[]; queryText: string;
 }
-export type DecisionRecord = ReviewRecord | ExperimentRecord;
+export interface V2RecordSource {turnId: string; executionId: string; stepId: string; groupId: string}
+export type DecisionRecord = (ReviewRecord | ExperimentRecord) & {source?: V2RecordSource};
 export interface DecisionWrite { workspaceEpoch: number; record: DecisionRecord; runRefs: RunRef[] }
 export interface ApiError { code: string; message: string; field?: string; details?: Snapshot; requestId: string }
 export interface ManifestFile { path: string; kind: string; size: number; sha256: string }
@@ -98,14 +102,20 @@ export interface CatalogView { runs: RunSummary[]; jobs: JobView[]; sourceFilesB
 /** Durable v1 request metadata; a completed answer is saved by the server exactly once. */
 export type AgentOperationKind = 'forward_lookup' | 'reverse_search' | 'compare_runs' | 'generate_answer' | 'explain_change' | 'explain_concept';
 export type AgentRequestStatus = 'QUEUED' | 'RUNNING' | 'NEEDS_INPUT' | 'COMPLETED' | 'FAILED' | 'CANCELLED';
-export interface AgentPendingInput { id: string; message: string; type?:'text'|'run_selection'|'comparison_options'; fields?: string[]; options?: {label:string;input:Snapshot}[]; minSelections?:number;baselineRequired?:boolean;optionsUrl?:string;optionsFormat?:2;snapshotId?:string;allowedRunKeys?:string[];allowedTrendAxes?:import('./answers.js').ConditionId[] }
+export interface AgentPendingInput { id: string; message: string; type?:'text'|'run_selection'|'comparison_options'; fields?: string[]; options?: {label:string;input:Snapshot}[]; minSelections?:number;maxSelections?:number;baselineRequired?:boolean;optionsUrl?:string;optionsFormat?:2;snapshotId?:string;allowedRunKeys?:string[];allowedTrendAxes?:import('./answers.js').ConditionId[] }
 export interface AgentRequestView {
-  requestId:string; requestRevision:number; status:AgentRequestStatus; stage:string; graphVersion:'v1'; question:string;
+  requestId:string; requestRevision:number; status:AgentRequestStatus; stage:string; graphVersion:GraphVersion; question:string;
   pendingInput:AgentPendingInput|null; error:{code:string;message:string}|null; partialResult:Snapshot|null;
   turnId:string|null; answerSnapshot:Snapshot|null; inputEvents:Snapshot[]; explanationComplete?:boolean;
+  workspaceEpoch?:number; conversationEpoch?:number;
+  progress?:import('./progress.js').AgentProgressSnapshot;
+  executionSummary?:import('./progress.js').AgentExecutionSummary|null;
 }
-export interface AgentSubmission {text:string;stateToken:StateToken;selectedRunRef?:RunRef;baseline?:RunRef;candidateReferences?:RunRef[];attachedRunRefs?:RunRef[];referenceOrigins?:import('./answers.js').ReferenceOrigin[]}
+export interface AgentSubmission {graphVersion?:GraphVersion;text:string;stateToken:StateToken;selectedRunRef?:RunRef;baseline?:RunRef;candidateReferences?:RunRef[];attachedRunRefs?:RunRef[];referenceOrigins?:import('./answers.js').ReferenceOrigin[]}
 export interface AgentResume {expectedRequestRevision:number;pendingInputId:string;input:Snapshot}
 export function isV1AnswerSnapshot(snapshot:Snapshot):boolean {return snapshot.implementationId==='v1'&&(snapshot.schemaVersion===1||snapshot.schemaVersion===2||snapshot.schemaVersion===3);}
 export type * from './answers.js';
 export {queryDefaultUnits} from './answers.js';
+
+export * from './v2.js';
+export type * from './progress.js';

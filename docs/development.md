@@ -85,6 +85,18 @@ SDK/API 기준: [Phoenix OTEL 설정](https://arize.com/docs/phoenix/tracing/how
 
 **새 대화**는 대화·활성 Run·후보 참조와 진행 중인 Agent 요청을 비운다. **데모 데이터 초기화**는 여기에 판단 기록도 비운다. 두 동작 모두 업로드 원본·Run·그래프·불변 버전을 유지한다. 공용 서버·로그인은 이번 범위 밖이다.
 
+### 기존 Run의 전체 그래프 채우기
+
+등록 시 IED·IAD·IEAD·전류·전위·밀도·수렴 잔차의 전체 점과 격자를 Run 버전별로 DB에 저장한다. Run 상세와 비교가 같은 저장본을 사용한다. Agent worker는 계산된 특징값과 출처만 읽고, 브라우저는 그래프에 필요한 점과 격자를 가져온다. IEAD 비교에서는 전체 Run의 피크를 표에 표시하고 선택한 Run의 히트맵을 공통 축과 색상 범위로 나란히 표시한다. 원본 IEAD 강도의 단위가 미지정이면 피크 강도 원값을 표시하고 단위가 필요한 차이 계산은 비가용으로 둔다.
+
+기존 Run은 등록 원본을 보관한 폴더를 지정해 채운다. 이 실행은 파일 해시를 등록 기록과 대조한 뒤 비어 있는 그래프 저장본만 추가한다. 기존 IAD 저장본은 마이그레이션이 옮긴다. Run 버전과 과거 답변 스냅샷은 보존한다.
+
+```sh
+backend/gradlew -p backend bootRun --args='--kplasma.outputs.backfill-source-root=/절대/경로/backend/storage'
+```
+
+시작 로그의 `Run output backfill [그래프]: saved=… unavailable=…`에서 확인한다. 이전 `kplasma.iad.backfill-source-root` 설정도 경로로 사용할 수 있다. 원본을 확인할 수 없는 기존 버전은 상세에서 당시 DB에 저장된 점을 제공하며, 전체 비교용 저장본이 없다면 `OUTPUT_NOT_INDEXED` 또는 `IAD_NOT_INDEXED`를 표시한다. Bias-off에는 수렴 잔차가 있고 쉬스 분포와 파형은 생성되지 않는다.
+
 ## 업로드 처리와 성능 계측
 
 업로드 작업자는 기본 1개이며, `kplasma.worker.concurrency`(1~8)로 같은 JVM 안의 병렬 worker 수를 지정할 수 있다. DB 연결 풀과는 별도 설정이며 사용자별 개수가 아니다. 각 worker는 `FOR UPDATE SKIP LOCKED`로 대기 작업을 원자적으로 점유하고, 기본적으로 최대 32개 작업을 연속 처리한다. 이 한도를 채우면 해당 worker의 다음 처리를 즉시 예약하고, 최초 실행·빈 큐에서는 500ms 대기한다. `kplasma.worker.drain-limit`(1~1000)과 `kplasma.worker.poll-ms`(양수)로 조정한다. 파일 파싱은 DB 트랜잭션 밖에서 실행하고, 게시할 때 원본 중복을 다시 확인한 뒤 버전·현재 포인터·완료 상태를 함께 commit한다. 동일 원본·재처리·실패 시 이전 버전 유지 정책은 그대로다.

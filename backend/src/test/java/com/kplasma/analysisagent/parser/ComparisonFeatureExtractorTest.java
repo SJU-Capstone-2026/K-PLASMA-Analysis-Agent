@@ -13,7 +13,7 @@ class ComparisonFeatureExtractorTest {
     @TempDir Path directory;
     final RunRef ref = new RunRef("SYNTHETIC", "00000000-0000-0000-0000-000000000001");
 
-    @Test void fullSourceExtremaSurviveDisplaySamplingWithExplicitAmplitudeAndNativeUnits() throws Exception {
+    @Test void allSourcePointsAndExtremaRetainExplicitAmplitudeAndNativeUnits() throws Exception {
         var text = new StringBuilder("# type=Current_density\n# gtype=1D\n# x=time (rf cycle)\n# y=J0h_h (statampere/cm^2)\n# nx=1001\n");
         for(int i=0;i<=1000;i++) text.append(i/1000.0).append(' ').append(i==137||i==703?7:i==321?-3:0).append('\n');
         var result = new ComparisonFeatureExtractor().extract(source(KPlasmaGraphParser.CURRENT,text.toString()),ref,"current",true);
@@ -25,7 +25,7 @@ class ComparisonFeatureExtractorTest {
         assertThat(result.metadata().valueUnit()).isEqualTo("statampere/cm²");
         assertThat(result.metadata().sourceCount()).isEqualTo(1001);
         assertThat(result.metadata().extrema().get("maximum").count()).isEqualTo(2);
-        assertThat(result.display().samples()).hasSizeLessThanOrEqualTo(163);
+        assertThat(result.display().samples()).hasSize(1001);
         assertThat(result.display().samples()).anySatisfy(p->{assertThat(p.x()).isEqualTo(.137);assertThat(p.y()).isEqualTo(7);});
     }
 
@@ -52,6 +52,8 @@ class ComparisonFeatureExtractorTest {
         assertThat(result.features().get("iead.peakEnergy").value()).isEqualTo(200);
         assertThat(result.features().get("iead.peakAngle").value()).isEqualTo(-10);
         assertThat(result.features().get("iead.maximum").reason()).isEqualTo("UNIT_NOT_COMPARABLE");
+        assertThat(result.features().get("iead.maximum").sourceValue())
+            .containsEntry("value", 9.0).containsEntry("unit", "원본 단위 미지정");
         assertThat(result.display().rows()).hasSize(2);
     }
 

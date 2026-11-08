@@ -1,5 +1,7 @@
 package com.kplasma.analysisagent.workspace;
 
+import com.kplasma.analysisagent.agent.v2.V2StepOrigins;
+
 import com.kplasma.analysisagent.contract.WorkspaceDto.*;
 import com.kplasma.analysisagent.contract.RunDto.RunRef;
 import com.kplasma.analysisagent.ingestion.IntakeException;
@@ -64,10 +66,36 @@ public class WorkspaceService {
         var current=repository.lock();epochs(token,current.stateToken());revision(token,current.stateToken());
         if(active!=null)validate.ref(active,INVALID);
         if(reference!=null){validate.require(Set.of("단일 Run","후보 집합").contains(reference.kind()==null?"":reference.kind()),INVALID,"Invalid reference kind");validate.refs(reference.runs(),INVALID,true);validate.require(!reference.runs().isEmpty()&&(!reference.kind().equals("단일 Run")||reference.runs().size()==1),INVALID,"Reference cardinality does not match kind");}
+        if (reference != null && reference.v2Origins() != null) {
+            var seen = new HashSet<RunRef>();
+            for (var origin : reference.v2Origins()) {
+                validate.require(origin != null && origin.source() != null && reference.runs().contains(origin.ref())
+                    && seen.add(origin.ref()), INVALID, "Invalid or duplicated v2 reference source");
+                var turn = current.conversation().turns().stream()
+                    .filter(item -> item.id().equals(origin.source().turnId())).findFirst().orElse(null);
+                validate.require(V2StepOrigins.contains(turn,origin.source(),origin.ref()),INVALID,
+                    "The exact Run must belong to its saved execution group");
+            }
+        }
+        if (reference != null && reference.catalogRefs() != null) {
+            var previous = current.candidateReference();
+            var seen = new HashSet<RunRef>();
+            for (var ref : reference.catalogRefs()) {
+                validate.require(ref != null && reference.runs().contains(ref) && seen.add(ref)
+                    && (reference.v2Origins() == null || reference.v2Origins().stream().noneMatch(o -> ref.equals(o.ref()))),
+                    INVALID, "Invalid or duplicated catalog reference");
+                boolean retained = previous != null && previous.catalogRefs() != null && previous.catalogRefs().contains(ref);
+                validate.require(retained || validate.currentCatalogRef(ref), INVALID, "Catalog Run changed. Select it again.");
+            }
+        }
         if(!Objects.equals(reference,current.candidateReference())||!Objects.equals(active,current.conversation().activeRun()))repository.invalidateAgentReferences(current.stateToken());
         repository.references(reference,active);repository.advance();return repository.lock();
     }
     @Transactional public WorkspaceView newConversation(StateToken token){return clear(token,false);}
+    @Transactional public WorkspaceView activateConversation(StateToken token,long conversation){
+        var current=repository.lock();epochs(token,current.stateToken());revision(token,current.stateToken());
+        repository.activateConversation(token,conversation);return repository.lock();
+    }
     @Transactional public WorkspaceView reset(StateToken token){return clear(token,true);}
     private WorkspaceView clear(StateToken token,boolean reset){var current=repository.lock();epochs(token,current.stateToken());revision(token,current.stateToken());repository.clear(reset);return repository.lock();}
 }

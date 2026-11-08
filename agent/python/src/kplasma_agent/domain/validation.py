@@ -2,7 +2,7 @@
 
 import json
 
-from .compare import compare_runs
+from .compare import compare_runs, compare_selected
 from .forward import lookup_forward
 from .reverse import search_reverse
 
@@ -12,7 +12,9 @@ def validate_result(inputs, result, source):
         # Strict encoding also rejects non-finite floats anywhere in a result.
         actual = json.dumps(result, sort_keys=True, ensure_ascii=False, allow_nan=False)
         kind = result.get("kind")
-        if kind == "compare_runs":
+        if kind == "compare_runs" and isinstance(source, dict) and "entries" in source:
+            expected = compare_selected(inputs, source["entries"], source.get("outputs"))
+        elif kind == "compare_runs":
             if isinstance(source, dict):
                 baseline, target = source["baseline"], source["target"]
             else:

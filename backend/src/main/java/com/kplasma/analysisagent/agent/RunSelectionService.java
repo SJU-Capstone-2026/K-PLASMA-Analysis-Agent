@@ -27,8 +27,9 @@ public class RunSelectionService {
         require(pending!=null&&pending.length()<=200,"Invalid pending input id");
         var rows=jdbc.queryForList("""
             select r.request_revision from agent_request r join workspace w on w.id=1
-            where r.id=? and r.status='NEEDS_INPUT' and r.pending_input->>'type'='run_selection'
-            and r.pending_input->>'id'=? and r.workspace_epoch=w.workspace_epoch and r.conversation_epoch=w.conversation_epoch
+            where r.id=? and r.graph_version='v1' and r.status='NEEDS_INPUT' and r.pending_input->>'type'='run_selection'
+            and r.pending_input->>'id'=? and r.workspace_epoch=w.workspace_epoch
+            and exists(select 1 from workspace_conversation c where c.workspace_epoch=r.workspace_epoch and c.conversation_epoch=r.conversation_epoch)
             """,id,pending);
         if(rows.isEmpty())stale("실험 선택 요청이 변경되었습니다. 화면을 새로고침해 주세요.");
         var session=options.find(id,pending);
