@@ -20,7 +20,9 @@ test('numeric excluded row details use latest result version while threshold and
 test('a cancelled first request still allows leaving its pinned conversation', () => {
  const newConversation=vi.fn(async()=>{});
  const conversation:ConversationController={
-  state:{...emptyWorkspace,conversation:{...emptyWorkspace.conversation,agentGraphVersion:'v2'}},
+  state:{...emptyWorkspace,conversation:{...emptyWorkspace.conversation,agentGraphVersion:'v2'},
+   agentMessages:[{requestId:'cancelled',clientMessageId:null,createdAt:'2026-11-06T00:00:00Z',question:'취소한 질문',
+    submittedRunRefs:[],status:'CANCELLED',turnId:null,executionSummary:{durationMs:38_000,activities:[]}}]},
   graphVersion:'v2',selectGraphVersion:vi.fn(),ready:true,error:'',provisionalMessage:null,pending:false,
   activeRequest:null,sending:false,submit:vi.fn(),resume:vi.fn(),cancel:vi.fn(),updateTurnUi:vi.fn(),
   setReference:vi.fn(),refresh:vi.fn(),selectConversation:vi.fn(),newConversation,reset:vi.fn(),
@@ -28,6 +30,7 @@ test('a cancelled first request still allows leaving its pinned conversation', (
  render(<AgentPage conversation={conversation} records={[]} notify={vi.fn()} onDetail={vi.fn()}
   onRecord={vi.fn()} onEvidence={vi.fn()} onDemo={vi.fn()}/>);
  expect(screen.getByRole('combobox',{name:'Agent 버전'})).toBeDisabled();
+ expect(screen.getByText('38초 후에 중단했습니다')).toBeVisible();
  const button=screen.getByRole('button',{name:'새 대화'});
  expect(button).toBeEnabled();
  fireEvent.click(button);
