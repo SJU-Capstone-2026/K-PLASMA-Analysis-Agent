@@ -123,7 +123,7 @@ class V2Settings:
     writer: Settings
     decisions_model: str
     decisions_url: str
-    plan_review_enabled: bool = False
+    plan_review_enabled: bool = True
 
     @classmethod
     def from_env(cls, base: Settings) -> "V2Settings":
@@ -138,7 +138,7 @@ class V2Settings:
                            reasoning_effort=os.getenv("AGENT_V2_ANSWER_REASONING_EFFORT", base.reasoning_effort)),
             decisions_model=os.getenv("AGENT_V2_DECISIONS_MODEL", "gpt-6-luna"),
             decisions_url=url + "/decisions",
-            plan_review_enabled=os.getenv("AGENT_V2_PLAN_REVIEW_ENABLED", "false").lower() not in {"false", "0"},
+            plan_review_enabled=os.getenv("AGENT_V2_PLAN_REVIEW_ENABLED", "true").lower() not in {"false", "0"},
         )
 
 
@@ -214,8 +214,15 @@ def review_answer(client: httpx.Client, settings: V2Settings, payload):
             }))
         status: Literal["PASS", "ISSUE"] = "PASS" if answers[0].choice == "within_evidence" else "ISSUE"
         return ReviewDecision(status=status, answers=answers), data.get("usage")
-    except (httpx.HTTPError, ValueError, KeyError, TypeError):
-        return ReviewDecision(status="UNAVAILABLE", answers=[], reason="DECISIONS_UNAVAILABLE"), None
+    except httpx.TimeoutException:
+        reason = "DECISIONS_TIMEOUT"
+    except httpx.HTTPStatusError as error:
+        reason = f"DECISIONS_HTTP_{error.response.status_code}"
+    except httpx.HTTPError:
+        reason = "DECISIONS_CONNECTION"
+    except (ValueError, KeyError, TypeError):
+        reason = "DECISIONS_INVALID_RESPONSE"
+    return ReviewDecision(status="UNAVAILABLE", answers=[], reason=reason), None
 
 
 def review_plan(client: httpx.Client, settings: V2Settings, payload):

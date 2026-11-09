@@ -13,7 +13,7 @@ class Settings:
     worker_token: str = field(default="", repr=False)
     model: str = "gpt-5.6-luna"
     reasoning_effort: str = "none"
-    timeout: float = 30
+    timeout: float = 90
     poll_seconds: float = 1
     graph_build_id: str = "v1-2026-10-17.integrated-1"
     phoenix_endpoint: str = ""
@@ -31,7 +31,7 @@ class Settings:
             worker_token=os.getenv("AGENT_WORKER_TOKEN", ""),
             model=os.getenv("OPENAI_MODEL", "gpt-5.6-luna"),
             reasoning_effort=os.getenv("OPENAI_REASONING_EFFORT", "none"),
-            timeout=float(os.getenv("AGENT_MODEL_TIMEOUT_SECONDS", "30")),
+            timeout=float(os.getenv("AGENT_MODEL_TIMEOUT_SECONDS", "90")),
             graph_build_id=os.getenv("AGENT_GRAPH_BUILD_ID", "v1-2026-10-17.integrated-1"),
             phoenix_endpoint=os.getenv("PHOENIX_COLLECTOR_ENDPOINT", ""),
             phoenix_api_key=os.getenv("PHOENIX_API_KEY", ""),

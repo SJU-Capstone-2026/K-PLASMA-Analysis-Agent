@@ -70,6 +70,21 @@ for the exercised HTTP, UI, database and recovery scope.
 
 ## v2 plan meaning and end-to-end evaluation
 
+All future live Agent evaluations (browser, API and in-memory graph) must keep
+plan meaning Decisions enabled. Check both model settings and graph state for
+`plan_review_enabled=true` before execution; stop if either is disabled.
+`AGENT_V2_PLAN_REVIEW_ENABLED` defaults to `true`. `run_v2 --live` rejects both
+`--plan-review off` and an environment setting that disables review. The existing
+maximum of two replans per request, applicable answer review and one answer
+rewrite remain enabled. Scripted offline unit tests may still exercise the off
+path without calling a live model.
+
+Report initial-plan passes, Decisions issues, and final passes/failures after
+`REPLAN` separately. A repaired final pass is not an initial-plan pass. Do not
+add a separate paid experiment to the evaluation count requested by the user.
+The fixed-plan Decisions experiment below is separate from live Agent
+end-to-end evaluations and runs only when explicitly requested.
+
 `plan_review_cases.py` contains 14 labelled correct/incorrect plan pairs,
 all on artificial identities. Both variants pass the code validator. The default
 matrix preserves the original 13 pairs × 3 repeats (78 requests), then adds P14's
@@ -105,13 +120,13 @@ To inspect the matrix without paid calls, run the first command below from
 ```sh
 PYTHONPATH=src:. .venv/bin/python -m evals.run_plan_review --output /private/tmp/kplasma-plan-review
 PYTHONPATH=src:. .venv/bin/python -m evals.run_plan_review --live --env-file /path/to/local.env --output /private/tmp/kplasma-plan-review
-PYTHONPATH=src:. .venv/bin/python -m evals.run_v2 --live --plan-review off --output /private/tmp/kplasma-v2-before
-PYTHONPATH=src:. .venv/bin/python -m evals.run_v2 --live --plan-review on --output /private/tmp/kplasma-v2-after
+PYTHONPATH=src:. .venv/bin/python -m evals.run_v2 --live --plan-review on --output /private/tmp/kplasma-v2-live
 ```
 
 The existing v2 graph harness retains initial provider output, accepted plan
 revisions, each plan verdict, final execution/answer failures, bounded replan
-count, role call counts and elapsed provider times. Turning plan review off
-records SKIPPED; it does not fake PASS. Different live planner outputs mean
+count, role call counts and elapsed provider times. The live CLI explicitly
+sets review on in both the gateway settings and graph state. Offline off-path
+tests record SKIPPED rather than PASS. Different live planner outputs mean
 before/after graph runs alone cannot isolate reviewer quality. Browser/DB tests
 exercise persistence and HITL independently of the in-memory harness.

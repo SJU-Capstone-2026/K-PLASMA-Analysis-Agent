@@ -1,4 +1,6 @@
 from copy import deepcopy
+from types import SimpleNamespace
+import httpx
 import pytest
 from kplasma_agent.config import Settings
 from kplasma_agent.worker import run_claim
@@ -167,3 +169,62 @@ def test_blocked_failed_cloud_export_cannot_block_graph_or_repeat_model(monkeypa
         release.set()
         worker.join(timeout=3)
         provider.shutdown()
+
+
+def test_model_timeout_defaults_to_90_seconds_and_honors_env_override(tmp_path, monkeypatch):
+    env = tmp_path / ".env"
+    env.write_text("")
+    monkeypatch.delenv("AGENT_MODEL_TIMEOUT_SECONDS", raising=False)
+    assert Settings().timeout == 90
+    assert Settings.from_env(env).timeout == 90
+    monkeypatch.setenv("AGENT_MODEL_TIMEOUT_SECONDS", "120")
+    assert Settings.from_env(env).timeout == 120
+
+
+@pytest.mark.parametrize("timeout,expected", [(90, 90), (15, 15), (120, 120)])
+def test_worker_decisions_timeout_matches_model_setting(timeout, expected, monkeypatch):
+    from kplasma_agent import worker
+
+    clients = []
+
+    def gateway(settings, client, guard):
+        clients.append(client)
+        return SimpleNamespace(settings=settings)
+
+    monkeypatch.setattr(worker, "BackendClient", lambda _: SimpleNamespace(claim=lambda *_: {"request": None}))
+    monkeypatch.setattr(worker, "V2ModelGateway", gateway)
+    monkeypatch.setattr(worker.signal, "signal", lambda *_: None)
+    try:
+        worker.serve(Settings(worker_token="test", timeout=timeout), once=True)
+        assert clients[0].timeout.read == expected
+    finally:
+        for client in clients:
+            client.close()
+
+
+@pytest.mark.parametrize("code,diagnostic", [
+    ("MODEL_TIMEOUT", "시간"),
+    ("MODEL_CONNECTION", "연결"),
+    ("MODEL_RATE_LIMITED", "요청 한도"),
+    ("MODEL_HTTP_401", "모델 API"),
+    ("MODEL_STREAM_ERROR", "스트림"),
+    ("MODEL_API_ERROR", "모델 API"),
+])
+def test_specific_model_failure_codes_reach_the_request_with_a_readable_message(code, diagnostic):
+    from kplasma_agent.backend_client import BackendClient
+
+    requests = []
+
+    def transport(request):
+        import json
+        requests.append(json.loads(request.content))
+        return httpx.Response(200, json={})
+
+    client = BackendClient(Settings(), transport=httpx.MockTransport(transport))
+    try:
+        backend = client.bind({"request": {"requestId": "synthetic"}, "claimGeneration": 1, "requestRevision": 0})
+        backend.fail(code)
+    finally:
+        client.client.close()
+    assert requests[0]["error"]["code"] == code
+    assert diagnostic in requests[0]["error"]["message"]

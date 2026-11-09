@@ -3,7 +3,7 @@
 import copy
 import json
 import httpx
-from openai import OpenAI, APIError, APIConnectionError, APITimeoutError, RateLimitError
+from openai import OpenAI, APIError, APIConnectionError, APIStatusError, APITimeoutError
 from . import tracing
 
 
@@ -105,17 +105,21 @@ class ModelClient:
                         if event.type == "response.output_text.delta":
                             on_text_delta(event.delta)
                         elif event.type == "error":
-                            raise ModelError("MODEL_UNAVAILABLE")
+                            raise ModelError("MODEL_STREAM_ERROR")
                         elif event.type in {"response.completed", "response.incomplete", "response.failed"}:
                             response = event.response
                 if response is None:
                     raise ModelError("MODEL_OUTPUT_TRUNCATED")
-        except (APIConnectionError, APITimeoutError, RateLimitError, httpx.HTTPError):
-            raise ModelError("MODEL_UNAVAILABLE", retryable=True) from None
-        except APIError as error:
-            raise ModelError(
-                "MODEL_UNAVAILABLE", retryable=(getattr(error, "status_code", 0) or 0) >= 500
-            ) from None
+        except (APITimeoutError, httpx.TimeoutException):
+            raise ModelError("MODEL_TIMEOUT", retryable=True) from None
+        except (APIStatusError, httpx.HTTPStatusError) as error:
+            status = error.response.status_code
+            code = "MODEL_RATE_LIMITED" if status == 429 else f"MODEL_HTTP_{status}"
+            raise ModelError(code, retryable=status == 429 or status >= 500) from None
+        except (APIConnectionError, httpx.HTTPError):
+            raise ModelError("MODEL_CONNECTION", retryable=True) from None
+        except APIError:
+            raise ModelError("MODEL_STREAM_ERROR" if on_text_delta is not None else "MODEL_API_ERROR") from None
         observation.output(
             lambda: {
                 "status": response.status,
