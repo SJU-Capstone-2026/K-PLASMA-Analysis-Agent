@@ -58,7 +58,7 @@ def test_v2_models_default_to_gpt6_without_changing_v1_settings(monkeypatch):
     settings = V2Settings.from_env(base)
     assert (settings.planner.model, settings.planner.reasoning_effort) == ("gpt-6-luna", "low")
     assert settings.planner.model == settings.writer.model == settings.decisions_model == "gpt-6-luna"
-    assert settings.writer.reasoning_effort == "none"
+    assert settings.writer.reasoning_effort == "low"
     assert base.model == "gpt-5.6-luna"
 
 

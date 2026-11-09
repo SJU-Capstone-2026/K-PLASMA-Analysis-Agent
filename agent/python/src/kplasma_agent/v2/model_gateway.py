@@ -135,7 +135,7 @@ class V2Settings:
             planner=replace(base, model=os.getenv("AGENT_V2_PLAN_MODEL", "gpt-6-luna"),
                             reasoning_effort=os.getenv("AGENT_V2_PLAN_REASONING_EFFORT", "low")),
             writer=replace(base, model=os.getenv("AGENT_V2_ANSWER_MODEL", "gpt-6-luna"),
-                           reasoning_effort=os.getenv("AGENT_V2_ANSWER_REASONING_EFFORT", base.reasoning_effort)),
+                           reasoning_effort=os.getenv("AGENT_V2_ANSWER_REASONING_EFFORT", "low")),
             decisions_model=os.getenv("AGENT_V2_DECISIONS_MODEL", "gpt-6-luna"),
             decisions_url=url + "/decisions",
             plan_review_enabled=os.getenv("AGENT_V2_PLAN_REVIEW_ENABLED", "true").lower() not in {"false", "0"},
