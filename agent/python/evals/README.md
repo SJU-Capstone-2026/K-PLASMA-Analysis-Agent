@@ -70,6 +70,14 @@ for the exercised HTTP, UI, database and recovery scope.
 
 ## v2 plan meaning and end-to-end evaluation
 
+For the two manual experiments, see the [v2 evaluation runbook](../../../docs/development/agent-v2-evaluations.md):
+fixed-plan Decisions 80 requests and the private frozen bank's 40 browser + 40 API questions.
+`npm run eval:agent:local -- --bundle /path/to/bundle --output /tmp/new-plan` performs
+offline preflight only; adding `--live --connection /path/to/connection.json --env-file /path/to/eval.env`
+runs the actual app. Supply the external frozen oracle and a dedicated local app;
+the runner owns its worker and browser, keeps results separate by mode, and never adds paid replacements.
+The automatic grade is provisional until flagged answers and visual artifacts are independently reviewed.
+
 All future live Agent evaluations (browser, API and in-memory graph) must keep
 plan meaning Decisions enabled. Check both model settings and graph state for
 `plan_review_enabled=true` before execution; stop if either is disabled.
