@@ -30,7 +30,7 @@ npm exec --workspace frontend -- playwright install chromium
 OPENAI_API_KEY=<private-key>
 AGENT_V2_PLAN_MODEL=gpt-6-luna
 AGENT_V2_PLAN_REASONING_EFFORT=low
-AGENT_V2_ANSWER_MODEL=gpt-5.6-luna
+AGENT_V2_ANSWER_MODEL=gpt-6-luna
 AGENT_V2_ANSWER_REASONING_EFFORT=none
 AGENT_V2_DECISIONS_MODEL=gpt-6-luna
 AGENT_V2_PLAN_REVIEW_ENABLED=true

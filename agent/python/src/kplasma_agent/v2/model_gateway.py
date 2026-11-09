@@ -134,7 +134,7 @@ class V2Settings:
         return cls(
             planner=replace(base, model=os.getenv("AGENT_V2_PLAN_MODEL", "gpt-6-luna"),
                             reasoning_effort=os.getenv("AGENT_V2_PLAN_REASONING_EFFORT", "low")),
-            writer=replace(base, model=os.getenv("AGENT_V2_ANSWER_MODEL", base.model),
+            writer=replace(base, model=os.getenv("AGENT_V2_ANSWER_MODEL", "gpt-6-luna"),
                            reasoning_effort=os.getenv("AGENT_V2_ANSWER_REASONING_EFFORT", base.reasoning_effort)),
             decisions_model=os.getenv("AGENT_V2_DECISIONS_MODEL", "gpt-6-luna"),
             decisions_url=url + "/decisions",

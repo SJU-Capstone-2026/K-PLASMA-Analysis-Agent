@@ -3,7 +3,7 @@
 새 대화에서 Agent 버전 v2를 선택한다. 첫 요청이 수락되면 대화의 버전이 저장된다. 운영 기본 버전은 v1이다.
 
 - 계획과 재계획은 기본적으로 `gpt-6-luna`의 `low`를 쓴다. `AGENT_V2_PLAN_MODEL`과 `AGENT_V2_PLAN_REASONING_EFFORT`로 조정한다.
-- 답변 작성의 기본값은 기존 모델과 추론 설정이다. `AGENT_V2_ANSWER_MODEL`과 `AGENT_V2_ANSWER_REASONING_EFFORT`로 따로 지정할 수 있다.
+- 답변 작성도 기본적으로 `gpt-6-luna`를 쓴다. v2의 계획·재계획·답변 작성·Decisions 모델 기본값은 모두 `gpt-6-luna`다. `AGENT_V2_ANSWER_MODEL`로 모델을 따로 지정할 수 있고, 추론 수준은 기존 설정을 상속하며 `AGENT_V2_ANSWER_REASONING_EFFORT`로 조정한다.
 - 계획 의미 검토와 최종 해석 검토는 Decisions의 `gpt-6-luna`를 기본으로 사용한다. `AGENT_V2_DECISIONS_MODEL`과 `AGENT_V2_DECISIONS_BASE_URL`은 별도 설정이다.
 - 계획의 `interpretation_requested`가 `false`인 조회·수치 비교·그래프 요청은 검증된 도구 결과로 바로 완료한다. 표와 그래프는 웹이 표시한다.
 - 확인된 두 Run의 비교가 이미 제공하는 절대 차이와 요청한 파형 폭은 계획 검증에서 재사용한다. 후속 단계가 값을 참조하는 계산은 실행 계획에 남긴다.

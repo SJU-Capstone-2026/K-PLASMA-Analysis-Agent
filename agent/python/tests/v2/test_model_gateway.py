@@ -50,14 +50,16 @@ def test_between_drops_only_a_repeated_bound():
     assert _plan_defaults(missing)["value"] == low
 
 
-def test_planner_defaults_to_luna_low_and_answer_inherits(monkeypatch):
+def test_v2_models_default_to_gpt6_without_changing_v1_settings(monkeypatch):
     for name in ("AGENT_V2_PLAN_MODEL", "AGENT_V2_PLAN_REASONING_EFFORT", "AGENT_V2_ANSWER_MODEL",
-                 "AGENT_V2_ANSWER_REASONING_EFFORT"):
+                 "AGENT_V2_ANSWER_REASONING_EFFORT", "AGENT_V2_DECISIONS_MODEL"):
         monkeypatch.delenv(name, raising=False)
     base = Settings(model="gpt-5.6-luna", reasoning_effort="none")
     settings = V2Settings.from_env(base)
     assert (settings.planner.model, settings.planner.reasoning_effort) == ("gpt-6-luna", "low")
-    assert settings.writer == base
+    assert settings.planner.model == settings.writer.model == settings.decisions_model == "gpt-6-luna"
+    assert settings.writer.reasoning_effort == "none"
+    assert base.model == "gpt-5.6-luna"
 
 
 def test_decisions_sends_only_the_interpretation_question_and_uses_choice():
