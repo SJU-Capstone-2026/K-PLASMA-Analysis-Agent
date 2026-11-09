@@ -120,6 +120,10 @@ class ModelClient:
             raise ModelError("MODEL_CONNECTION", retryable=True) from None
         except APIError:
             raise ModelError("MODEL_STREAM_ERROR" if on_text_delta is not None else "MODEL_API_ERROR") from None
+        if response.usage:
+            observation.attribute("llm.token_count.prompt", response.usage.input_tokens)
+            observation.attribute("llm.token_count.completion", response.usage.output_tokens)
+            observation.attribute("llm.token_count.total", response.usage.total_tokens)
         if response.status != "completed":
             if response.status == "failed":
                 raise ModelError("MODEL_RESPONSE_FAILED")
@@ -136,10 +140,6 @@ class ModelClient:
                 "response": response.model_dump(mode="json"),
             }
         )
-        if response.usage:
-            observation.attribute("llm.token_count.prompt", response.usage.input_tokens)
-            observation.attribute("llm.token_count.completion", response.usage.output_tokens)
-            observation.attribute("llm.token_count.total", response.usage.total_tokens)
         if any(
             part.type == "refusal"
             for item in response.output

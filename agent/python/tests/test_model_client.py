@@ -99,15 +99,16 @@ def test_stream_preserves_terminal_validation(status, refusal, terminal, code):
 ])
 def test_provider_terminal_status_and_safe_reason_are_distinct(stream, status, reason, code, trace_capture):
     requests = []
+    usage = {"input_tokens": 11, "output_tokens": 22, "total_tokens": 33}
 
     def transport(request):
         requests.append(request)
         if stream:
-            return streamed_response('{"answer":"draft"}', status=status, incomplete_reason=reason)
+            return streamed_response('{"answer":"draft"}', status=status, incomplete_reason=reason, usage=usage)
         return httpx.Response(200, json={
             "id": "synthetic", "object": "response", "created_at": 0, "status": status,
             "parallel_tool_calls": False, "tool_choice": "auto", "tools": [],
-            "model": "gpt-5.6-luna", "output": [], "usage": None,
+            "model": "gpt-5.6-luna", "output": [], "usage": usage,
             "incomplete_details": {"reason": reason} if reason else None,
             "error": {"code": "server_error", "message": "private-provider-body"} if status == "failed" else None,
         })
@@ -121,6 +122,9 @@ def test_provider_terminal_status_and_safe_reason_are_distinct(stream, status, r
     span = trace_capture.get_finished_spans()[0]
     assert span.attributes["error.code"] == code
     assert "private-provider" not in str(span.attributes)
+    assert span.attributes["llm.token_count.prompt"] == 11
+    assert span.attributes["llm.token_count.completion"] == 22
+    assert span.attributes["llm.token_count.total"] == 33
 
 
 def test_plain_general_answer_stream_keeps_native_tool_continuation():
