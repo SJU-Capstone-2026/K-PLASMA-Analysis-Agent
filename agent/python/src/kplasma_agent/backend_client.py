@@ -141,6 +141,11 @@ class RequestBackend:
             "MODEL_RATE_LIMITED": "모델 API 요청 한도에 도달했습니다. 잠시 후 다시 질문해 주세요.",
             "MODEL_STREAM_ERROR": "모델 응답 스트림을 완료하지 못했습니다. 다시 질문해 주세요.",
             "MODEL_API_ERROR": "모델 API 요청을 완료하지 못했습니다. 오류 코드를 확인해 주세요.",
+            "MODEL_OUTPUT_TRUNCATED": "모델 응답이 출력 길이 제한에 도달했습니다. 오류 코드를 확인해 주세요.",
+            "MODEL_RESPONSE_INCOMPLETE": "모델이 미완료 응답을 반환했습니다. 오류 코드를 확인해 주세요.",
+            "MODEL_RESPONSE_FAILED": "모델 공급자가 응답 생성을 실패로 종료했습니다. 오류 코드를 확인해 주세요.",
+            "MODEL_CONTENT_FILTERED": "모델 응답이 콘텐츠 필터에 의해 중단되었습니다. 오류 코드를 확인해 주세요.",
+            "MODEL_STREAM_INTERRUPTED": "모델 응답의 종료 신호를 받지 못했습니다. 다시 질문해 주세요.",
             "MODEL_ATTEMPT_LIMIT": "모델 처리 횟수 제한에 도달했습니다. 새 질문으로 시작해 주세요.",
             "RECOVERY_VERSION_MISMATCH": "저장된 작업의 실행 버전이 달라 안전하게 재개할 수 없습니다. 새 질문으로 시작해 주세요.",
         }

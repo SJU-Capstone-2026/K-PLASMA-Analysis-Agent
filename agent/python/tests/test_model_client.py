@@ -11,11 +11,12 @@ class Output(BaseModel):
 
 
 def streamed_response(text, *, status="completed", refusal=False, before_terminal=None, terminal=True,
-                      error=False, sdk_error=False, usage=None):
+                      error=False, sdk_error=False, usage=None, incomplete_reason=None):
     response = {
         "id": "synthetic", "object": "response", "created_at": 0, "status": status,
         "parallel_tool_calls": False, "tool_choice": "auto", "tools": [], "model": "gpt-5.6-luna",
         "output": [], "usage": usage,
+        "incomplete_details": {"reason": incomplete_reason} if incomplete_reason else None,
     }
     message = {"type": "message", "id": "message", "role": "assistant", "status": "in_progress",
                "content": []}
@@ -75,10 +76,10 @@ def test_generate_delivers_delta_while_the_provider_terminal_event_is_withheld()
 
 
 @pytest.mark.parametrize("status,refusal,terminal,code", [
-    ("incomplete", False, True, "MODEL_OUTPUT_TRUNCATED"),
-    ("failed", False, True, "MODEL_OUTPUT_TRUNCATED"),
+    ("incomplete", False, True, "MODEL_RESPONSE_INCOMPLETE"),
+    ("failed", False, True, "MODEL_RESPONSE_FAILED"),
     ("completed", True, True, "MODEL_REFUSED"),
-    ("completed", False, False, "MODEL_OUTPUT_TRUNCATED"),
+    ("completed", False, False, "MODEL_STREAM_INTERRUPTED"),
 ])
 def test_stream_preserves_terminal_validation(status, refusal, terminal, code):
     client = ModelClient(Settings(api_key="test"), http_client=httpx.Client(transport=httpx.MockTransport(
@@ -86,6 +87,40 @@ def test_stream_preserves_terminal_validation(status, refusal, terminal, code):
                                           refusal=refusal, terminal=terminal))))
     with pytest.raises(ModelError, match=code):
         client.generate("instructions", {}, Output, on_text_delta=lambda text: None)
+
+
+@pytest.mark.parametrize("stream", [False, True])
+@pytest.mark.parametrize("status,reason,code", [
+    ("incomplete", "max_output_tokens", "MODEL_OUTPUT_TRUNCATED"),
+    ("incomplete", "content_filter", "MODEL_CONTENT_FILTERED"),
+    ("incomplete", None, "MODEL_RESPONSE_INCOMPLETE"),
+    ("incomplete", "private-provider-reason", "MODEL_RESPONSE_INCOMPLETE"),
+    ("failed", None, "MODEL_RESPONSE_FAILED"),
+])
+def test_provider_terminal_status_and_safe_reason_are_distinct(stream, status, reason, code, trace_capture):
+    requests = []
+
+    def transport(request):
+        requests.append(request)
+        if stream:
+            return streamed_response('{"answer":"draft"}', status=status, incomplete_reason=reason)
+        return httpx.Response(200, json={
+            "id": "synthetic", "object": "response", "created_at": 0, "status": status,
+            "parallel_tool_calls": False, "tool_choice": "auto", "tools": [],
+            "model": "gpt-5.6-luna", "output": [], "usage": None,
+            "incomplete_details": {"reason": reason} if reason else None,
+            "error": {"code": "server_error", "message": "private-provider-body"} if status == "failed" else None,
+        })
+
+    with httpx.Client(transport=httpx.MockTransport(transport)) as http_client:
+        client = ModelClient(Settings(api_key="test"), http_client=http_client)
+        with pytest.raises(ModelError) as error:
+            client.generate("instructions", {}, Output, on_text_delta=(lambda text: None) if stream else None)
+    assert error.value.code == code and error.value.retryable is False
+    assert len(requests) == 1 and "private-provider" not in str(error.value)
+    span = trace_capture.get_finished_spans()[0]
+    assert span.attributes["error.code"] == code
+    assert "private-provider" not in str(span.attributes)
 
 
 def test_plain_general_answer_stream_keeps_native_tool_continuation():

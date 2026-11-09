@@ -109,7 +109,7 @@ class ModelClient:
                         elif event.type in {"response.completed", "response.incomplete", "response.failed"}:
                             response = event.response
                 if response is None:
-                    raise ModelError("MODEL_OUTPUT_TRUNCATED")
+                    raise ModelError("MODEL_STREAM_INTERRUPTED")
         except (APITimeoutError, httpx.TimeoutException):
             raise ModelError("MODEL_TIMEOUT", retryable=True) from None
         except (APIStatusError, httpx.HTTPStatusError) as error:
@@ -120,6 +120,15 @@ class ModelClient:
             raise ModelError("MODEL_CONNECTION", retryable=True) from None
         except APIError:
             raise ModelError("MODEL_STREAM_ERROR" if on_text_delta is not None else "MODEL_API_ERROR") from None
+        if response.status != "completed":
+            if response.status == "failed":
+                raise ModelError("MODEL_RESPONSE_FAILED")
+            reason = getattr(getattr(response, "incomplete_details", None), "reason", None)
+            if reason == "max_output_tokens":
+                raise ModelError("MODEL_OUTPUT_TRUNCATED")
+            if reason == "content_filter":
+                raise ModelError("MODEL_CONTENT_FILTERED")
+            raise ModelError("MODEL_RESPONSE_INCOMPLETE")
         observation.output(
             lambda: {
                 "status": response.status,
@@ -131,8 +140,6 @@ class ModelClient:
             observation.attribute("llm.token_count.prompt", response.usage.input_tokens)
             observation.attribute("llm.token_count.completion", response.usage.output_tokens)
             observation.attribute("llm.token_count.total", response.usage.total_tokens)
-        if response.status != "completed":
-            raise ModelError("MODEL_OUTPUT_TRUNCATED")
         if any(
             part.type == "refusal"
             for item in response.output

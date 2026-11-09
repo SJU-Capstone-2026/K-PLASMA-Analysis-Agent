@@ -241,7 +241,10 @@ def test_gateway_streams_safe_prose_before_provider_completion_with_one_writer_r
 
 
 @pytest.mark.parametrize("failure,code", [("timeout", "MODEL_TIMEOUT"), (429, "MODEL_RATE_LIMITED"),
-                                        (503, "MODEL_HTTP_503")])
+                                        (503, "MODEL_HTTP_503"), ("failed", "MODEL_RESPONSE_FAILED"),
+                                        ("incomplete", "MODEL_RESPONSE_INCOMPLETE"),
+                                        ("max_output_tokens", "MODEL_OUTPUT_TRUNCATED"),
+                                        ("content_filter", "MODEL_CONTENT_FILTERED")])
 def test_model_failure_code_is_preserved_in_the_existing_outcome_error(failure, code):
     from evals.v2_harness import EvaluationJournal
     from kplasma_agent.graphs.v2 import build_v2_graph
@@ -253,6 +256,14 @@ def test_model_failure_code_is_preserved_in_the_existing_outcome_error(failure, 
         requests.append(request)
         if failure == "timeout":
             raise httpx.ReadTimeout("private-provider-body", request=request)
+        if isinstance(failure, str):
+            return httpx.Response(200, json={
+                "id": "synthetic", "object": "response", "created_at": 0,
+                "status": "failed" if failure == "failed" else "incomplete", "model": "gpt-6-luna",
+                "output": [], "parallel_tool_calls": False, "tool_choice": "auto", "tools": [],
+                "incomplete_details": {"reason": failure} if failure in ("max_output_tokens", "content_filter") else None,
+                "error": {"code": "server_error", "message": "private-provider-body"} if failure == "failed" else None,
+            })
         return httpx.Response(failure, json={"error": {"message": "private-provider-body"}})
 
     with httpx.Client(transport=httpx.MockTransport(transport)) as client:

@@ -209,6 +209,11 @@ def test_worker_decisions_timeout_matches_model_setting(timeout, expected, monke
     ("MODEL_HTTP_401", "모델 API"),
     ("MODEL_STREAM_ERROR", "스트림"),
     ("MODEL_API_ERROR", "모델 API"),
+    ("MODEL_OUTPUT_TRUNCATED", "출력 길이"),
+    ("MODEL_RESPONSE_INCOMPLETE", "미완료"),
+    ("MODEL_RESPONSE_FAILED", "공급자"),
+    ("MODEL_CONTENT_FILTERED", "콘텐츠 필터"),
+    ("MODEL_STREAM_INTERRUPTED", "종료 신호"),
 ])
 def test_specific_model_failure_codes_reach_the_request_with_a_readable_message(code, diagnostic):
     from kplasma_agent.backend_client import BackendClient

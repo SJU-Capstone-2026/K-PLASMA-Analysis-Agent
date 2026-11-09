@@ -130,3 +130,11 @@ sets review on in both the gateway settings and graph state. Offline off-path
 tests record SKIPPED rather than PASS. Different live planner outputs mean
 before/after graph runs alone cannot isolate reviewer quality. Browser/DB tests
 exercise persistence and HITL independently of the in-memory harness.
+
+Model failures retain distinct timeout, connection, HTTP status/rate-limit and
+stream/API error codes. `MODEL_OUTPUT_TRUNCATED` means the provider explicitly
+reported `max_output_tokens`; content filtering, failed responses, unspecified
+incomplete responses and a stream without a terminal event use separate codes.
+Only fixed codes enter stored outcomes; provider error messages and unknown
+reason strings are discarded. Historical `MODEL_OUTPUT_TRUNCATED` records from
+before this distinction cannot establish an output-token limit retroactively.
