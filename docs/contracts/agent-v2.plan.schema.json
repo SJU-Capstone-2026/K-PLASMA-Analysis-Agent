@@ -74,18 +74,6 @@
     "AwaitInputs": {
       "additionalProperties": false,
       "properties": {
-        "target_step_id": {
-          "maxLength": 96,
-          "minLength": 1,
-          "title": "Target Step Id",
-          "type": "string"
-        },
-        "field": {
-          "maxLength": 96,
-          "minLength": 1,
-          "title": "Field",
-          "type": "string"
-        },
         "selection_count": {
           "anyOf": [
             {
@@ -98,6 +86,18 @@
           ],
           "default": null,
           "title": "Selection Count"
+        },
+        "target_step_id": {
+          "maxLength": 96,
+          "minLength": 1,
+          "title": "Target Step Id",
+          "type": "string"
+        },
+        "field": {
+          "maxLength": 96,
+          "minLength": 1,
+          "title": "Field",
+          "type": "string"
         },
         "candidates": {
           "anyOf": [
@@ -682,6 +682,88 @@
         "inputs"
       ],
       "title": "DeriveStep",
+      "type": "object"
+    },
+    "ExplainInputs": {
+      "additionalProperties": false,
+      "properties": {
+        "mode": {
+          "enum": [
+            "concept",
+            "results"
+          ],
+          "title": "Mode",
+          "type": "string"
+        }
+      },
+      "required": [
+        "mode"
+      ],
+      "title": "ExplainInputs",
+      "type": "object"
+    },
+    "ExplainStep": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "maxLength": 96,
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "requirement_ids": {
+          "items": {
+            "maxLength": 96,
+            "minLength": 1,
+            "type": "string"
+          },
+          "title": "Requirement Ids",
+          "type": "array"
+        },
+        "depends_on": {
+          "items": {
+            "maxLength": 96,
+            "minLength": 1,
+            "type": "string"
+          },
+          "title": "Depends On",
+          "type": "array"
+        },
+        "requires": {
+          "items": {
+            "$ref": "#/$defs/OutputRequirement"
+          },
+          "title": "Requires",
+          "type": "array"
+        },
+        "run_if": {
+          "items": {
+            "$ref": "#/$defs/RunCondition"
+          },
+          "title": "Run If",
+          "type": "array"
+        },
+        "kind": {
+          "const": "tool",
+          "title": "Kind",
+          "type": "string"
+        },
+        "tool": {
+          "const": "explain_answer",
+          "title": "Tool",
+          "type": "string"
+        },
+        "inputs": {
+          "$ref": "#/$defs/ExplainInputs"
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "tool",
+        "inputs"
+      ],
+      "title": "ExplainStep",
       "type": "object"
     },
     "ForwardInputs": {
@@ -1369,7 +1451,7 @@
   "additionalProperties": false,
   "properties": {
     "schema_version": {
-      "const": 1,
+      "const": 2,
       "title": "Schema Version",
       "type": "integer"
     },
@@ -1380,11 +1462,6 @@
       ],
       "title": "Request Mode",
       "type": "string"
-    },
-    "interpretation_requested": {
-      "default": false,
-      "title": "Interpretation Requested",
-      "type": "boolean"
     },
     "base_revision": {
       "anyOf": [
@@ -1422,6 +1499,9 @@
           },
           {
             "$ref": "#/$defs/AwaitInputStep"
+          },
+          {
+            "$ref": "#/$defs/ExplainStep"
           }
         ]
       },

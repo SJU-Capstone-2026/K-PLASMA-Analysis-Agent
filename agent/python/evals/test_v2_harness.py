@@ -103,8 +103,7 @@ def test_completed_search_preserves_measurements_and_skips_writer_without_interp
         def submit_plan(self, payload):
             assert payload["base_revision"] is None
             source = {"message_key": "question", "quote": case.question}
-            return {"schema_version": 1, "request_mode": "data_request", "base_revision": None,
-                    "interpretation_requested": False,
+            return {"schema_version": 2, "request_mode": "data_request", "base_revision": None,
                     "requirements": [{"id": "r", "text": case.question, "sources": [source],
                                       "handled_by": ["search"]}],
                     "steps": [{"id": "search", "kind": "tool", "tool": "reverse_search", "requirement_ids": ["r"],
@@ -145,13 +144,14 @@ def test_overclaim_review_uses_only_visible_interpretations_and_rewrites_without
 
     class Model(MatchingPlanReview):
         def submit_plan(self, payload):
-            return {"schema_version": 1, "request_mode": "data_request", "base_revision": None,
-                    "interpretation_requested": True,
+            plan = {"schema_version": 2, "request_mode": "data_request", "base_revision": None,
                     "requirements": [{"id": "r", "text": case.question, "handled_by": ["compare"],
                                       "sources": [{"message_key": "question", "quote": case.question}]}],
                     "steps": [{"id": "compare", "kind": "tool", "tool": "compare_runs",
                                "requirement_ids": ["r"], "inputs": {"fields": ["ionFlux"],
-                               "runs": {"kind": "context_ref", "key": "selected_runs"}}}]}, {}
+                               "runs": {"kind": "context_ref", "key": "selected_runs"}}}]}
+            from runtime_v2_worker import add_explanation
+            return add_explanation(plan, case.question, "results"), {}
 
         def compose(self, payload):
             evidence = [row["id"] for row in payload["evidence"] if row["field"] == "ionFlux"]
@@ -200,7 +200,7 @@ def test_search_candidates_are_saved_before_requesting_comparison_selection(sele
             question = payload["messages"]["question"]
             source = {"message_key": "question", "quote": question}
             return {
-                "schema_version": 1, "request_mode": "data_request", "base_revision": None,
+                "schema_version": 2, "request_mode": "data_request", "base_revision": None,
                 "requirements": [{"id": "r", "text": question, "sources": [source],
                                   "handled_by": ["search", "choose", "compare"]}],
                 "steps": [
@@ -273,7 +273,7 @@ def test_baseline_picker_waits_then_compares_against_the_chosen_run(output_field
                              "scope": {"kind": "scalar"}} if output_field else None,
             }}
             steps = [search, choose, compare] if search_first else [choose, {**compare, "depends_on": ["choose"]}]
-            return {"schema_version": 1, "request_mode": "data_request", "base_revision": None,
+            return {"schema_version": 2, "request_mode": "data_request", "base_revision": None,
                     "requirements": [{"id": "r", "text": question, "sources": [source],
                                       "handled_by": [step["id"] for step in steps]}],
                     "steps": [{**step, "requirement_ids": ["r"]} for step in steps]}, {}

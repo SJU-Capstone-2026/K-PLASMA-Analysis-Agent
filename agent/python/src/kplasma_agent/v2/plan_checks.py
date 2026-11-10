@@ -12,7 +12,7 @@ COMMON = (
 )
 
 RULES = {
-    'tasks': '조회·비교할 지표/그래프·해석 요청이 실제 단계와 답변 경로에 반영됐는가? 수치 필터·정렬·대상 선택의 세부 정확성은 다른 항목에서 검사하므로 여기서는 작업 종류의 누락만 판단한다.',
+    'tasks': 'request_mode가 원문의 실제 Run 요구를 보존하고, 조회·비교할 지표/그래프·개념 설명·결과 해석 요청이 실제 단계와 마지막 explain_answer에 반영됐는가? 설명 요구는 explain_answer에 연결되어야 하며 concept/results 모드가 원문에 맞아야 한다. 수치 필터·정렬·대상 선택의 세부 정확성은 다른 항목에서 검사하므로 여기서는 작업 종류의 누락만 판단한다.',
     'filter_coverage': '원문이 후보를 수치 조건으로 조회/검색하라고 요구하면 그 필터 지표가 입력에 있고 독립 범위는 별개 검색으로 계획했는가? 필터 전체 삭제와 독립 그룹을 AND로 합친 오류를 검사한다. 수치 조건 검색 요구가 없으면 match다. 압력을 비교하라는 요청은 압력 필터 요구가 아니며 기준 Run 선택은 필터가 아니다. 실제 수치·단위·경계 정확성과 정렬은 다른 항목이다.',
     'confirmation_coverage': '원문이 직접 고르겠다고 한 비교 대상·기준 Run은 해당 await_input을 계획했는가? 새 선택 요청은 이전 선택보다 우선한다. 미리 선택 값이 없다는 이유로 반려하지 않는다. 개수·출처의 정확성은 다른 항목에서 검사한다.',
     'filter': '지정 검색 단계의 이 지표 필터만 원문과 대조한다. 리터럴 수치·단위 배율·하한/상한·포함/초과 경계를 보존했는가? between과 gte/ lte, target_range는 같은 양끝 포함 범위다. result_ref는 미래 값이며 현재 수치를 요구하지 않는다. derive 연산 종류·대상과 정렬은 다른 항목에서 검사한다.',
@@ -67,7 +67,7 @@ def build_check_specs(plan):
         specs.append({'name': name, 'kind': kind, 'paths': paths,
                       'step_ids': list(step_ids), 'metric': metric})
 
-    add('request.tasks', 'tasks', [['steps'], ['interpretation_requested']])
+    add('request.tasks', 'tasks', [['request_mode'], ['requirements'], ['steps']])
     add('request.filter_coverage', 'filter_coverage', [['steps']])
     add('request.confirmation_coverage', 'confirmation_coverage', [['steps']])
     for index, step in enumerate(plan['steps']):

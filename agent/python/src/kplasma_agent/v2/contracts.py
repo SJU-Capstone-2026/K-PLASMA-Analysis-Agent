@@ -9,7 +9,7 @@ from ..contracts import MetricId, OutputMetric
 
 GraphVersion = Literal["v1", "v2"]
 Identifier = Annotated[str, Field(min_length=1, max_length=96)]
-ToolName = Literal["forward_lookup", "reverse_search", "compare_runs"]
+ToolName = Literal["forward_lookup", "reverse_search", "compare_runs", "explain_answer"]
 Operation = Literal["min", "max", "difference", "scale", "ratio", "mean"]
 
 
@@ -149,6 +149,16 @@ class CompareStep(StepBase):
     inputs: CompareInputs
 
 
+class ExplainInputs(ClosedModel):
+    mode: Literal["concept", "results"]
+
+
+class ExplainStep(StepBase):
+    kind: Literal["tool"]
+    tool: Literal["explain_answer"]
+    inputs: ExplainInputs
+
+
 class DeriveInputs(ClosedModel):
     values: Binding | list[Binding]
     direction: Literal["absolute", "first_minus_second", "second_minus_first"] | None = None
@@ -173,13 +183,12 @@ class AwaitInputStep(StepBase):
     inputs: AwaitInputs
 
 
-StepSpec = Union[ForwardStep, ReverseStep, CompareStep, DeriveStep, AwaitInputStep]
+StepSpec = Union[ForwardStep, ReverseStep, CompareStep, DeriveStep, AwaitInputStep, ExplainStep]
 
 
 class PlanDraft(ClosedModel):
-    schema_version: Literal[1]
+    schema_version: Literal[2]
     request_mode: Literal["general_only", "data_request"]
-    interpretation_requested: bool = False
     base_revision: Annotated[int, Field(ge=1)] | None
     requirements: list[Requirement]
     steps: Annotated[list[StepSpec], Field(max_length=16)]

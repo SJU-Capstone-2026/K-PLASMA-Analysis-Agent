@@ -15,6 +15,30 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 @TestPropertySource(properties="kplasma.agent.worker-token=synthetic-worker-token")
 class AgentGraphVersionTest extends WorkspaceTestSupport {
+    @Test void schemaTwoAcceptsTerminalExplanationWithoutReservingANumericalExecution() throws Exception {
+        var request = ok("POST", "/api/agent/requests",
+            Map.of("text", "IED를 설명해줘", "stateToken", token(), "graphVersion", "v2"), "explain-plan-two");
+        var claim = claim(Map.of("workerId", "explain-worker", "leaseSeconds", 60,
+            "supportedGraphVersions", List.of("v2")));
+        String root = "/requests/" + request.get("requestId").asString();
+        var body = new LinkedHashMap<String,Object>();
+        body.put("claimGeneration", claim.get("claimGeneration"));
+        body.put("requestRevision", claim.get("requestRevision"));
+        var draft = new LinkedHashMap<String,Object>();
+        draft.put("schema_version", 2);
+        draft.put("base_revision", null);
+        draft.put("request_mode", "general_only");
+        draft.put("requirements", List.of());
+        draft.put("steps", List.of(Map.of("id", "explain", "kind", "tool", "tool", "explain_answer",
+            "inputs", Map.of("mode", "concept"))));
+        body.put("payload", draft);
+        assertThat(internal(root+"/plans", body).path("revision").asInt()).isEqualTo(1);
+        body.put("planRevision", 1);
+        body.put("stepId", "explain");
+        body.put("payload", Map.of("mode", "concept"));
+        assertThat(sendInternal(root+"/steps", body).statusCode()).isEqualTo(409);
+    }
+
     @Test void planReviewsAreDurableAndLimitedToThreePerRequest() throws Exception {
         var request = ok("POST", "/api/agent/requests",
             Map.of("text", "조건에 맞는 Run 조회", "stateToken", token(), "graphVersion", "v2"), "plan-review-limit");

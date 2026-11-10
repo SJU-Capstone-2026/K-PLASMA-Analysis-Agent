@@ -10,6 +10,7 @@ if (!api || !output) throw new Error('An isolated artificial-data backend and ou
 const cases = [
   {id: 'concept', question: 'IED가 뭐야? 이온 에너지 분포라는 개념을 간단히 설명해줘.'},
   {id: 'strict-search', question: '이온 플럭스가 40보다 높은 실제 Run을 모두 찾아줘.'},
+  {id: 'mixed-concept', question: '이온 플럭스가 40보다 높은 실제 Run을 찾고, 이온 플럭스의 개념도 설명해줘.'},
   {id: 'nested', question: '비교할 두 Run은 내가 고를게. 선택한 두 Run 모두보다 이온 플럭스가 높은 후보를 찾아줘.'},
 ];
 
@@ -100,12 +101,15 @@ test('v2 browser answers', async ({page}) => {
     }
     if (process.env.KPLASMA_V2_MOCK === 'true') {
       expect.soft(planReviews, `${item.id}: structured HITL must reuse its plan review`)
-        .toHaveLength(item.id === 'concept' ? 0 : 1);
+        .toHaveLength(1);
       expect.soft(activities.filter(a => a.code === 'REVIEW'), `${item.id}: no experimental interpretation`).toHaveLength(0);
     }
     const answer = page.locator('.agent-response').last();
     if (item.id === 'concept' && result.status === 'COMPLETED') {
       await expect(answer.locator('.v1-markdown')).toBeVisible();
+    }
+    if (item.id === 'mixed-concept' && result.status === 'COMPLETED') {
+      await expect(answer.getByRole('region', {name: '개념 설명'})).toContainText('이온 플럭스');
     }
     const visible = result.status === 'COMPLETED' ? await answer.innerText({timeout: 12000})
       : await page.locator('.agent-page').innerText();

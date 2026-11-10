@@ -9,10 +9,10 @@ from kplasma_agent.v2.model_gateway import (
 )
 
 
-def test_planner_must_decide_whether_the_user_requested_interpretation():
+def test_planner_selects_explanation_instead_of_an_interpretation_boolean():
     schema = submit_plan_tool_schema()["parameters"]
-    assert "interpretation_requested" in schema["required"]
-    assert schema["properties"]["interpretation_requested"] == {"type": "boolean"}
+    assert "interpretation_requested" not in schema["properties"]
+    assert schema["$defs"]["ExplainInputs"]["properties"]["mode"]["enum"] == ["concept", "results"]
 
 
 def test_planner_literal_units_are_closed_choices_and_preserve_scale():
