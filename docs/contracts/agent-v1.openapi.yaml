@@ -310,7 +310,7 @@ paths:
                 pendingInputId: { type: string }
                 input:
                   type: object
-                  description: Text replies use type=text and text. Run selection uses type=run_selection, snapshotId and selectionRevision; the server resolves at least two persisted exact references. Legacy runKeys/baselineKey replies remain accepted with their original order. Comparison options use type=comparison_options and baselineKey and/or trendAxis. Browser replies never supply comparisonReference; server enriches trusted events.
+                  description: Text replies use type=text and text. Run selection uses type=run_selection, snapshotId and selectionRevision; the server resolves at least two persisted exact references. Legacy runKeys/baselineKey replies remain accepted with their original order. Comparison options use type=comparison_options and baselineKey and/or trendAxis. A decision_threshold pending (RECORD_REUSE) accepts type=decision_threshold with an integer threshold, or a text reply such as "3건"; invalid values end in a notice without excluding Runs. Browser replies never supply comparisonReference; server enriches trusted events.
                   additionalProperties: true
       responses:
         '200': { $ref: '#/components/responses/Request' }

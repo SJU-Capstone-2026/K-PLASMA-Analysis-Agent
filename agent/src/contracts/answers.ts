@@ -1,6 +1,6 @@
 import type { RunRef, Snapshot } from './index.js';
 
-export type ToolName = 'forward_lookup' | 'reverse_search' | 'compare_runs' | 'generate_answer';
+export type ToolName = 'forward_lookup' | 'reverse_search' | 'compare_runs' | 'generate_answer' | 'decision_records';
 export type ConditionId = 'pressure' | 'sourcePower' | 'biasPower';
 export type PlotId = 'ied'|'iad'|'iead'|'current'|'potential'|'density'|'residual';
 export type ComparisonField = OutputMetric|ConditionId|`${'current'|'potential'}.${'maximum'|'minimum'|'peakToPeak'|'halfPeakToPeak'|'maximumPhase'|'minimumPhase'}`|'ied.maximum'|'ied.peakEnergy'|'iad.maximum'|'iad.peakAngle'|'iead.maximum'|'iead.peakEnergy'|'iead.peakAngle'|'density.maximum'|'density.maximumPhase'|'density.maximumDistance'|'residual.maximum'|'residual.maximumIteration'|'residual.final'|'residual.finalIteration';
@@ -20,6 +20,11 @@ export interface TrendGroup {id:string;metric:ComparisonField;axis:ConditionId;f
 export interface ComparisonObservation {id:string;source:{kind:'run'|'comparison'|'summary'|'trend';key:string;metric:ComparisonField};text:string}
 export interface ComparisonResultV2 {kind:'compare_runs';resultStatus:'COMPARISON_READY'|'COMPARISON_PARTIAL'|'NO_COMPARABLE_DATA';mode:'values'|'pair'|'overview'|'baseline'|'trend';metricIds:ComparisonField[];baselineKey:string|null;trendAxis:ConditionId|null;runs:ComparisonRun[];comparisons:ComparisonDifference[];summaries:MetricSummary[];trends:TrendGroup[];observations:ComparisonObservation[];usedRunRefs:RunRef[];numericPolicyVersion:'v1';aggregationPolicyVersion:'multi-run-1'}
 export interface ComparisonAnswer {kind:'comparison_answer';status:'COMPLETE';knowledgeBasis:'VERIFIED_RUNS_AND_LLM_GENERAL_KNOWLEDGE';observationIds:string[];interpretations:{text:string;observationIds:string[];assumptions:string[]}[];limitations:string[]}
+// RECORD_REUSE. note/sharedComment are user text: render as plain text only.
+export interface RecordEntry {recordId:string|null;runId:string;recordRunVersionId:string|null;decision:string|null;note:string;sharedComment:string;reason:'COST'|'NO_COST'|'UNCLEAR'|'OTHER'|'MISSING';createdAt:string|null;question:string;conditions:Snapshot;demo:boolean}
+export interface RecordSummary {runId:string;runVersionId:string;count:number;status:string;mixed:boolean;entries:RecordEntry[]}
+export interface DecisionRecordsResult {kind:'decision_records';resultStatus:'RECORDS_READY'|'EXCLUSION_APPLIED'|'NO_EXCLUSION'|'NOTICE';action:'view'|'exclude';threshold:number|null;summaryText:string;notice:string|null;remaining:RecordSummary[];excluded:RecordSummary[];canUndo:boolean;recordPolicyVersion:'cost-regex-1';usedRunRefs:RunRef[]}
+export interface RecordExclusion {threshold:number;excluded:RecordSummary[];canUndo:true;recordPolicyVersion:'cost-regex-1'}
 export interface GeneralAnswerResult {kind:'generate_answer';resultStatus:'ANSWER_READY';markdown:string;knowledgeBasis:'LLM_GENERAL_KNOWLEDGE';usedRunRefs:[]}
 export interface AnswerSnapshotV2 {implementationId:'v1';graphVersion:'v1';schemaVersion:2;kind:ToolName;summary:string;originalQuestion:string;toolSelection:ToolSelection;resolvedInputs:Snapshot;result:ComparisonResultV2|GeneralAnswerResult|Snapshot;answer:ComparisonAnswer|null;contextProvenance:Snapshot;unitAssumptions?:UnitAssumption[];inputHistory:Snapshot[];usedRunRefs:RunRef[];versions:Snapshot}
 export interface RunOption {selected?:boolean;key:string;ref:RunRef;conditions:Record<ConditionId,ScalarDatum>;searchMeasurements?:Partial<Record<OutputMetric,ScalarDatum>>;selectable:boolean;unavailableReason:string|null}

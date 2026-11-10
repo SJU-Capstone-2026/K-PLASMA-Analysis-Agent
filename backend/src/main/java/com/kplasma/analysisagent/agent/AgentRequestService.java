@@ -21,7 +21,7 @@ import tools.jackson.databind.JsonNode;
 public class AgentRequestService {
     static final String INVALID="INVALID_AGENT_REQUEST";
     private static final Set<String> ACTIVE=Set.of("QUEUED","RUNNING","NEEDS_INPUT");
-    private static final Set<String> INTENTS=Set.of("FORWARD_LOOKUP","REVERSE_SEARCH","RUN_COMPARISON","GENERAL_ANSWER","CHANGE_EXPLANATION","CONCEPT_EXPLANATION","CLARIFICATION","UNSUPPORTED");
+    private static final Set<String> INTENTS=Set.of("FORWARD_LOOKUP","REVERSE_SEARCH","RUN_COMPARISON","GENERAL_ANSWER","RECORD_REUSE","CHANGE_EXPLANATION","CONCEPT_EXPLANATION","CLARIFICATION","UNSUPPORTED");
     private final AgentRequestRepository requests;
     private final WorkspaceRepository workspace;
     private final SnapshotValidator validate;

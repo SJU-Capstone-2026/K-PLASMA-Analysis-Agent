@@ -1,6 +1,7 @@
 """v1: one native tool selection, deterministic comparison, optional general answer."""
 
 from copy import deepcopy
+import math
 import re
 import time
 from typing import TypedDict
@@ -13,6 +14,8 @@ from ..tools import TOOL_MODELS, SELECTION_PROMPT, GENERAL_PROMPT
 from ..model_client import ModelError
 from ..answer_contracts import AnswerSnapshotV2, AnswerSnapshotV3, GeneralAnswerResult
 from ..domain import lookup_forward, search_reverse, validate_result
+from ..domain import decision_records as records
+from ..domain.common import is_usable
 from ..domain.compare import compare_selected
 from ..domain.common import DomainError
 from ..domain.grounding import validate_grounding, validate_native_comparison_metrics
@@ -49,6 +52,10 @@ class GraphState(TypedDict, total=False):
     answer: dict
     comparison_reference: dict
     unit_assumptions: list
+    record_plan: dict
+    record_filter: dict
+    record_threshold: object
+    record_exclusion: dict
 
 
 def _request_input(state, message, reason, fields=None, options=None):
@@ -153,6 +160,82 @@ def _resolve(selector, manifest, context):
     return next(iter(unique.values())) if len(unique) == 1 else None
 
 
+RECORD_NOTICES = {
+    "COST_ONLY": "현재 시연에서는 비용 사유가 명확한 반려 기록만 자동 제외합니다. 다른 사유는 기록 원문을 확인해 주세요.",
+    "THRESHOLD": "제외 기준은 1건 이상의 정수로 입력해 주세요. 후보를 제외하지 않았습니다.",
+    "SCOPE": "먼저 후보 탐색을 실행하거나 결과의 전체 후보를 질문 대상으로 선택해 주세요.",
+    "NUMERIC": "수치 조건을 해석하지 못했습니다. 예: Flux가 500 이상인 후보를 찾되, 비용 때문에 반려된 건 제외해줘.",
+}
+
+
+def _record_scope(context):
+    # Prototype priority: explicit references, then the current candidate group, then the active Run.
+    entries = (context.get("comparisonReference") or {}).get("entries") or []
+    for source, refs in (
+        ("attached", [entry.get("ref") for entry in entries]),
+        ("candidates", context.get("candidateReferences") or []),
+        ("activeRun", [context["activeRun"]] if context.get("activeRun") else []),
+    ):
+        unique = {}
+        for ref in refs:
+            if isinstance(ref, dict) and ref.get("runId") and ref.get("runVersionId"):
+                unique.setdefault(ref["runId"], {"runId": ref["runId"], "runVersionId": ref["runVersionId"]})
+        if unique:
+            return source, list(unique.values())
+    return None, []
+
+
+def _threshold_reply(reply):
+    if reply.get("type") == "decision_threshold":
+        value = reply.get("threshold")
+        return value if isinstance(value, (int, float)) and not isinstance(value, bool) else "INVALID"
+    match = re.fullmatch(r"\s*([+-]?[0-9]+(?:\.[0-9]+)?)\s*(?:건)?\s*(?:이상)?\s*", reply.get("text") or "")
+    if not match:
+        return "INVALID"
+    value = float(match.group(1))
+    return int(value) if value.is_integer() else value
+
+
+def _record_rows(summaries, refs_by_id):
+    rows = []
+    for summary in summaries:
+        entries = [
+            {**{k: v for k, v in entry.items() if k != "runVersionId"}, "recordRunVersionId": entry["runVersionId"]}
+            for entry in summary["entries"]
+        ]
+        rows.append({**summary, **refs_by_id[summary["runId"]], "entries": entries})
+    return rows
+
+
+def _record_result(plan, decision_rows):
+    """Deterministic RECORD_REUSE answer: the same inputs always give the same rows and wording."""
+    exclude = plan["action"] == "exclude"
+    threshold = plan["threshold"] if exclude else None
+    refs_by_id = {ref["runId"]: ref for ref in plan["refs"]}
+    filtered = records.filter_runs(decision_rows, list(refs_by_id), threshold if exclude else math.inf)
+    remaining = _record_rows(filtered["remaining"], refs_by_id)
+    excluded = _record_rows(filtered["excluded"], refs_by_id)
+    if not exclude:
+        status, text = "RECORDS_READY", "이 Run의 과거 판단과 사유입니다."
+    elif excluded:
+        status, text = "EXCLUSION_APPLIED", f"비용 반려 {threshold}건 이상이 확인된 후보 {len(excluded)}개를 제외했습니다."
+    else:
+        status, text = "NO_EXCLUSION", f"비용 반려 {threshold}건 이상이 확인된 후보는 없습니다."
+    return {
+        "kind": "decision_records",
+        "resultStatus": status,
+        "action": plan["action"],
+        "threshold": threshold,
+        "summaryText": text,
+        "notice": None,
+        "remaining": remaining,
+        "excluded": excluded,
+        "canUndo": exclude,
+        "recordPolicyVersion": records.RECORD_POLICY_VERSION,
+        "usedRunRefs": [{"runId": row["runId"], "runVersionId": row["runVersionId"]} for row in [*remaining, *excluded]],
+    }
+
+
 def build_graph(model, backend, settings, checkpointer):
     progress = getattr(backend, "progress", None)
 
@@ -208,10 +291,92 @@ def build_graph(model, backend, settings, checkpointer):
             "reply": {},
         }
 
+    def route_records(state, kind):
+        """Prototype executeMemoryQuestion checks, in order. None leaves the request to its own tool."""
+        question = state["question"]
+        parsed = records.parse_request(question)
+        if kind == "decision_records":
+            # An exclusion needs both the model's intent and the prototype's wording rule.
+            exclude = bool(parsed and parsed["exclude"]) and state["inputs"].get("action") == "exclude"
+            threshold = parsed["threshold"] if parsed else 1
+        elif parsed and parsed["exclude"]:
+            exclude, threshold = True, parsed["threshold"]
+        else:
+            return None
+        if exclude:
+            threshold = state.get("record_threshold", threshold)
+        numeric = records.has_numeric_condition(question)
+        update = {}
+        if kind != "decision_records" and not (
+            kind == "reverse_search"
+            and records.mentions_cost(question)
+            and (threshold is None or records.valid_threshold(threshold))
+        ):
+            # Never ignore an exclusion request silently: answer it as a record request instead.
+            original = state["tool_selection"]
+            update = {
+                "operation": {"kind": "decision_records", "inputs": {"action": "exclude"}},
+                "inputs": {"action": "exclude"},
+                "tool_selection": {
+                    "call_id": f"record-guard:{original['call_id']}",
+                    "name": "decision_records",
+                    "arguments": {"action": "exclude"},
+                },
+            }
+            kind = "decision_records"
+            backend.stage("guard", operationKind=kind, dependsOnContext=True)
+        action = "exclude" if exclude else "view"
+
+        def notice(code, summary="과거 판단 기록을 확인했습니다."):
+            result = {
+                "kind": "decision_records", "resultStatus": "NOTICE", "action": action, "threshold": None,
+                "summaryText": summary, "notice": RECORD_NOTICES[code], "remaining": [], "excluded": [],
+                "canUndo": False, "recordPolicyVersion": records.RECORD_POLICY_VERSION, "usedRunRefs": [],
+            }
+            return {**update, "result": result, "verified": True, "context_provenance": {}, "route": "present"}
+
+        if exclude and not records.mentions_cost(question):
+            return notice("COST_ONLY", "기록 조건 확인 필요")
+        if exclude and threshold is not None and not records.valid_threshold(threshold):
+            return notice("THRESHOLD")
+        source, refs = _record_scope(state.get("context", {}))
+        if kind == "decision_records" and not (exclude and numeric) and not refs:
+            return notice("SCOPE")
+        if exclude and threshold is None:
+            request = _request_input(
+                state,
+                "제외할 기록 건수를 선택해 주세요.",
+                "DECISION_THRESHOLD",
+                options=[{"label": f"{n}건", "input": {"type": "decision_threshold", "threshold": n}} for n in (1, 2)],
+            )
+            request["pending"]["type"] = "decision_threshold"
+            return {**update, **request}
+        if kind == "reverse_search":
+            return {"record_filter": {"threshold": int(threshold)}}
+        if exclude and numeric:
+            return notice("NUMERIC")
+        plan = {"action": action, "threshold": int(threshold) if exclude else None, "scope": source, "refs": refs}
+        return {
+            **update,
+            "record_plan": plan,
+            "context_provenance": {"recordScope": source, "usedRunRefs": refs},
+            "route": "gather",
+        }
+
     def guard(state):
         kind = state["operation"]["kind"]
-        inputs = deepcopy(state["inputs"])
-        backend.stage("guard", operationKind=kind, dependsOnContext=bool(inputs.get("context_rules")))
+        backend.stage(
+            "guard",
+            operationKind=kind,
+            dependsOnContext=bool(state["inputs"].get("context_rules")) or kind == "decision_records",
+        )
+        routed = route_records(state, kind)
+        if routed is not None and "record_filter" not in routed:
+            return routed
+        result = check_tool(state, kind, deepcopy(state["inputs"]))
+        return {**result, **routed} if routed else result
+
+    def check_tool(state, kind, inputs):
         scope_choices = _scope_choices(state["question"])
         if scope_choices:
             replies = [e.get("text", "") for e in state.get("input_history", []) if e.get("scope_reply")]
@@ -429,6 +594,9 @@ def build_graph(model, backend, settings, checkpointer):
             entry["unit_metric"] = state["pending"]["unitMetric"]
         history = [*state.get("input_history", []), entry]
         pending_type = state["pending"].get("type", "text")
+        if pending_type == "decision_threshold":
+            # The threshold is a number, so the reply never goes back to the model.
+            return {"input_history": history, "record_threshold": _threshold_reply(reply), "route": "guard"}
         if pending_type == "run_selection":
             snapshot = reply.get("comparisonReference")
             if reply.get("type") != pending_type or not snapshot or len(snapshot.get("entries", [])) < 2:
@@ -530,6 +698,18 @@ def build_graph(model, backend, settings, checkpointer):
                 "context_provenance": state["comparison_reference"],
                 "route": "calculate",
             }
+        if kind == "decision_records":
+            plan = state["record_plan"]
+            manifest = backend.context(plan["refs"], references_only=True)
+            fetched = {(r["runId"], r["runVersionId"]) for r in manifest.get("referencedRuns", [])}
+            if not {(r["runId"], r["runVersionId"]) for r in plan["refs"]} <= fetched:
+                raise DomainError("RESULT_SOURCE_MISMATCH")
+            return {
+                "manifest": {k: v for k, v in manifest.items() if k not in ("runs", "referencedRuns")},
+                # The decision records are the source; their notes stay inside this graph.
+                "source": backend.decision_records(),
+                "route": "calculate",
+            }
         if kind == "reverse_search":
             from ..domain.reverse import normalized_reverse_query
 
@@ -586,6 +766,29 @@ def build_graph(model, backend, settings, checkpointer):
             elif kind == "forward_lookup":
                 manifest = backend.context(forward_query=normalized_forward_query(inputs))
                 source = manifest["runs"]
+        exclusion = {}
+        if kind == "reverse_search" and state.get("record_filter"):
+            # Exclude before ranking so every objective and the common order are computed without them.
+            threshold = state["record_filter"]["threshold"]
+            first: dict = {}
+            for run in source:
+                first.setdefault(run["runId"], {"runId": run["runId"], "runVersionId": run["runVersionId"]})
+            filtered = records.filter_runs(backend.decision_records(), list(first), threshold)
+            removed = {summary["runId"] for summary in filtered["excluded"]}
+            # Report only the Runs that the numeric conditions alone would have returned.
+            if inputs.get("constraints"):
+                matched = set(search_reverse({"constraints": inputs["constraints"]}, source)["commonRunIds"])
+            else:
+                matched = {run["runId"] for run in source if is_usable(run)}
+            exclusion = {
+                "record_exclusion": {
+                    "threshold": threshold,
+                    "excluded": _record_rows([row for row in filtered["excluded"] if row["runId"] in matched], first),
+                    "canUndo": True,
+                    "recordPolicyVersion": records.RECORD_POLICY_VERSION,
+                }
+            }
+            source = [run for run in source if run["runId"] not in removed]
         if kind == "reverse_search":
             # Scalar inputs live in source; do not also serialize them inside manifest.
             manifest = {key: value for key, value in manifest.items() if key not in ("runs", "referencedRuns")}
@@ -595,6 +798,7 @@ def build_graph(model, backend, settings, checkpointer):
             "inputs": inputs,
             "context_provenance": provenance,
             "route": "calculate",
+            **exclusion,
         }
 
     def load_comparison_outputs(state):
@@ -610,6 +814,8 @@ def build_graph(model, backend, settings, checkpointer):
     def calculate(state):
         kind = state["operation"]["kind"]
         backend.stage("calculate")
+        if kind == "decision_records":
+            return {"result": _record_result(state["record_plan"], state["source"]), "verified": False}
         fn = (
             lookup_forward
             if kind == "forward_lookup"
@@ -621,6 +827,10 @@ def build_graph(model, backend, settings, checkpointer):
 
     def verify(state):
         backend.stage("validate_result")
+        if state["operation"]["kind"] == "decision_records":
+            if state["result"] != _record_result(state["record_plan"], state["source"]):
+                raise DomainError("RESULT_SOURCE_MISMATCH")
+            return {"verified": True, "route": "present"}
         if state["operation"]["kind"] == "compare_runs":
             if state["result"] != compare_selected(state["inputs"], state["source"], state.get("comparison_outputs", [])):
                 raise DomainError("RESULT_SOURCE_MISMATCH")
@@ -687,6 +897,12 @@ def build_graph(model, backend, settings, checkpointer):
         kind = state["operation"]["kind"]
         result = deepcopy(state["result"])
         refs = list(result.get("usedRunRefs", []))
+        if kind == "reverse_search" and state.get("record_exclusion"):
+            result["recordExclusion"] = deepcopy(state["record_exclusion"])
+            for row in result["recordExclusion"]["excluded"]:
+                ref = {"runId": row["runId"], "runVersionId": row["runVersionId"]}
+                if ref not in refs:
+                    refs.append(ref)
         search = kind in ("forward_lookup", "reverse_search")
         if search:
             evidence_refs = list(state.get("context_provenance", {}).get("usedRunRefs", []))
@@ -707,7 +923,8 @@ def build_graph(model, backend, settings, checkpointer):
             "NO_COMPARABLE_DATA": "비교 가능한 측정값이 부족합니다.",
             "ANSWER_READY": "일반 지식에 따른 답변입니다.",
         }
-        summary = labels[result["resultStatus"]]
+        # Record summaries are counts only; notes never reach the summary or recentContext.
+        summary = result["summaryText"] if kind == "decision_records" else labels[result["resultStatus"]]
         snapshot = {
             "implementationId": "v1",
             "graphVersion": "v1",
@@ -733,6 +950,7 @@ def build_graph(model, backend, settings, checkpointer):
                     "reverse_search": "REVERSE_SEARCH",
                     "compare_runs": "RUN_COMPARISON",
                     "generate_answer": "GENERAL_ANSWER",
+                    "decision_records": "RECORD_REUSE",
                 }[kind],
                 "status": result["resultStatus"],
                 "candidates": [
@@ -763,7 +981,9 @@ def build_graph(model, backend, settings, checkpointer):
     builder.add_edge(START, "select_tool")
     builder.add_edge("select_tool", "guard")
     builder.add_conditional_edges(
-        "guard", lambda s: s["route"], {"wait": "wait_input", "gather": "gather", "answer": "generate_answer"}
+        "guard",
+        lambda s: s["route"],
+        {"wait": "wait_input", "gather": "gather", "answer": "generate_answer", "present": "present"},
     )
     builder.add_conditional_edges(
         "wait_input", lambda s: s["route"], {"select": "select_tool", "guard": "guard", "wait": "wait_input"}
