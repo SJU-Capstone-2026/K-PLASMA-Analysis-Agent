@@ -259,6 +259,30 @@ class AgentRequestPersistenceTest extends WorkspaceTestSupport {
         assertThat(ok("GET","/api/agent"+path,null,null).get("status").stringValue()).isEqualTo("CANCELLED");
         assertThat(internalResponse(path+"/checkpoint",mutation(claim,"payload",Map.of("late",true))).statusCode()).isEqualTo(409);
     }
+    @ParameterizedTest @ValueSource(strings={"MODEL_HTTP_401","MODEL_HTTP_503"})
+    void httpModelFailureCodesArePersistedAndVisible(String code) throws Exception {
+        var job=accepted();var claimed=claim();String path="/requests/"+job.get("requestId").stringValue();
+        var error=Map.of("code",code,"message","모델 API 요청을 완료하지 못했습니다.");
+        var failed=internal(path+"/fail",mutation(claimed,"error",error));
+        assertThat(failed.get("status").stringValue()).isEqualTo("FAILED");
+        assertThat(failed.get("error")).isEqualTo(mapper.valueToTree(error));
+        assertThat(ok("GET","/api/agent"+path,null,null).get("error")).isEqualTo(mapper.valueToTree(error));
+        assertThat(state().get("failedAgentRequest").get("error")).isEqualTo(mapper.valueToTree(error));
+    }
+    @Test void publicFailureCodesKeepCharacterAndLengthLimits() throws Exception {
+        var job=accepted();var claimed=claim();String path="/requests/"+job.get("requestId").stringValue();
+        for(String code:List.of("MODEL HTTP_401","MODEL_HTTP_401!","MODEL_HTTP_401\n","model_HTTP_401","","A".repeat(81))) {
+            var response=internalResponse(path+"/fail",mutation(claimed,"error",Map.of("code",code,"message","모델 API 오류")));
+            assertThat(response.statusCode()).describedAs(response.body()).isEqualTo(400);
+            assertThat(json(response).get("code").stringValue()).isEqualTo("INVALID_AGENT_REQUEST");
+        }
+        var running=ok("GET","/api/agent"+path,null,null);
+        assertThat(running.get("status").stringValue()).isEqualTo("RUNNING");
+        assertThat(running.get("error").isNull()).isTrue();
+        String maximum="A".repeat(80);
+        var failed=internal(path+"/fail",mutation(claimed,"error",Map.of("code",maximum,"message","모델 API 오류")));
+        assertThat(failed.get("error").get("code").stringValue()).isEqualTo(maximum);
+    }
     @Test void priorFailureIsHiddenOnceAnotherRequestIsAccepted() throws Exception {
         var job=accepted();var claim=claim();String path="/requests/"+job.get("requestId").stringValue();
         internal(path+"/fail",mutation(claim,"error",Map.of("code","MODEL_UNAVAILABLE","message","모델 연결 실패")));

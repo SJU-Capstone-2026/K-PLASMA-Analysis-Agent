@@ -96,10 +96,16 @@ class AgentGraphVersionTest extends WorkspaceTestSupport {
         var permitRequest = Map.of("claimGeneration", claim.get("claimGeneration"),
             "requestRevision", claim.get("requestRevision"), "kind", "PLAN_INITIAL", "key", "initial");
         String path = "/requests/" + request.get("requestId").asString() + "/model-attempts";
+        var before = jdbc.queryForObject("select clock_timestamp()", java.sql.Timestamp.class).toInstant();
         var first = internal(path, permitRequest);
+        var after = jdbc.queryForObject("select clock_timestamp()", java.sql.Timestamp.class).toInstant();
+        var deadline = jdbc.queryForObject("select deadline from agent_v2_model_attempt where id=?::uuid",
+            java.sql.Timestamp.class, first.get("attemptId").asString()).toInstant();
+        assertThat(deadline).isBetween(before.plusSeconds(90), after.plusSeconds(90));
         assertThat(first.get("callAllowed").asBoolean()).isTrue();
         var repeated = internal(path, permitRequest);
         assertThat(repeated.get("attemptId")).isEqualTo(first.get("attemptId"));
+        assertThat(repeated.get("deadline")).isEqualTo(first.get("deadline"));
         assertThat(repeated.get("callAllowed").asBoolean()).isFalse();
 
         jdbc.update("update agent_request set lease_until=clock_timestamp()-interval '1 second' where id=?::uuid",
@@ -109,6 +115,7 @@ class AgentGraphVersionTest extends WorkspaceTestSupport {
         var restored = internal(path, Map.of("claimGeneration", recovered.get("claimGeneration"),
             "requestRevision", recovered.get("requestRevision"), "kind", "PLAN_INITIAL", "key", "initial"));
         assertThat(restored.get("attemptId")).isEqualTo(first.get("attemptId"));
+        assertThat(restored.get("deadline")).isEqualTo(first.get("deadline"));
         assertThat(restored.get("callAllowed").asBoolean()).isFalse();
         assertThat(sendInternal(path+"/"+first.get("attemptId").asString()+"/complete",
             Map.of("claimGeneration",claim.get("claimGeneration"),"requestRevision",claim.get("requestRevision"),

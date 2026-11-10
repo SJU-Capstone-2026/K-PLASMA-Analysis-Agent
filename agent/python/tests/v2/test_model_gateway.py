@@ -50,14 +50,16 @@ def test_between_drops_only_a_repeated_bound():
     assert _plan_defaults(missing)["value"] == low
 
 
-def test_planner_defaults_to_luna_low_and_answer_inherits(monkeypatch):
+def test_v2_models_default_to_gpt6_without_changing_v1_settings(monkeypatch):
     for name in ("AGENT_V2_PLAN_MODEL", "AGENT_V2_PLAN_REASONING_EFFORT", "AGENT_V2_ANSWER_MODEL",
-                 "AGENT_V2_ANSWER_REASONING_EFFORT"):
+                 "AGENT_V2_ANSWER_REASONING_EFFORT", "AGENT_V2_DECISIONS_MODEL"):
         monkeypatch.delenv(name, raising=False)
     base = Settings(model="gpt-5.6-luna", reasoning_effort="none")
     settings = V2Settings.from_env(base)
     assert (settings.planner.model, settings.planner.reasoning_effort) == ("gpt-6-luna", "low")
-    assert settings.writer == base
+    assert settings.planner.model == settings.writer.model == settings.decisions_model == "gpt-6-luna"
+    assert settings.writer.reasoning_effort == "low"
+    assert base.model == "gpt-5.6-luna"
 
 
 def test_decisions_sends_only_the_interpretation_question_and_uses_choice():
@@ -126,9 +128,11 @@ def test_plan_review_has_condition_questions_in_one_request_and_preserves_low_co
 
 @pytest.mark.parametrize("failure,reason", [
     ("timeout", "DECISIONS_TIMEOUT"), ("connection", "DECISIONS_CONNECTION"),
-    ("rate_limit", "DECISIONS_HTTP_429"), ("missing", "DECISIONS_INVALID_RESPONSE"),
+    (429, "DECISIONS_HTTP_429"), (401, "DECISIONS_HTTP_401"),
+    (500, "DECISIONS_HTTP_500"), ("missing", "DECISIONS_INVALID_RESPONSE"),
 ])
-def test_plan_review_outage_is_unavailable_and_never_retries(failure, reason):
+@pytest.mark.parametrize("kind", ["plan", "answer"])
+def test_decisions_outage_is_classified_and_never_retries(failure, reason, kind):
     from .test_plan_review import example_context
 
     calls = []
@@ -139,20 +143,21 @@ def test_plan_review_outage_is_unavailable_and_never_retries(failure, reason):
             raise httpx.ReadTimeout("private message", request=request)
         if failure == "connection":
             raise httpx.ConnectError("private message", request=request)
-        return httpx.Response(429 if failure == "rate_limit" else 200, json={"answers": []})
+        return httpx.Response(failure if isinstance(failure, int) else 200, json={"answers": []})
 
     with httpx.Client(transport=httpx.MockTransport(transport)) as client:
         gateway = V2ModelGateway(V2Settings.from_env(Settings()), client, lambda *_: None)
-        result, usage = gateway.review_plan(example_context())
+        result, usage = (gateway.review_plan(example_context()) if kind == "plan"
+                         else gateway.review({"interpretations": [], "evidence": []}))
     assert len(calls) == 1
     assert result["status"] == "UNAVAILABLE" and result["reason"] == reason
     assert usage is None
     assert "private message" not in json.dumps(result)
 
 
-def test_plan_review_is_opt_in_until_quality_gate_passes(monkeypatch):
+def test_plan_review_defaults_to_enabled_and_can_be_explicitly_disabled(monkeypatch):
     monkeypatch.delenv("AGENT_V2_PLAN_REVIEW_ENABLED", raising=False)
-    assert V2Settings.from_env(Settings()).plan_review_enabled is False
+    assert V2Settings.from_env(Settings()).plan_review_enabled is True
     monkeypatch.setenv("AGENT_V2_PLAN_REVIEW_ENABLED", "true")
     assert V2Settings.from_env(Settings()).plan_review_enabled is True
     monkeypatch.setenv("AGENT_V2_PLAN_REVIEW_ENABLED", "false")
@@ -235,3 +240,44 @@ def test_gateway_streams_safe_prose_before_provider_completion_with_one_writer_r
     assert guards == ["answer"]
     assert rendered.endswith("차이는 12 V입니다.\n\n동일한 조건입니다.")
     assert saved["interpretations"][0]["text"] == observed[0][1]
+
+
+@pytest.mark.parametrize("failure,code", [("timeout", "MODEL_TIMEOUT"), (429, "MODEL_RATE_LIMITED"),
+                                        (503, "MODEL_HTTP_503"), ("failed", "MODEL_RESPONSE_FAILED"),
+                                        ("incomplete", "MODEL_RESPONSE_INCOMPLETE"),
+                                        ("max_output_tokens", "MODEL_OUTPUT_TRUNCATED"),
+                                        ("content_filter", "MODEL_CONTENT_FILTERED")])
+def test_model_failure_code_is_preserved_in_the_existing_outcome_error(failure, code):
+    from evals.v2_harness import EvaluationJournal
+    from kplasma_agent.graphs.v2 import build_v2_graph
+    from kplasma_agent.model_client import ModelClient
+
+    requests = []
+
+    def transport(request):
+        requests.append(request)
+        if failure == "timeout":
+            raise httpx.ReadTimeout("private-provider-body", request=request)
+        if isinstance(failure, str):
+            return httpx.Response(200, json={
+                "id": "synthetic", "object": "response", "created_at": 0,
+                "status": "failed" if failure == "failed" else "incomplete", "model": "gpt-6-luna",
+                "output": [], "parallel_tool_calls": False, "tool_choice": "auto", "tools": [],
+                "incomplete_details": {"reason": failure} if failure in ("max_output_tokens", "content_filter") else None,
+                "error": {"code": "server_error", "message": "private-provider-body"} if failure == "failed" else None,
+            })
+        return httpx.Response(failure, json={"error": {"message": "private-provider-body"}})
+
+    with httpx.Client(transport=httpx.MockTransport(transport)) as client:
+        settings = V2Settings.from_env(Settings(api_key="private-api-key"))
+        gateway = V2ModelGateway(settings, client, lambda *_: None)
+        gateway.planner = ModelClient(settings.planner, http_client=client)
+        journal = EvaluationJournal([])
+        state = build_v2_graph(gateway, journal, None).invoke({"request_id": "synthetic", "question": "조회",
+                    "context": {}, "input_history": []}, {"recursion_limit": 80})
+    attempt, = journal.models.values()
+    assert attempt["outcome"] == {"data": None, "usage": None, "error": code}
+    assert len(requests) == 1 and not journal.steps
+    assert state.get("replans", 0) == 0
+    assert state["answer"]["answerSnapshot"]["executionStatus"] == "FAILED"
+    assert "private" not in json.dumps(attempt["outcome"])

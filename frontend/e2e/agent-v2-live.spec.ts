@@ -94,13 +94,19 @@ test('v2 browser answers', async ({page}) => {
     }
     expect.soft(issue, item.id).toBeNull();
     const activities = result.executionSummary?.activities ?? [];
+    const planReviews = activities.filter(a => a.code === 'PLAN_REVIEW' && a.phase === 'started');
+    if (item.id !== 'concept') {
+      expect.soft(planReviews.length, `${item.id}: live evaluations require Decisions plan review`).toBeGreaterThan(0);
+    }
     if (process.env.KPLASMA_V2_MOCK === 'true') {
-      const planReviews = activities.filter(a => a.code === 'PLAN_REVIEW' && a.phase === 'started');
       expect.soft(planReviews, `${item.id}: structured HITL must reuse its plan review`)
         .toHaveLength(item.id === 'concept' ? 0 : 1);
       expect.soft(activities.filter(a => a.code === 'REVIEW'), `${item.id}: no experimental interpretation`).toHaveLength(0);
     }
     const answer = page.locator('.agent-response').last();
+    if (item.id === 'concept' && result.status === 'COMPLETED') {
+      await expect(answer.locator('.v1-markdown')).toBeVisible();
+    }
     const visible = result.status === 'COMPLETED' ? await answer.innerText({timeout: 12000})
       : await page.locator('.agent-page').innerText();
     rows.push({id: item.id, question: item.question, graphVersion: 'v2', pass: issue === null,
