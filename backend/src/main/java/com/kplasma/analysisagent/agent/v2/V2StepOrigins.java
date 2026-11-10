@@ -7,6 +7,7 @@ import com.kplasma.analysisagent.contract.WorkspaceDto.V2RecordSource;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 
 public final class V2StepOrigins {
     private V2StepOrigins() {}
@@ -27,7 +28,7 @@ public final class V2StepOrigins {
     private static Object group(Map<?,?> step, String group) {
         if ("comparison".equals(group) && group.equals(step.get("groupId"))) return step.get("runRefs");
         if (!(step.get("outputs") instanceof Map<?,?> output)) return null;
-        if ("common".equals(group) && group.equals(step.get("groupId"))) return output.get("candidates");
+        if (Set.of("common", "records").contains(group) && group.equals(step.get("groupId"))) return output.get("candidates");
         if (!(output.get("toolResult") instanceof Map<?,?> result)) return null;
         if ("near".equals(group)) return result.get("nearMisses");
         if (group.startsWith("objective-") && result.get("objectiveResults") instanceof List<?> groups) {

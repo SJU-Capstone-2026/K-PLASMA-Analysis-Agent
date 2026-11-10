@@ -47,6 +47,12 @@ public class AgentWorkerController {
         authorize(token); return service.v2StepContext(AgentRequestController.id(id), AgentRequestController.id(executionId), body);
     }
 
+    @PostMapping("/requests/{id}/steps/{executionId}/decision-records")
+    public Map<String,Object> v2DecisionRecords(@RequestHeader(name="X-Agent-Token",required=false) String token,
+                                               @PathVariable String id, @PathVariable String executionId, @RequestBody V2Write body) {
+        authorize(token); return service.v2DecisionRecords(AgentRequestController.id(id), AgentRequestController.id(executionId), body);
+    }
+
     @PostMapping("/requests/{id}/steps/{executionId}/comparison-outputs")
     public com.kplasma.analysisagent.contract.RunOutputDto.Response v2Outputs(
             @RequestHeader(name="X-Agent-Token",required=false) String token, @PathVariable String id,
