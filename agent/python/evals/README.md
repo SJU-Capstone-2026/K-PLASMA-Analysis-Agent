@@ -67,3 +67,51 @@ guarantee future model outputs. A domain expert should review causal explanation
 separately. General answers are LLM knowledge, with no reviewed-literature/RAG
 claim. See [implementation verification](../../../docs/verification/agent-v1-tool-calling-and-answers.md)
 for the exercised HTTP, UI, database and recovery scope.
+
+## v2 plan meaning and end-to-end evaluation
+
+`plan_review_cases.py` contains 14 labelled correct/incorrect plan pairs,
+all on artificial identities. Both variants pass the code validator. The default
+matrix preserves the original 13 pairs × 3 repeats (78 requests), then adds P14's
+correct and incorrect plans once each: **80 Decisions requests, 40 correct plans
+and 40 incorrect plans**. This is 28 distinct plans; the historical repetitions
+remain. P14 checks that an unrequested pressure filter is rejected. `--repeats`
+applies to P01–P13; P14 is included once even when selected with `--case P14`.
+No planner is called in this experiment. Historical 78-request measurements
+remain unchanged; adding two cases does not establish an 80/80 live result.
+The grader reports false acceptance, false rejection, unclear and API failure
+separately. Its labels never come from Decisions itself. Synthetic probes such
+as 9999.5 distinguish a range from equality even if both return no real Runs.
+
+The **paid 80-request evaluation is local and manual only**. It is not a GitHub
+Actions job, a PR gate or an automatic evaluation. CI keeps offline unit tests
+of the evaluator; those tests do not call Decisions.
+
+Run this explicitly from the repository root when ready to make paid API calls:
+
+```sh
+npm run eval:decisions:local -- --env-file /path/to/local.env --output /tmp/kplasma-decisions80-live
+```
+
+Use a new output directory for each experiment. The env file supplies
+`OPENAI_API_KEY` and optional `AGENT_V2_DECISIONS_MODEL` / `AGENT_V2_DECISIONS_BASE_URL`.
+The command calls Decisions 80 times with the default configuration; no backend,
+database, browser or planner is needed. Results stay local in `results.jsonl`
+and `summary.json`. The command is never invoked by the CI workflow.
+
+To inspect the matrix without paid calls, run the first command below from
+`agent/python`. The remaining commands explicitly call live models.
+
+```sh
+PYTHONPATH=src:. .venv/bin/python -m evals.run_plan_review --output /private/tmp/kplasma-plan-review
+PYTHONPATH=src:. .venv/bin/python -m evals.run_plan_review --live --env-file /path/to/local.env --output /private/tmp/kplasma-plan-review
+PYTHONPATH=src:. .venv/bin/python -m evals.run_v2 --live --plan-review off --output /private/tmp/kplasma-v2-before
+PYTHONPATH=src:. .venv/bin/python -m evals.run_v2 --live --plan-review on --output /private/tmp/kplasma-v2-after
+```
+
+The existing v2 graph harness retains initial provider output, accepted plan
+revisions, each plan verdict, final execution/answer failures, bounded replan
+count, role call counts and elapsed provider times. Turning plan review off
+records SKIPPED; it does not fake PASS. Different live planner outputs mean
+before/after graph runs alone cannot isolate reviewer quality. Browser/DB tests
+exercise persistence and HITL independently of the in-memory harness.

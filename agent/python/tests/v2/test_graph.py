@@ -114,9 +114,9 @@ def test_general_path_has_two_generation_calls_and_no_decisions():
 
 
 @pytest.mark.parametrize(("needs_selection", "interpretation_requested", "expected_calls", "expected_status"), [
-    (True, False, ["PLAN_INITIAL"], "PARTIAL"),
-    (False, False, ["PLAN_INITIAL"], "COMPLETE"),
-    (False, True, ["PLAN_INITIAL", "COMPOSE", "REVIEW"], "COMPLETE"),
+    (True, False, ["PLAN_INITIAL", "PLAN_REVIEW"], "PARTIAL"),
+    (False, False, ["PLAN_INITIAL", "PLAN_REVIEW"], "COMPLETE"),
+    (False, True, ["PLAN_INITIAL", "PLAN_REVIEW", "COMPOSE", "REVIEW"], "COMPLETE"),
 ])
 def test_data_answer_uses_writer_only_for_interpretation(needs_selection, interpretation_requested,
                                                         expected_calls, expected_status):

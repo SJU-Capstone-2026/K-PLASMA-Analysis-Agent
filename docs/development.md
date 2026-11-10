@@ -38,7 +38,7 @@ curl http://localhost:8080/api/health
 npm run dev:agent
 ```
 
-새 질문은 v1 서버 요청으로만 접수된다. 모델이나 worker가 없을 때 JavaScript fallback으로 전환하지 않는다. 대기 중인 요청은 PostgreSQL에 남으며 worker가 다시 시작하면 회수한다. 실행 중인 작업은 임대가 만료된 뒤 재개되므로 강제 종료 후 최대 약 일 분이 필요할 수 있다. 다른 그래프·프롬프트·모델 설정으로 바뀐 미완료 작업은 `RECOVERY_VERSION_MISMATCH`로 종료하며 과거 완료 답변을 다시 생성하지 않는다. 기존 fallback 소스는 `agent/src/`에 남아 있으며 과거 스냅샷만 기존 카드로 표시한다.
+새 대화에서 v1 또는 v2를 선택하며 첫 요청 후 대화의 버전이 고정된다. 기본 버전은 v1이며 CI의 실행 검증 기준은 v2다. 모델이나 worker가 없을 때 JavaScript fallback으로 전환하지 않는다. 대기 중인 요청은 PostgreSQL에 남으며 worker가 다시 시작하면 회수한다. 실행 중인 작업은 임대가 만료된 뒤 재개되므로 강제 종료 후 최대 약 일 분이 필요할 수 있다. 다른 그래프·프롬프트·모델 설정으로 바뀐 미완료 작업은 `RECOVERY_VERSION_MISMATCH`로 종료하며 과거 완료 답변을 다시 생성하지 않는다. 기존 fallback 소스는 `agent/src/`에 남아 있으며 과거 스냅샷만 기존 카드로 표시한다.
 
 frontend 기본 주소는 [http://localhost:5173](http://localhost:5173)다. `VITE_API_TARGET`의 `/api` 프록시로 backend에 연결한다. health 응답은 DB·저장소 모두 준비되면 `UP`이며 실패하면 HTTP 503을 반환한다. PostgreSQL volume, backend 원본 보관소, frontend 정적 파일은 서로 다른 역할이다. `bootRun` 기본 `./storage`는 `backend/storage/`에 해당한다. JAR를 다른 작업 폴더에서 실행할 때는 `KPLASMA_STORAGE_ROOT`를 원하는 절대 경로로 설정한다. 보관소와 DB를 같이 보존해야 불변 Run 버전과 원본 계보를 추적할 수 있다.
 
@@ -123,7 +123,7 @@ Run 삭제는 일반적인 데이터 관리 기능이다. 이 작업을 위해 P
 
 ```sh
 npm test
-uv run --project agent/python --frozen pytest agent/python/tests agent/python/evals
+npm run test:agent
 uv run --project agent/python --frozen ruff check agent/python/src agent/python/tests agent/python/evals
 uv run --project agent/python --frozen mypy agent/python/src
 npm run typecheck
@@ -131,20 +131,21 @@ npm run lint
 npm run build
 backend/gradlew -p backend test --console=plain
 npm exec --workspace frontend -- playwright install chromium
+npm run test:ui:v2
 npm run test:e2e
 npm run test:agent:restart
 npm run verify:public-files
 ```
 
-Linux에서 브라우저 시스템 의존성이 없으면 `playwright install --with-deps chromium`을 사용한다. `test:e2e`는 인공 입력 3 Run을 만들고 독립 PostgreSQL·backend JAR·Python worker·Vite를 시작한다. 네 도구를 통한 여섯 완료 답변, 정확한 Run 버전, 실험 선택·추가 입력 대기·resume·reload와 페이지 배치를 390/800/1008/1440px에서 검사한다. HTTP·그래프·체크포인트·수치 계산은 실제 구현을 쓰며 모델만 테스트 모듈의 고정 응답으로 대체한다. 이는 실제 LLM 품질 검증이 아니다. `npm run test:e2e:live`는 동일 흐름에 실제 `gpt-5.6-luna`/`none`을 연결하며 키와 API 사용량이 필요하다. 제품 worker에는 테스트 모델 선택 옵션이 없다.
+Linux에서 브라우저 시스템 의존성이 없으면 `playwright install --with-deps chromium`을 사용한다. 기본 CI의 Agent 검사 대상은 v2다. `test:agent`는 v2 그래프와 평가기 및 공통 계산을 검사한다. `test:ui:v2`는 기존 v2 비교 그래프·대화방·Run 태그·진행·스트리밍을 390/800/1008/1440px에서 확인한다.
 
-DB는 테스트 전용 이름과 임의 localhost 포트로 생성하며 자기 컨테이너만 정리한다. 다른 개발 DB나 서버를 재사용하지 않는다. Gradle build 출력과 project cache도 실행별로 나뉘고 복사한 JAR로 서버를 실행한다. 기본 제품 서버의 Clock을 변경하지 않는다. v1 검증 결과는 Git에서 제외한 `agent/python/.runtime/`에만 보관한다. 질문·응답·체크포인트·trace·토큰이 포함될 수 있는 연결 파일을 게시하지 않는다.
+`test:e2e`는 인공 입력 3 Run을 만들고 독립 PostgreSQL·backend JAR·Python v2 worker·Vite를 시작한다. 일반 개념, 엄격한 검색 경계, 실험 선택 후 비교→max→검색과 네 화면 폭을 검사한다. HTTP·그래프·체크포인트·수치 계산은 실제 구현을 쓰며 모델만 고정 응답으로 대체한다. 실제 LLM 판단 정확도 검증은 아니다. `npm run test:e2e:live`는 같은 v2 흐름에 실제 모델을 연결하며 키와 API 사용량이 필요하다. 제품 worker에는 테스트 모델 선택 옵션이 없다.
 
-`test:agent:restart`는 독립 인공 환경에서 서버와 자기 테스트 worker를 강제 종료한다. 접수 상태, 추가 입력/checkpoint, 완료 답변의 멱등 재개, 실험 선택 대기 중 worker·서버 재시작을 네 시나리오로 확인한다. 같은 DB·보관소와 고정된 선택 목록·정확한 Run 버전으로 이어지는지 검사한다. 실제 그래프·HTTP·DB를 사용하고 모델만 고정 테스트 응답이며, OpenAI 호출은 없다. 기본 CI에도 포함한다.
+DB는 테스트 전용 이름과 임의 localhost 포트로 생성하며 자기 컨테이너만 정리한다. 다른 개발 DB나 서버를 재사용하지 않는다. Gradle build 출력과 project cache도 실행별로 나뉘고 복사한 JAR로 서버를 실행한다. 기본 제품 서버의 Clock을 변경하지 않는다. v2 검증 결과는 명령이 출력하는 임시 폴더에만 보관한다. 질문·응답·체크포인트·trace·토큰이 포함될 수 있는 연결 파일을 게시하지 않는다.
 
-`frontend/playwright.config.ts`와 `test:e2e:legacy`는 이전 fallback UI 검증을 보존한 역사적 실행기다. v1에서 같은 답변 문구·카드 구조를 요구하지 않으므로 현재 기본 CI 통과 기준으로 사용하지 않는다. fallback 순수 함수 테스트는 계속 `npm test`에 포함된다. 외부 원본 파싱·수치 비교용 `verify:reference`의 기존 전체 UI 단계도 이 역사적 검증 범위이며, v1의 실제 LLM 평가와 혼동하지 않는다.
+`test:agent:restart`는 독립 인공 환경에서 서버와 자기 v2 테스트 worker를 강제 종료한다. 접수 상태 복원, 선택 대기·체크포인트와 고정 선택지, 비교→max→검색 재개와 정확한 Run 버전, 완료 답변의 멱등 재개를 네 시나리오로 확인한다. 실제 그래프·HTTP·DB를 사용하고 모델만 고정 응답이며 기본 CI에 포함한다.
 
-인공 질문 141개의 도구 선택 평가와 18개 핵심 질문의 전체 그래프 반복 평가 명령·판정 범위는 [Agent 평가 문서](../agent/python/evals/README.md)를 따른다. 프로세스 강제 종료 테스트는 `node scripts/agent/dev-verification.mjs --no-worker`로 독립 환경을 시작한 후 출력된 연결 파일을 `agent/python/.venv/bin/python scripts/agent/fault-verification.py --connection <파일>`에 전달한다. 이 환경에 다른 worker를 동시에 연결하지 않는다.
+v1 전용 그래프·fallback 평가·브라우저는 기본 CI 대상에서 제외한다. 과거 기록의 읽기와 공통 API·계산·보안 검사는 유지한다. `frontend/playwright.config.ts`, v1 전용 Playwright 설정과 `test:e2e:legacy`는 과거 검증용으로 보존한다. 외부 원본 비교용 `verify:reference`의 전체 UI 단계도 역사적 fallback 검증 범위다. v2 전체 그래프의 실제 모델 평가와 HTTP/DB/브라우저 실행의 차이·명령은 [Agent v2 운영과 평가](development/agent-v2.md)를 따른다.
 
 이미 검증한 Chromium을 명시할 때는 `KPLASMA_BROWSER_EXECUTABLE`에 실행 파일 경로를 넣을 수 있다. 보고서에 실제 browser.version을 기록하며 기준과 React는 같은 브라우저 컨텍스트의 폰트·ko-KR locale·Asia/Seoul 시간대·1배율·고정 시각을 사용한다. 개발자 개인 설치 경로는 소스에 하드코딩하지 않는다.
 

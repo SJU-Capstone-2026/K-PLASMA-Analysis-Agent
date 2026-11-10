@@ -13,6 +13,8 @@ from ..config import Settings
 from ..metric_registry import UNITS
 from ..model_client import ModelClient, ModelError, strict_schema
 from .contracts import DataAnswerDraft, GeneralAnswerDraft, PlanDraft, ReviewAnswer, ReviewDecision
+from .plan_checks import review_questions
+from .plan_review import parse_plan_review, review_result
 
 PLAN_INSTRUCTIONS = """원문과 확인된 문맥을 읽고 submit_plan을 정확히 한 번 제출한다.
 조회·검색·비교를 코드가 순차 실행한다. 정성 해석은 답변 단계가 맡는다.
@@ -121,6 +123,7 @@ class V2Settings:
     writer: Settings
     decisions_model: str
     decisions_url: str
+    plan_review_enabled: bool = False
 
     @classmethod
     def from_env(cls, base: Settings) -> "V2Settings":
@@ -135,6 +138,7 @@ class V2Settings:
                            reasoning_effort=os.getenv("AGENT_V2_ANSWER_REASONING_EFFORT", base.reasoning_effort)),
             decisions_model=os.getenv("AGENT_V2_DECISIONS_MODEL", "gpt-6-luna"),
             decisions_url=url + "/decisions",
+            plan_review_enabled=os.getenv("AGENT_V2_PLAN_REVIEW_ENABLED", "false").lower() not in {"false", "0"},
         )
 
 
@@ -214,6 +218,29 @@ def review_answer(client: httpx.Client, settings: V2Settings, payload):
         return ReviewDecision(status="UNAVAILABLE", answers=[], reason="DECISIONS_UNAVAILABLE"), None
 
 
+def review_plan(client: httpx.Client, settings: V2Settings, payload):
+    body = {
+        "model": settings.decisions_model,
+        "input": [{"role": "user", "content": [{"type": "input_json", "data": payload}]}],
+        "questions": review_questions(payload),
+    }
+    try:
+        response = client.post(settings.decisions_url, json=body,
+                               headers={"Authorization": "Bearer " + settings.writer.api_key})
+        response.raise_for_status()
+        data = response.json()
+        return parse_plan_review(data, payload).model_dump(mode="json"), data.get("usage")
+    except httpx.TimeoutException:
+        reason = "DECISIONS_TIMEOUT"
+    except httpx.HTTPStatusError as error:
+        reason = f"DECISIONS_HTTP_{error.response.status_code}"
+    except httpx.HTTPError:
+        reason = "DECISIONS_CONNECTION"
+    except (ValueError, KeyError, TypeError):
+        reason = "DECISIONS_INVALID_RESPONSE"
+    return review_result(payload, "UNAVAILABLE", reason=reason).model_dump(mode="json"), None
+
+
 class V2ModelGateway:
     def __init__(self, settings: V2Settings, decisions: httpx.Client, input_guard):
         self.settings = settings
@@ -221,6 +248,13 @@ class V2ModelGateway:
         self.writer = ModelClient(settings.writer)
         self.decisions = decisions
         self.input_guard = input_guard
+
+    def review_plan(self, context):
+        try:
+            self.input_guard({"input": context, "questions": review_questions(context)}, "plan_review")
+        except ValueError:
+            raise ModelError("PLAN_REVIEW_INPUT_INVALID") from None
+        return review_plan(self.decisions, self.settings, context)
 
     def submit_plan(self, context):
         tool = submit_plan_tool_schema()

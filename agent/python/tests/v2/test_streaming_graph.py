@@ -90,6 +90,10 @@ class StreamingModels:
                                     "fields": ["pressure"]}}])
         return plan, {"inputTokens": 1, "outputTokens": 1}
 
+    def review_plan(self, context):
+        from runtime_v2_worker import matching_plan_review
+        return matching_plan_review(context)
+
     def compose(self, context):
         raise AssertionError("a public stream must use the existing writer's streaming capability")
 
@@ -132,6 +136,16 @@ class StreamingModels:
                 "answers": [{"name": "interpretation_scope", "choice": choice, "confidence": 1.0,
                              "probabilities": {name: float(name == choice) for name in
                                                ("within_evidence", "overclaim", "unassessable")}}]}, {}
+
+
+def test_plan_review_reports_its_real_activity_without_starting_an_interpretation_stream():
+    port = DurablePort([{"runId": "A", "runVersionId": "A-v1", "pressure": 2},
+                        {"runId": "B", "runVersionId": "B-v1", "pressure": 4}])
+    invoke(StreamingModels(port, interpretation=False), port)
+    activities = [e["payload"]["code"] for e in port.events if e["kind"] == "activity"]
+    assert activities.count("PLAN_REVIEW") == 2
+    assert "INTERPRET" not in activities
+    assert not any(e["kind"] == "answer.start" for e in port.events)
 
 
 def invoke(models, port):
@@ -185,7 +199,7 @@ def test_data_only_graph_publishes_saved_tool_results_without_a_writer_or_review
     port = DurablePort([run("A", pressure=8), run("B", pressure=12)])
     models = StreamingModels(port, interpretation=False)
     snapshot = invoke(models, port)
-    assert port.model_reservations == ["PLAN_INITIAL"]
+    assert port.model_reservations == ["PLAN_INITIAL", "PLAN_REVIEW"]
     assert models.provider_calls == ["plan"]
     ready = events(port, "results.ready")[-1]
     assert ready["payload"]["executionIds"] == ["execution-compare"]
@@ -199,7 +213,7 @@ def test_overclaim_rewrite_replaces_prose_in_a_new_version_and_keeps_verified_re
     port = DurablePort([run("A", pressure=8), run("B", pressure=12)])
     models = StreamingModels(port, interpretation=True, review_choices=("overclaim", "within_evidence"))
     snapshot = invoke(models, port)
-    assert port.model_reservations == ["PLAN_INITIAL", "COMPOSE", "REVIEW", "ANSWER_REWRITE", "REVIEW"]
+    assert port.model_reservations == ["PLAN_INITIAL", "PLAN_REVIEW", "COMPOSE", "REVIEW", "ANSWER_REWRITE", "REVIEW"]
     assert models.provider_calls == ["plan", "writer", "review", "writer", "review"]
     assert len(port.step_reservations) == 1
     first, second = events(port, "answer.start")
@@ -262,7 +276,7 @@ def test_invalid_numeric_draft_clears_each_preview_and_keeps_only_verified_facts
     port = DurablePort([run("A", pressure=8), run("B", pressure=12)])
     models = StreamingModels(port, interpretation=True, invalid=True)
     snapshot = invoke(models, port)
-    assert port.model_reservations == ["PLAN_INITIAL", "COMPOSE", "ANSWER_REWRITE"]
+    assert port.model_reservations == ["PLAN_INITIAL", "PLAN_REVIEW", "COMPOSE", "ANSWER_REWRITE"]
     assert len(events(port, "answer.start")) == 2
     resets = events(port, "answer.reset")
     assert [row["payload"]["reason"] for row in resets] == ["INVALID_DRAFT", "INVALID_DRAFT"]
