@@ -184,6 +184,73 @@
         }
       }
     },
+    "/internal/agent/requests/{id}/steps/{executionId}/decision-records": {
+      "post": {
+        "summary": "Read pinned decision records for a decision_records step",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "executionId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "security": [
+          {
+            "WorkerToken": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "claimGeneration",
+                  "requestRevision"
+                ],
+                "properties": {
+                  "claimGeneration": {
+                    "type": "integer"
+                  },
+                  "requestRevision": {
+                    "type": "integer"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Object with records"
+          },
+          "400": {
+            "description": "Not a decision_records step, or Runs outside the confirmed context or the whole saved candidate group"
+          },
+          "401": {
+            "description": "Missing or invalid worker token"
+          },
+          "409": {
+            "description": "Stale fence or no active step reservation"
+          }
+        },
+        "description": "Only for the active reservation of a plan step with tool decision_records. The Runs come from the reservation inputs, never from this body: either a whole verified candidate group (candidateExecutionId of a reverse_search or an earlier decision_records step, with outputs.candidates equal to inputs.runs), or Runs confirmed in the request context (comparisonReference entries, candidateReferences, activeRun). Those Runs become the step's frozen source. The first read pins the records in save order as manifest.decisionRecords, shared with the v1 decision-records endpoint, so retries, replans and resumes classify the same records. Records carry the same reuse fields as v1; authors, objectives and metrics are omitted. Notes are user text: workers classify them locally and must not send them to a model or an external trace."
+      }
+    },
     "/internal/agent/requests/{id}/steps/{executionId}/comparison-outputs": {
       "post": {
         "summary": "Load outputs for the confirmed comparison",

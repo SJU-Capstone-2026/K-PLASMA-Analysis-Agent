@@ -66,15 +66,21 @@ final class AnswerV2Validator {
         return ref;
     }
     private void records(Map<?,?> result,AgentResponse answer){
-        fields(result,"kind","resultStatus","action","threshold","summaryText","notice","remaining","excluded","canUndo","recordPolicyVersion","usedRunRefs");
-        require("cost-regex-1".equals(result.get("recordPolicyVersion")),"Unknown record policy");enumeration(result.get("resultStatus"),"RECORDS_READY","EXCLUSION_APPLIED","NO_EXCLUSION","NOTICE");enumeration(result.get("action"),"view","exclude");text(result.get("summaryText"));require(result.get("canUndo") instanceof Boolean,"canUndo must be boolean");
         require(answer.candidates().isEmpty()&&answer.explanation()==null,"Record answers have no legacy candidates/explanation");
+        require(recordResult(result).equals(answer.usedRunRefs()),"Record inventory mismatch");
+    }
+    /** A decision_records tool result, shared by v1 answers and public v2 step results. Returns its Run inventory. */
+    List<RunRef> recordResult(Map<?,?> result){
+        fields(result,"kind","resultStatus","action","threshold","summaryText","notice","remaining","excluded","canUndo","recordPolicyVersion","usedRunRefs");
+        require("decision_records".equals(result.get("kind")),"Record result kind mismatch");
+        require("cost-regex-1".equals(result.get("recordPolicyVersion")),"Unknown record policy");enumeration(result.get("resultStatus"),"RECORDS_READY","EXCLUSION_APPLIED","NO_EXCLUSION","NOTICE");enumeration(result.get("action"),"view","exclude");text(result.get("summaryText"));require(result.get("canUndo") instanceof Boolean,"canUndo must be boolean");
         String status=(String)result.get("resultStatus");boolean exclusion=Set.of("EXCLUSION_APPLIED","NO_EXCLUSION").contains(status);
         List<RunRef> rows=new ArrayList<>();for(Object value:array(result.get("remaining")))rows.add(recordRow(value));var excluded=array(result.get("excluded"));for(Object value:excluded)rows.add(recordRow(value));
-        require(rows.equals(refs(result.get("usedRunRefs")))&&rows.equals(answer.usedRunRefs())&&rows.stream().map(RunRef::runId).distinct().count()==rows.size(),"Record inventory mismatch");
+        require(rows.equals(refs(result.get("usedRunRefs")))&&rows.stream().map(RunRef::runId).distinct().count()==rows.size(),"Record inventory mismatch");
         if("NOTICE".equals(status)){text(result.get("notice"));require(rows.isEmpty()&&result.get("threshold")==null&&Boolean.FALSE.equals(result.get("canUndo")),"Notice cannot carry records");}
         else{require(result.get("notice")==null,"Only notices carry notice text");require(exclusion==("exclude".equals(result.get("action")))&&exclusion==Boolean.TRUE.equals(result.get("canUndo")),"Record action mismatch");
             require(exclusion?threshold(result.get("threshold")):result.get("threshold")==null,"Invalid record threshold");require("EXCLUSION_APPLIED".equals(status)==!excluded.isEmpty(),"Exclusion status mismatch");}
+        return rows;
     }
     private void recordExclusion(Object value,Set<RunRef> displayed,List<RunRef> inventory){
         var exclusion=object(value);fields(exclusion,"threshold","excluded","canUndo","recordPolicyVersion");

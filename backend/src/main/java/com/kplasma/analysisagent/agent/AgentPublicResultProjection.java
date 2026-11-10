@@ -60,6 +60,11 @@ public class AgentPublicResultProjection {
             new AnswerV2Validator(validator,raw.containsKey("featurePolicyVersion")).comparison(raw,refs,false);
             return raw;
         }
+        if("decision_records".equals(kind)) {
+            // Same card as v1: the user's own notes are shown to the user, never sent to a model.
+            new AnswerV2Validator(validator).recordResult(raw);
+            return raw;
+        }
         check(Set.of("forward_lookup","reverse_search").contains(kind));
         check("v1".equals(raw.get("numericPolicyVersion")) && Objects.equals(raw.get("status"),raw.get("resultStatus")));
         String fields="kind resultStatus status usedRunRefs excludedRuns defaultedUnits numericPolicyVersion ";

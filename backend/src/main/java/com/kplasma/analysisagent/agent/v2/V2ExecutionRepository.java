@@ -21,7 +21,7 @@ public class V2ExecutionRepository {
     private static final Map<String, Integer> MODEL_LIMITS = Map.of(
         "PLAN_INITIAL", 1, "REPLAN", 2, "PLAN_REVIEW", 3, "COMPOSE", 3,
         "ANSWER_REWRITE", 1, "PARTIAL_COMPOSE", 1, "REVIEW", 5);
-    private static final Set<String> TOOLS = Set.of("forward_lookup", "reverse_search", "compare_runs");
+    private static final Set<String> TOOLS = Set.of("forward_lookup", "reverse_search", "compare_runs", "decision_records");
     private final JdbcTemplate jdbc;
     private final ObjectMapper mapper;
 
@@ -123,7 +123,11 @@ public class V2ExecutionRepository {
         return values.getFirst();
     }
 
-    public boolean matchesSearchCandidates(UUID request, UUID comparison, String sourceExecutionId, JsonNode refs) {
+    /**
+     * A comparison or decision-record step may take a whole candidate group from a verified
+     * search, or the remaining Runs of an earlier decision-record step.
+     */
+    public boolean matchesSearchCandidates(UUID request, UUID target, String sourceExecutionId, JsonNode refs) {
         return count("""
             select count(*) from agent_step_execution target
             join agent_v2_plan_revision p on p.request_id=target.request_id and p.revision=target.plan_revision
@@ -131,14 +135,25 @@ public class V2ExecutionRepository {
             cross join lateral jsonb_array_elements(p.plan->'steps') step
             where target.request_id=? and target.id=? and source.id::text=?
               and source.plan_revision<=target.plan_revision and source.input_revision<=target.input_revision
-              and step->>'id'=target.step_id and step->>'tool'='compare_runs'
+              and step->>'id'=target.step_id and step->>'tool' in ('compare_runs','decision_records')
               and step#>>'{inputs,runs,step_id}'=source.step_id
               and step#>>'{inputs,runs,field}'='candidates'
               and step#>>'{inputs,runs,scope,kind}'='candidate_group'
               and source.result->>'status'='verified'
-              and source.result#>>'{outputs,toolResult,kind}'='reverse_search'
+              and source.result#>>'{outputs,toolResult,kind}' in ('reverse_search','decision_records')
               and source.result#>'{outputs,candidates}'=?::jsonb
-            """, request, comparison, sourceExecutionId, json(refs)) == 1;
+            """, request, target, sourceExecutionId, json(refs)) == 1;
+    }
+
+    /** The reserved execution belongs to a plan step that calls {@code tool}. */
+    public boolean isToolStep(UUID request, UUID execution, String tool) {
+        return count("""
+            select count(*) from agent_step_execution e
+            join agent_v2_plan_revision p on p.request_id=e.request_id and p.revision=e.plan_revision
+            cross join lateral jsonb_array_elements(p.plan->'steps') step
+            where e.request_id=? and e.id=? and step->>'id'=e.step_id
+              and step->>'kind'='tool' and step->>'tool'=?
+            """, request, execution, tool) == 1;
     }
 
     public void pinStepSources(UUID request, UUID id, Object refs) {
