@@ -9,10 +9,10 @@ from kplasma_agent.v2.model_gateway import (
 )
 
 
-def test_planner_selects_explanation_instead_of_an_interpretation_boolean():
+def test_planner_must_decide_whether_the_user_requested_interpretation():
     schema = submit_plan_tool_schema()["parameters"]
-    assert "interpretation_requested" not in schema["properties"]
-    assert schema["$defs"]["ExplainInputs"]["properties"]["mode"]["enum"] == ["concept", "results"]
+    assert "interpretation_requested" in schema["required"]
+    assert schema["properties"]["interpretation_requested"] == {"type": "boolean"}
 
 
 def test_planner_literal_units_are_closed_choices_and_preserve_scale():
@@ -262,11 +262,7 @@ def test_model_failure_code_is_preserved_in_the_existing_outcome_error(failure, 
             return httpx.Response(200, json={
                 "id": "synthetic", "object": "response", "created_at": 0,
                 "status": "failed" if failure == "failed" else "incomplete", "model": "gpt-6-luna",
-                "usage": {"input_tokens": 11, "output_tokens": 6000, "total_tokens": 6011,
-                          "output_tokens_details": {"reasoning_tokens": 5900}} if failure == "max_output_tokens" else None,
-                "output": [{"type": "message", "id": "partial", "role": "assistant", "status": "incomplete",
-                            "content": [{"type": "output_text", "text": "PARTIAL MODEL OUTPUT", "annotations": []}]}]
-                          if failure == "max_output_tokens" else [], "parallel_tool_calls": False, "tool_choice": "auto", "tools": [],
+                "output": [], "parallel_tool_calls": False, "tool_choice": "auto", "tools": [],
                 "incomplete_details": {"reason": failure} if failure in ("max_output_tokens", "content_filter") else None,
                 "error": {"code": "server_error", "message": "private-provider-body"} if failure == "failed" else None,
             })
@@ -280,18 +276,7 @@ def test_model_failure_code_is_preserved_in_the_existing_outcome_error(failure, 
         state = build_v2_graph(gateway, journal, None).invoke({"request_id": "synthetic", "question": "조회",
                     "context": {}, "input_history": []}, {"recursion_limit": 80})
     attempt, = journal.models.values()
-    outcome = attempt["outcome"]
-    assert outcome["data"] is None and outcome["error"] == code
-    if failure == "max_output_tokens":
-        assert outcome["usage"]["outputTokens"] == outcome["usage"]["maxOutputTokens"] == 6000
-        assert outcome["usage"]["rawUsage"]["output_tokens_details"]["reasoning_tokens"] == 5900
-        assert outcome["response"]["output"][0]["content"][0]["text"] == "PARTIAL MODEL OUTPUT"
-    elif outcome["usage"] is not None:
-        assert outcome["usage"]["usageAvailable"] is False
-        assert outcome["usage"]["inputTokens"] is outcome["usage"]["outputTokens"] is None
-        assert outcome["response"]["status"] in {"failed", "incomplete"}
-    else:
-        assert "response" not in outcome
+    assert attempt["outcome"] == {"data": None, "usage": None, "error": code}
     assert len(requests) == 1 and not journal.steps
     assert state.get("replans", 0) == 0
     assert state["answer"]["answerSnapshot"]["executionStatus"] == "FAILED"

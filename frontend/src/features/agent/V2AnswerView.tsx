@@ -36,8 +36,6 @@ export function V2AnswerView({answer, turn, onAction}: {
       ? item.assumptions.filter(value => typeof value === 'string') : [];
     return [{text: item.text, assumptions}];
   }) : [];
-  const concepts = Array.isArray(answer.draft?.paragraphs)
-    ? answer.draft.paragraphs.filter((text): text is string => typeof text === 'string') : [];
   const limitations = Array.isArray(answer.draft?.limitations) ? answer.draft.limitations.flatMap(item => {
     if (!item || typeof item !== 'object' || Array.isArray(item) || typeof item.text !== 'string') return [];
     // Older answers could mistake the writer's compact evidence for the actual comparison table.
@@ -78,11 +76,6 @@ export function V2AnswerView({answer, turn, onAction}: {
         {last.kind !== 'compare_runs' && <h3>{titles[last.kind]}</h3>}
         {renderTool(last)}
       </section>
-      {concepts.length > 0 && <section className="v2-answer-explanation" aria-label="개념 설명">
-        <Suspense fallback={<p role="status">설명을 표시하고 있습니다.</p>}>
-          {concepts.map((text, index) => <AnswerMarkdown key={index} markdown={text} preserveHtmlText/>)}
-        </Suspense>
-      </section>}
       {(interpretations.length > 0 || limitations.length > 0) && <section className="v2-answer-explanation" aria-label="결과 해석">
         <Suspense fallback={<p role="status">해석을 표시하고 있습니다.</p>}>
           {interpretations.map((item,index) => <div key={index}>

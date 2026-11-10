@@ -24,7 +24,6 @@ def _register(**kwargs):
 
 def initialize(settings):
     global _provider, _tracer, _secrets
-    _secrets = tuple(v for v in (settings.api_key, settings.worker_token, settings.phoenix_api_key) if v)
     if not settings.phoenix_endpoint and not settings.phoenix_api_key:
         return False
     try:

@@ -1,7 +1,6 @@
 """Opt-in Decisions evaluation against fixed, labelled plan pairs."""
 
 import argparse
-import atexit
 from collections import Counter
 import json
 from pathlib import Path
@@ -9,7 +8,6 @@ from time import monotonic
 
 import httpx
 
-from kplasma_agent import tracing
 from kplasma_agent.config import Settings
 from kplasma_agent.v2.budget import check_payload
 from kplasma_agent.v2.contracts import PlanDraft
@@ -63,8 +61,6 @@ def main():
     base = Settings.from_env(args.env_file)
     if not base.api_key:
         parser.error("OPENAI_API_KEY is required for --live")
-    tracing.initialize(base)
-    atexit.register(tracing.shutdown)
     rows = []
     with httpx.Client(timeout=base.timeout) as client, (args.output / "results.jsonl").open("w") as output:
         models = V2ModelGateway(V2Settings.from_env(base), client, check_payload)
@@ -75,9 +71,7 @@ def main():
                 selected_run_keys={e["key"] for e in case.context.get("comparison_entries", [])})
             payload = build_plan_review_context(plan, 1, case.question, [], case.context, {})
             start = monotonic()
-            with tracing.span("eval.decisions", session_id=f"decisions:{args.output.name}:{case.id}:{bad}:{repeat}",
-                              attributes={"evaluation.case_id": case.id, "evaluation.expected_bad": bad}):
-                result, usage = models.review_plan(payload)
+            result, usage = models.review_plan(payload)
             row = {"case": case.id, "bad": bad, "repeat": repeat, "question": case.question,
                    "grade": grade(bad, result["status"]), "seconds": monotonic() - start,
                    "input": payload, "review": result, "usage": usage}

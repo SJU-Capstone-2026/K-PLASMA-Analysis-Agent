@@ -7,7 +7,7 @@ from kplasma_agent.v2.plan_validation import InvalidPlan, validate_plan
 
 def draft(*steps):
     return PlanDraft.model_validate({
-        "schema_version": 2, "request_mode": "data_request", "base_revision": None,
+        "schema_version": 1, "request_mode": "data_request", "base_revision": None,
         "requirements": [{"id": "req", "text": "비교", "sources": [
             {"message_key": "question", "quote": "비교"}
         ], "handled_by": [step["id"] for step in steps]}],

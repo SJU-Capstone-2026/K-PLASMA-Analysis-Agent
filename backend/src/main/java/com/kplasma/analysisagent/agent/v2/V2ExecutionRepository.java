@@ -53,7 +53,7 @@ public class V2ExecutionRepository {
     }
 
     public Map<String, Object> acceptPlan(UUID request, long inputRevision, JsonNode draft) {
-        check(draft != null && draft.isObject() && Set.of(1, 2).contains(draft.path("schema_version").asInt())
+        check(draft != null && draft.isObject() && draft.path("schema_version").asInt() == 1
             && draft.path("steps").isArray() && draft.path("steps").size() <= 16
             && !draft.path("base_revision").isMissingNode(), "invalid plan");
         var previous = jdbc.query(

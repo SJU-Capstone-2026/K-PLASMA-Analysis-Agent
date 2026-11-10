@@ -19,21 +19,6 @@ test('saved v2 general answers render inline and display LaTeX',async()=>{
  expect(container.querySelectorAll('.katex-display')).toHaveLength(1);
 });
 
-test('mixed data and concept answers keep the saved result table and conceptual paragraphs',async()=>{
- const run=syntheticRun();
- const snapshot={...general.general_answer,intent:'COMPOSITE_ANSWER',
-  stepResults:[{executionId:'lookup',stepId:'lookup',status:'verified',outputs:{toolResult:{
-   kind:'forward_lookup',resultStatus:'EXACT',candidates:[run],
-  }},runRefs:[{runId:run.runId,runVersionId:run.runVersionId}],groupId:null,reason:null}],
-  draft:{paragraphs:['이온 플럭스는 단위 면적·시간당 입자 수입니다.'],sources:[]}};
- const turn={id:'mixed-concept',askedAt:'',question:'조회하고 개념을 설명해줘',intent:'COMPOSITE_ANSWER',context:null,
-  answerRunRefs:[],answerSnapshot:JSON.parse(JSON.stringify(snapshot)),ui:structuredClone(initialTurnUi)} as TurnSnapshot;
- render(<AnswerView turn={turn} onAction={()=>{}}/>);
- expect(screen.getByRole('table',{name:'검색 Run 목록'})).toBeVisible();
- expect(await screen.findByText('이온 플럭스는 단위 면적·시간당 입자 수입니다.')).toBeVisible();
- expect(screen.getByRole('region',{name:'개념 설명'})).toBeVisible();
-});
-
 test('data answers show saved interpretation, assumptions and limitations without duplicating numeric prose',async()=>{
  const run=syntheticRun();
  const text='<img src=x onerror="alert(1)"> 측정된 조건의 차이가 확인됩니다.';

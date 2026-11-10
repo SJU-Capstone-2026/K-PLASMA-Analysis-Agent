@@ -191,7 +191,7 @@ def test_user_selection_reuses_approved_plan_without_another_meaning_review():
 
 def test_targets_supplied_outside_a_planned_confirmation_require_a_new_review():
     question = "선택한 두 Run의 압력을 비교해줘."
-    plan = {"schema_version": 2, "request_mode": "data_request", "base_revision": None,
+    plan = {"schema_version": 1, "request_mode": "data_request", "base_revision": None,
             "requirements": [{"id": "r", "text": question, "handled_by": ["compare"],
                               "sources": [{"message_key": "question", "quote": question}]}],
             "steps": [{"id": "compare", "kind": "tool", "tool": "compare_runs", "requirement_ids": ["r"],

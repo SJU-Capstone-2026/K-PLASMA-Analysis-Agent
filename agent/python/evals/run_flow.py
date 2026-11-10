@@ -400,8 +400,6 @@ def main():
             writer=configured.writer.model,
             answerEffort=configured.writer.reasoning_effort,
             decisions=configured.decisions_model,
-            phoenixEnabled=bool(settings.phoenix_endpoint and settings.phoenix_api_key),
-            phoenixProject=settings.phoenix_project_name,
         )
         CLIENT = httpx.Client(base_url=API, timeout=30, transport=httpx.HTTPTransport(retries=0))
         catalog = {
@@ -457,6 +455,8 @@ def main():
         "AGENT_WORKER_TOKEN": connection["workerToken"],
         "AGENT_V2_PLAN_REVIEW_ENABLED": "true",
         "AGENT_MODEL_TIMEOUT_SECONDS": "90",
+        "PHOENIX_COLLECTOR_ENDPOINT": "",
+        "PHOENIX_API_KEY": "",
         "PYTHONPATH": str(REPO / "agent/python/src"),
     }
     manifest["startedAt"] = datetime.now(timezone.utc).isoformat()

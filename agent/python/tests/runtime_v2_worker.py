@@ -12,18 +12,8 @@ from kplasma_agent.v2.plan_checks import review_questions
 from kplasma_agent.v2.plan_review import parse_plan_review
 
 CONCEPT = "IED가 뭐야? 이온 에너지 분포라는 개념을 간단히 설명해줘."
-MIXED = "이온 플럭스가 40보다 높은 실제 Run을 찾고, 이온 플럭스의 개념도 설명해줘."
 STRICT = "이온 플럭스가 40보다 높은 실제 Run을 모두 찾아줘."
 NESTED = "비교할 두 Run은 내가 고를게. 선택한 두 Run 모두보다 이온 플럭스가 높은 후보를 찾아줘."
-
-
-def add_explanation(plan, question, mode="concept"):
-    plan["requirements"].append({"id": "explanation", "text": question,
-        "sources": [{"message_key": "question", "quote": question}], "handled_by": ["explain"]})
-    plan["steps"].append({"id": "explain", "kind": "tool", "tool": "explain_answer",
-        "requirement_ids": ["explanation"], "depends_on": [step["id"] for step in plan["steps"]],
-        "inputs": {"mode": mode}})
-    return plan
 
 
 class ScriptedGateway:
@@ -37,9 +27,9 @@ class ScriptedGateway:
         question = payload["messages"]["question"]
         source = {"message_key": "question", "quote": question}
         if question == CONCEPT:
-            return add_explanation({"schema_version": 2, "request_mode": "general_only",
-                    "base_revision": payload["base_revision"], "requirements": [], "steps": []}, question), {}
-        if question in (STRICT, MIXED):
+            return {"schema_version": 1, "request_mode": "general_only",
+                    "base_revision": payload["base_revision"], "requirements": [], "steps": []}, {}
+        if question == STRICT:
             steps = [{
                 "id": "search", "kind": "tool", "tool": "reverse_search",
                 "inputs": {"constraints": [{"field": "ionFlux", "operator": "gt",
@@ -64,16 +54,14 @@ class ScriptedGateway:
             ]
         else:
             raise AssertionError("Unhandled artificial v2 question")
-        plan = {"schema_version": 2, "request_mode": "data_request", "base_revision": payload["base_revision"],
+        return {"schema_version": 1, "request_mode": "data_request", "base_revision": payload["base_revision"],
                 "requirements": [{"id": "r", "sources": [source], "text": question,
                                   "handled_by": [step["id"] for step in steps]}],
-                "steps": [{**step, "requirement_ids": ["r"]} for step in steps]}
-        return (add_explanation(plan, question) if question == MIXED else plan), {}
+                "steps": [{**step, "requirement_ids": ["r"]} for step in steps]}, {}
 
     def compose(self, payload):
         if payload["mode"] == "general_only":
-            text = "이온 플럭스는 단위 면적·시간당 입자 수입니다." if payload["question"] == MIXED else "IED는 이온 에너지 분포입니다."
-            return {"paragraphs": [text], "sources": []}, {}
+            return {"paragraphs": ["IED는 이온 에너지 분포입니다."], "sources": []}, {}
         return {"fact_ids": [row["id"] for row in payload["evidence"]], "interpretations": [], "limitations": []}, {}
 
     def review(self, payload):

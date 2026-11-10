@@ -10,7 +10,7 @@ from ..contracts import ConditionId, OutputMetric
 from ..metric_registry import NumericError, normalize_value
 from .contracts import (
     AwaitInputStep, CompareStep, ContextRef, ContextSelectionScope, DeriveStep, ForwardStep, LiteralInput,
-    ExplainStep, PlanDraft, ResultRef, ReverseStep, RunScope, ScalarScope, SelectionScope, StepSpec,
+    PlanDraft, ResultRef, ReverseStep, RunScope, ScalarScope, SelectionScope, StepSpec,
 )
 
 
@@ -30,8 +30,6 @@ def _bindings(value: object) -> Iterator[ContextRef | LiteralInput | ResultRef]:
 
 
 def _fields(step: StepSpec) -> set[str]:
-    if isinstance(step, ExplainStep):
-        return set()
     if isinstance(step, CompareStep):
         return set(step.inputs.fields)
     if isinstance(step, DeriveStep):
@@ -163,22 +161,10 @@ def validate_plan(
 ) -> PlanDraft:
     if plan.base_revision != base_revision:
         raise InvalidPlan("plan base revision is stale")
-    explanations = [step for step in plan.steps if isinstance(step, ExplainStep)]
-    work = [step for step in plan.steps if not isinstance(step, ExplainStep)]
-    if len(explanations) > 1:
-        raise InvalidPlan("explain_answer must appear at most once, as the last step")
-    if explanations:
-        explanation = explanations[0]
-        if plan.steps[-1].id != explanation.id or explanation.run_if or explanation.requires:
-            raise InvalidPlan("explain_answer must be the last, unconditional step without requires")
-        if any(explanation.id in step.depends_on for step in work):
-            raise InvalidPlan("no step may depend on explain_answer")
     if plan.request_mode == "general_only":
-        if work or data_required:
+        if plan.steps or data_required:
             raise InvalidPlan("general-only mode cannot perform or bypass a data request")
-        if len(explanations) != 1 or explanations[0].inputs.mode != "concept":
-            raise InvalidPlan("general_only needs one explain_answer with mode=concept and mapped requirements")
-    elif not work or not plan.requirements:
+    elif not plan.steps or not plan.requirements:
         raise InvalidPlan("data requests need steps and requirements")
 
     by_id = {s.id: s for s in plan.steps}
@@ -222,13 +208,6 @@ def validate_plan(
     allowed_search_fields = set(get_args(OutputMetric) + get_args(ConditionId))
     for step in ordered:
         parents = ancestors[step.id]
-        if isinstance(step, ExplainStep):
-            if not {item.id for item in work} <= parents:
-                raise InvalidPlan("explain_answer must depend on all preceding work steps")
-            if step.inputs.mode == "results" and not any(
-                isinstance(by_id[parent], (ForwardStep, ReverseStep, CompareStep)) for parent in parents
-            ):
-                raise InvalidPlan("explain_answer results needs preceding Run data evidence")
 
         def producer(step_id: str, field: str) -> StepSpec:
             if step_id not in parents:

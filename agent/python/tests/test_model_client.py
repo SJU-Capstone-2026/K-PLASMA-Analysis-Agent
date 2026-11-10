@@ -125,11 +125,6 @@ def test_provider_terminal_status_and_safe_reason_are_distinct(stream, status, r
     assert span.attributes["llm.token_count.prompt"] == 11
     assert span.attributes["llm.token_count.completion"] == 22
     assert span.attributes["llm.token_count.total"] == 33
-    assert error.value.usage["outputTokens"] == 22
-    assert error.value.usage["maxOutputTokens"] == 3000
-    assert error.value.response["status"] == status
-    captured = json.loads(span.attributes["output.value"])
-    assert captured["response"]["usage"]["output_tokens"] == 22
 
 
 def test_plain_general_answer_stream_keeps_native_tool_continuation():

@@ -126,7 +126,7 @@ def score_case(case, plan, snapshot, steps, interrupted):
         failures.setdefault(phase, []).append(reason)
 
     planned = plan.get("steps") or []
-    tools = tuple(s["tool"] for s in planned if s.get("kind") == "tool" and s.get("tool") != "explain_answer")
+    tools = tuple(s["tool"] for s in planned if s.get("kind") == "tool")
     operations = tuple(s["operation"] for s in planned if s.get("kind") == "derive")
     if Counter(tools) != Counter(case.tools):
         fail("first_plan", "tool set differs")

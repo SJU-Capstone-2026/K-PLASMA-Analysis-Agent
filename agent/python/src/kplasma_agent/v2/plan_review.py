@@ -12,7 +12,7 @@ from ..metric_registry import UNITS, normalize_value
 from .contracts import ClosedModel, Operation, PlanDraft
 from .plan_checks import build_check_specs, choices_for, rejection_evidence
 
-PROMPT_VERSION = "plan-semantics-conditions-3-explain"
+PROMPT_VERSION = "plan-semantics-conditions-2"
 LEGACY_NAMES = {"request_coverage", "condition_preservation", "target_operation_alignment"}
 Choice = Literal["match", "mismatch", "unclear", "missing", "unexpected", "value_changed", "unit_changed",
                  "boundary_changed", "direction_changed", "target_changed"]
@@ -107,8 +107,6 @@ def tool_contracts() -> dict:
                              "plot_ids": "같은 Run들의 분포를 보조 그래프로 제공. 검색 조건이나 비교 집합을 변경하지 않음.",
                          },
                          "outputs": "각 요청 field의 Run별 quantity 목록과 candidates 참조"},
-        "explain_answer": {"description": "요구사항에 연결된 마지막 설명 단계. concept는 일반 개념, results는 앞서 검증된 실제 Run 결과 해석. 실제 데이터 요청을 concept로 우회하면 안 됨.",
-                           "modes": ["concept", "results"], "outputs": "최종 사용자 설명. 후속 데이터 도구 입력으로 사용하지 않음."},
         "derive": {"operations": list(get_args(Operation)),
                    "description": "values가 참조한 검증된 수치에 등록 연산을 적용. 후속 도구의 새 기준값 등에 사용.",
                    "output": "value: 단위가 있는 단일 quantity"},
@@ -148,7 +146,7 @@ def build_plan_review_context(plan: PlanDraft, revision: int, question: str, inp
             "baseline": "기준 미지정이면 기준 없는 값·절대 차이·범위 비교. 사용자가 직접 고르면 baseline 확인을 계획.",
             "new_selection": "현재 질문에서 새 대상·기준을 직접 고르겠다고 하면 이전 문맥에 선택된 Run·baseline이 있어도 새 확인 단계를 계획하는 것이 맞다. 이전 선택을 강제로 재사용하지 않는다.",
             "units": "단위 표기 정규화 허용. 원문 리터럴 수치와 배율 보존. 실제 단위 변환은 코드가 수행.",
-            "interpretation": "표·계산·그래프는 코드로 제공. 설명 요청은 마지막 explain_answer로 처리. concept는 개념 설명, results는 실제 Run 근거 해석. 혼합 요청은 data_request이며 설명 요구도 requirement_ids로 연결해야 함.",
+            "interpretation": "표·계산·그래프는 코드로 제공. 해석 요청은 interpretation_requested=true로 답변 단계가 처리.",
             "condition_review": "검색 필터·경계·정렬·요청 개수의 실행 효과를 검사한다. compare_runs.fields는 출력 특징값이고 plot_ids는 같은 대상의 보조 그래프이므로 검색 조건 추가가 아니다. null·빈 배열은 미사용 선택 항목이다.",
         },
         "completed_steps": {key: {"status": value.get("status"), "execution_id": value.get("executionId")}
@@ -227,8 +225,6 @@ def program_effects(plan: PlanDraft) -> list[str]:
             text += f"; baseline={_binding_text(inputs['baseline'])}; trend_axis={_binding_text(inputs['trend_axis'])}"
             if inputs["plot_ids"]:
                 text += "; supplementary plots=" + ",".join(inputs["plot_ids"])
-        elif item.get("tool") == "explain_answer":
-            text = f"final explanation mode={inputs['mode']}; requirements={step.requirement_ids}"
         elif item["kind"] == "derive":
             text = f"{item['operation']}({_binding_text(inputs['values'])}); direction={inputs['direction']}"
         elif item["kind"] == "await_input":

@@ -95,24 +95,19 @@ class Journal:
 
 
 class GeneralModel:
-    def review_plan(self, payload):
-        from runtime_v2_worker import matching_plan_review
-        return matching_plan_review(payload)
-
     def submit_plan(self, context):
-        from runtime_v2_worker import add_explanation
-        return add_explanation({"schema_version": 2, "request_mode": "general_only", "base_revision": None,
-                "requirements": [], "steps": []}, context["messages"]["question"]), {}
+        return {"schema_version": 1, "request_mode": "general_only", "base_revision": None,
+                "requirements": [], "steps": []}, {}
 
     def compose(self, context):
         return {"paragraphs": ["이온 에너지 분포입니다."], "sources": []}, {}
 
 
-def test_general_path_reviews_explicit_explanation_and_has_two_generation_calls():
+def test_general_path_has_two_generation_calls_and_no_decisions():
     journal = Journal()
     graph = build_v2_graph(GeneralModel(), journal, None)
     result = graph.invoke({"request_id": "req", "question": "IED가 뭐야?", "context": {}, "input_history": []})
-    assert journal.calls == ["PLAN_INITIAL", "PLAN_REVIEW", "COMPOSE"]
+    assert journal.calls == ["PLAN_INITIAL", "COMPOSE"]
     answer = result["answer"]["answerSnapshot"]
     assert answer["answer"] == "이온 에너지 분포입니다."
     assert answer["review"]["status"] == "SKIPPED"
@@ -140,7 +135,8 @@ def test_data_answer_uses_writer_only_for_interpretation(needs_selection, interp
     class SearchModel(ScriptedGateway):
         def submit_plan(self, payload):
             question = payload["messages"]["question"]
-            plan = {"schema_version": 2, "request_mode": "data_request", "base_revision": None,
+            return {"schema_version": 1, "request_mode": "data_request", "base_revision": None,
+                    "interpretation_requested": interpretation_requested,
                     "requirements": [{"id": "request", "sources": [{"message_key": "question", "quote": question}],
                                       "text": question, "handled_by": ["choose" if needs_selection else "search"]}],
                     "steps": [
@@ -154,11 +150,7 @@ def test_data_answer_uses_writer_only_for_interpretation(needs_selection, interp
                          "inputs": {"target_step_id": "choose", "field": "selected_runs",
                                     "candidates": {"kind": "result_ref", "step_id": "search", "field": "candidates",
                                                    "scope": {"kind": "candidate_group"}}}}] if needs_selection else []),
-                    ]}
-            if interpretation_requested:
-                from runtime_v2_worker import add_explanation
-                add_explanation(plan, question, "results")
-            return plan, {}
+                    ]}, {}
 
         def compose(self, payload):
             fact_ids = [item["id"] for item in payload["evidence"]]

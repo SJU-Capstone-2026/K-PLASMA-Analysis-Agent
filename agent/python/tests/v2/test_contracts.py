@@ -14,7 +14,7 @@ def test_rejects_v1_snapshot_as_graph_v2():
 def test_plan_rejects_unregistered_step_fields():
     with pytest.raises(ValidationError, match="extra_forbidden"):
         contracts.PlanDraft.model_validate({
-            "schema_version": 2, "request_mode": "data_request", "base_revision": None,
+            "schema_version": 1, "request_mode": "data_request", "base_revision": None,
             "requirements": [],
             "steps": [{"id": "s", "kind": "derive", "operation": "max", "inputs": {},
                        "json_path": "$.anything"}],

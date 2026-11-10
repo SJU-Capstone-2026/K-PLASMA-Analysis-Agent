@@ -76,11 +76,11 @@ class StreamingModels:
 
     def submit_plan(self, context):
         self.provider_calls.append("plan")
-        plan = {"schema_version": 2, "request_mode": "general_only", "base_revision": None,
-                "requirements": [], "steps": []}
+        plan = {"schema_version": 1, "request_mode": "general_only", "base_revision": None,
+                "interpretation_requested": False, "requirements": [], "steps": []}
         if self.interpretation is not None:
             question = context["messages"]["question"]
-            plan.update(request_mode="data_request",
+            plan.update(request_mode="data_request", interpretation_requested=self.interpretation,
                         requirements=[{"id": "request", "text": question,
                                        "sources": [{"message_key": "question", "quote": question}],
                                        "handled_by": ["compare"]}],
@@ -88,9 +88,6 @@ class StreamingModels:
                                 "requirement_ids": ["request"], "inputs": {
                                     "runs": {"kind": "context_ref", "key": "selected_runs"},
                                     "fields": ["pressure"]}}])
-        if self.interpretation is None or self.interpretation:
-            from runtime_v2_worker import add_explanation
-            add_explanation(plan, context["messages"]["question"], "concept" if self.interpretation is None else "results")
         return plan, {"inputTokens": 1, "outputTokens": 1}
 
     def review_plan(self, context):
@@ -179,12 +176,12 @@ def test_general_graph_publishes_during_the_writer_with_the_same_two_model_roles
     port = DurablePort()
     models = StreamingModels(port)
     snapshot = invoke(models, port)
-    assert port.model_reservations == ["PLAN_INITIAL", "PLAN_REVIEW", "COMPOSE"]
+    assert port.model_reservations == ["PLAN_INITIAL", "COMPOSE"]
     assert models.provider_calls == ["plan", "writer"]
     assert len(models.before_return) == 1
     assert preview_text(port, 1) == snapshot["answer"]
     assert snapshot["review"]["status"] == "SKIPPED"
-    assert snapshot["budget"]["model_requests_used"] == 3
+    assert snapshot["budget"]["model_requests_used"] == 2
     assert not events(port, "answer.reset")
 
 
@@ -252,7 +249,7 @@ def test_cached_writer_restores_the_complete_preview_without_another_provider_ca
     assert restored["draft"] == original["draft"]
     assert len(events(port, "answer.start")) == 1
     reused = [event for event in events(port, "activity") if event["payload"]["code"] == "REUSE_RESULT"]
-    assert len(reused) == 3 and all(event["payload"]["phase"] == "reused" for event in reused)
+    assert len(reused) == 2 and all(event["payload"]["phase"] == "reused" for event in reused)
     assert not [event for event in events(port, "activity")
                 if event["payload"]["code"] in {"PLAN", "GENERAL_ANSWER"}]
 
