@@ -3,12 +3,12 @@ import type {AgentRequestView,RunOption,RunOptions,RunSelection,RunSelectionChan
 import {changeRunSelection,fetchRunOptions,fetchRunOptionCount,fetchRunSelection} from '../../api/agent';
 import {numberText,reasons} from './agent-contract';
 
-type Props={request:AgentRequestView;sending:boolean;onResume:(input:Snapshot)=>Promise<void>;onError:(error:unknown)=>void};
+type Props={request:AgentRequestView;sending:boolean;onResume:(input:Snapshot)=>Promise<void>;onError:(error:unknown)=>void;onCancel?:()=>Promise<void>};
 type Operation=Omit<RunSelectionChange,'pendingInputId'|'expectedRequestRevision'|'expectedSelectionRevision'>;
 const message=(error:unknown)=>error instanceof Error?error.message:String(error);
 
 /** The keyed parent resets this state only for a new request/pending revision. */
-export function RunPicker({request,sending,onResume,onError}:Props){
+export function RunPicker({request,sending,onResume,onError,onCancel}:Props){
  const pending=request.pendingInput!;
  const [page,setPage]=useState<RunOptions|null>(null),[selection,setSelection]=useState<RunSelection|null>(null);
  const current=useRef<RunSelection|null>(null),queue=useRef(Promise.resolve()),generation=useRef(0);
@@ -114,6 +114,9 @@ export function RunPicker({request,sending,onResume,onError}:Props){
   <div className="v1-card-actions"><button className="button button--ghost button--small" disabled={stale||cursors.length<2} onClick={()=>setCursors(v=>v.slice(0,-1))}>이전 페이지</button><span>{cursors.length}페이지 · {page?.options.length??0}개 표시</span><button className="button button--ghost button--small" disabled={stale||!page?.hasMore} onClick={()=>setCursors(v=>[...v,page!.nextCursor])}>다음 페이지</button></div>
   <label className="v1-baseline">비교 기준 {pending.baselineRequired?'(필수)':'(선택)'}<select disabled={busy||!selection} value={baseline} onChange={e=>enqueue({operation:'baseline',baselineKey:e.target.value||null})}><option value="">기준 없이 값·절대 차이·범위 비교</option>{baseline&&!chosen.has(baseline)&&<option value={baseline}>{baseline} · 선택한 기준 실험</option>}{chosenRows.filter(o=>o.selectable).map(o=><option key={o.key} value={o.key}>{o.key} · {o.ref.runId}</option>)}</select></label>
   <p className="v1-limitation">목록은 최신 실험을 보여줍니다. 선택한 실험은 선택 당시 버전으로 유지됩니다.</p>
-  <button type="button" className="button button--primary" disabled={sending||!valid} onClick={()=>onResume({type:'run_selection',snapshotId:selection!.snapshotId,selectionRevision:selection!.selectionRevision}).catch(onError)}>선택한 실험으로 계속</button>
+  <div className="v1-card-actions">
+   {onCancel&&<button type="button" className="button button--ghost button--small" disabled={sending} onClick={()=>onCancel().catch(onError)}>분석 취소</button>}
+   <button type="button" className="button button--primary" disabled={sending||!valid} onClick={()=>onResume({type:'run_selection',snapshotId:selection!.snapshotId,selectionRevision:selection!.selectionRevision}).catch(onError)}>선택한 실험으로 계속</button>
+  </div>
  </div>;
 }

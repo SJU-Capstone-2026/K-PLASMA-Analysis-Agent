@@ -61,7 +61,8 @@ for(const width of [390,800,1008,1440])test(`answer chrome and multiple chat ref
    expect(await chip.locator('strong').evaluate(node=>node.scrollWidth<=node.clientWidth+1)).toBe(true);
   }
  };
- await expect(composer.locator('.reference-tray-label')).toHaveText('후보 집합 · 8개');
+ await expect(composer.locator('.run-context-chip')).toHaveCount(8);
+ await expect(composer).not.toContainText('후보 집합');
  await composer.locator('.reference-tray-more summary').click();
  const assignedColors=await tagColors();
  // Historical comparison Runs already reserve the first two colors in this conversation.
@@ -77,7 +78,7 @@ for(const width of [390,800,1008,1440])test(`answer chrome and multiple chat ref
  await composer.getByRole('button',{name:`${runs[0].runId} 채팅에서 제거`}).click();
  await expect.poll(()=>workspace.candidateReference?.runs.length).toBe(6);
  expect(submissions).toHaveLength(0);expect(workspace.conversation.turns).toEqual(frozen);
- await page.reload();await expect(composer.locator('.reference-tray-label')).toHaveText('후보 집합 · 6개');
+ await page.reload();await expect(composer.locator('.run-context-chip')).toHaveCount(6);
  expect(await tagColors()).toEqual(assignedColors.slice(1,7));
  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth)).toBe(true);
  expect(await composer.evaluate(node=>node.scrollWidth<=node.clientWidth+1)).toBe(true);

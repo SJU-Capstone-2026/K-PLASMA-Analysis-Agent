@@ -1,6 +1,8 @@
 import {expect,test} from '@playwright/test';
 import type {TurnSnapshot,WorkspaceView} from 'agent';
 import wire from '../../../../agent/tests/support/answer-v2-wire.json' with {type:'json'};
+import v2 from '../../../../agent/tests/support/v2/contracts.json' with {type:'json'};
+import {syntheticRun} from '../../test/runs';
 import {emptyWorkspace,initialTurnUi} from './useConversation';
 
 // Artificial prose only: these screenshots never contain experiment data or user history.
@@ -34,7 +36,17 @@ for(const width of [390,800,1008,1440])test(`general answer math, legacy reload 
   id:`math-${index}`,askedAt:'2026-10-08T00:00:00Z',question:'수식 표시용 인공 질문',intent:'GENERAL_ANSWER',context:null,
   answerRunRefs:[],answerSnapshot:{...wire.general,result:{...wire.general.result,markdown:text}},ui:structuredClone(initialTurnUi),
  } satisfies TurnSnapshot));
- const workspace:WorkspaceView={...structuredClone(emptyWorkspace),conversation:{version:1,activeRun:null,turns}};
+ const run=syntheticRun();
+ const v2General:TurnSnapshot={...turns[1],id:'v2-general',answerSnapshot:{...v2.general_answer,answer:legacy}};
+ const v2Interpretation:TurnSnapshot={...turns[1],id:'v2-interpretation',intent:'COMPOSITE_ANSWER',answerSnapshot:JSON.parse(JSON.stringify({
+  ...v2.general_answer,intent:'COMPOSITE_ANSWER',
+  stepResults:[{executionId:'lookup',stepId:'lookup',status:'verified',groupId:null,reason:null,
+   outputs:{toolResult:{kind:'forward_lookup',resultStatus:'EXACT',candidates:[run]}},
+   runRefs:[{runId:run.runId,runVersionId:run.runVersionId}]}],
+  draft:{interpretations:[{text:markdown,assumptions:[]}],limitations:[]},
+ }))};
+ const workspace:WorkspaceView={...structuredClone(emptyWorkspace),conversation:{version:1,activeRun:null,
+  turns:[...turns,v2General,v2Interpretation]}};
  await page.route('**/api/**',async route=>{
   const request=route.request();const path=new URL(request.url()).pathname;
   if(!path.startsWith('/api/'))return route.continue();
@@ -47,6 +59,8 @@ for(const width of [390,800,1008,1440])test(`general answer math, legacy reload 
  const current=page.locator('[data-turn-id="math-0"] .v1-general-answer');
  const saved=page.locator('[data-turn-id="math-1"] .v1-general-answer');
  const emphasized=page.locator('[data-turn-id="math-2"] .v1-general-answer');
+ const v2Saved=page.locator('[data-turn-id="v2-general"]');
+ const v2Analysis=page.locator('[data-turn-id="v2-interpretation"]').getByRole('region',{name:'결과 해석'});
  await expect(current.locator('.katex math')).toHaveCount(6);
  await expect(current.locator('.katex-error')).toHaveText('\\frac{1}{');
  await expect(current.getByText('설명은 계속 표시됩니다.')).toBeVisible();
@@ -55,6 +69,9 @@ for(const width of [390,800,1008,1440])test(`general answer math, legacy reload 
  await expect(emphasized.locator('strong .katex math')).toHaveCount(2);
  await expect(emphasized.locator('.katex-display')).toHaveCount(1);
  await expect(emphasized).not.toContainText('**');
+ await expect(v2Saved.locator('.katex math')).toHaveCount(2);
+ await expect(v2Analysis.locator('.katex math')).toHaveCount(6);
+ await expect(page.locator('[data-turn-id="v2-interpretation"]').getByRole('table',{name:'검색 Run 목록'})).toBeVisible();
  await page.evaluate(()=>document.fonts.ready);
  expect(await current.locator('.katex').first().evaluate(el=>getComputedStyle(el).fontFamily)).toContain('KaTeX_Main');
  expect(await current.locator('.katex-html').first().evaluate(el=>el.getBoundingClientRect().width)).toBeGreaterThan(10);
@@ -66,6 +83,7 @@ for(const width of [390,800,1008,1440])test(`general answer math, legacy reload 
  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
  expect(await current.evaluate(el=>el.scrollWidth<=el.clientWidth+1)).toBe(true);
  expect(await emphasized.evaluate(el=>el.scrollWidth<=el.clientWidth+1)).toBe(true);
+ expect(await v2Analysis.evaluate(el=>el.scrollWidth<=el.clientWidth+1)).toBe(true);
  await page.screenshot({path:info.outputPath(`synthetic-general-math-${width}.png`),fullPage:true});
  await emphasized.screenshot({path:info.outputPath(`synthetic-korean-emphasis-${width}.png`)});
  await page.reload();
@@ -73,6 +91,8 @@ for(const width of [390,800,1008,1440])test(`general answer math, legacy reload 
  await expect(current.locator('.katex math')).toHaveCount(6);
  await expect(emphasized.locator('strong')).toHaveCount(4);
  await expect(emphasized).not.toContainText('**');
+ await expect(v2Saved.locator('.katex math')).toHaveCount(2);
+ await expect(v2Analysis.locator('.katex math')).toHaveCount(6);
  expect(workspace.conversation.turns[1].answerSnapshot.result).toEqual({...wire.general.result,markdown:legacy});
  expect(workspace.conversation.turns[2].answerSnapshot.result).toEqual({...wire.general.result,markdown:emphasis});
  expect(writes).toEqual([]);

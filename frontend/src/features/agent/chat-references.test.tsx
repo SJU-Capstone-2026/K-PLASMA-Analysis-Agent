@@ -41,7 +41,7 @@ test('quickly adding three Runs accumulates exact references, deduplicates and s
  expect(api.workspace.conversation.turns[0]).toEqual(frozen);
  expect(api.submitted).toEqual([]);
  view.unmount();render(<Harness/>);
- await waitFor(()=>expect(document.querySelector('#agent-query-form .reference-tray')).toHaveTextContent('후보 집합 · 3개'));
+ await waitFor(()=>expect(document.querySelectorAll('#agent-query-form .run-context-chip')).toHaveLength(3));
  const composer=within(document.getElementById('agent-query-form')!);
  runs.forEach(run=>expect(composer.getByText(run.runId)).toBeVisible());
  fireEvent.change(composer.getByRole('textbox'),{target:{value:'이 세 실험을 비교해줘'}});

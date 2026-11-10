@@ -7,6 +7,14 @@ from .v2_cases import CASES
 from .v2_harness import score_case
 
 
+class MatchingPlanReview:
+    """Explicit scripted response; these tests isolate execution and answer review."""
+
+    def review_plan(self, context):
+        from runtime_v2_worker import matching_plan_review
+        return matching_plan_review(context)
+
+
 def test_evaluation_matrix_has_24_cases_and_eight_repeated_three_times():
     matrix = list(jobs(24, None, 3))
     counts = Counter((model, effort, case.id) for model, effort, case, _ in matrix)
@@ -30,7 +38,8 @@ def test_final_review_does_not_make_a_wrong_search_pass():
     assert "missing ionFlux gt 20" in failure["execution"]
 
 
-def test_completed_search_preserves_measurements_and_skips_writer_without_interpretation():
+@pytest.mark.parametrize("plan_review_enabled", [True, False])
+def test_completed_search_preserves_measurements_and_skips_writer_without_interpretation(plan_review_enabled):
     from kplasma_agent.v2.composition import collect_search_evidence
     from kplasma_agent.v2.contracts import StepResult
 
@@ -38,7 +47,7 @@ def test_completed_search_preserves_measurements_and_skips_writer_without_interp
 
     case = next(c for c in CASES if c.id == "flux-over-20")
 
-    class Model:
+    class Model(MatchingPlanReview):
         def submit_plan(self, payload):
             assert payload["base_revision"] is None
             source = {"message_key": "question", "quote": case.question}
@@ -50,14 +59,20 @@ def test_completed_search_preserves_measurements_and_skips_writer_without_interp
                                "inputs": {"constraints": [{"field": "ionFlux", "operator": "gt", "value": {
                                    "kind": "literal", "value": 20, "unit": None, "source": source}}]}}]}, {}
 
-    row = evaluate_case(case, Model())
+    row = evaluate_case(case, Model(), plan_review_enabled=plan_review_enabled)
     assert row["pass"], row["failures"]
     snapshot = row["snapshot"]
     assert snapshot["executionStatus"] == "COMPLETE"
     assert snapshot["draft"] is None
     assert snapshot["review"]["status"] == "SKIPPED"
     assert snapshot["budget"]["tool_invocations_used"] == 1
-    assert [attempt["kind"] for attempt in row["model_attempts"]] == ["PLAN_INITIAL"]
+    assert [attempt["kind"] for attempt in row["model_attempts"]] == (
+        ["PLAN_INITIAL", "PLAN_REVIEW"] if plan_review_enabled else ["PLAN_INITIAL"])
+    assert row["plan_review_enabled"] is plan_review_enabled
+    assert row["stage_metrics"]["PLAN_INITIAL"]["calls"] == 1
+    assert row["stage_metrics"]["PLAN_INITIAL"]["seconds"] >= 0
+    assert row["plan_reviews"][0]["status"] == ("PASS" if plan_review_enabled else "SKIPPED")
+    assert len(row["accepted_plans"]) == 1
     search, = collect_search_evidence([StepResult.model_validate(step) for step in snapshot["stepResults"]])
     rule, = search["constraints"]
     assert (rule["metric"], rule["operator"], rule["value"]) == ("ionFlux", "gt", 20)
@@ -76,7 +91,7 @@ def test_overclaim_review_uses_only_visible_interpretations_and_rewrites_without
     case = replace(next(c for c in CASES if c.id == "compare-flux"),
                    question="선택한 두 Run의 이온 플럭스를 비교하고 차이의 의미를 설명해줘.")
 
-    class Model:
+    class Model(MatchingPlanReview):
         def submit_plan(self, payload):
             return {"schema_version": 1, "request_mode": "data_request", "base_revision": None,
                     "interpretation_requested": True,
@@ -117,7 +132,7 @@ def test_overclaim_review_uses_only_visible_interpretations_and_rewrites_without
     assert answer["budget"]["tool_invocations_used"] == 1
     assert answer["budget"]["replans_used"] == 0
     assert [attempt["kind"] for attempt in row["model_attempts"]] == [
-        "PLAN_INITIAL", "COMPOSE", "REVIEW", "ANSWER_REWRITE", "REVIEW"]
+        "PLAN_INITIAL", "PLAN_REVIEW", "COMPOSE", "REVIEW", "ANSWER_REWRITE", "REVIEW"]
 
 
 @pytest.mark.parametrize("selection_count", [None, 2, 3])
@@ -128,7 +143,7 @@ def test_search_candidates_are_saved_before_requesting_comparison_selection(sele
     from .v2_cases import runs
     from .v2_harness import EvaluationJournal
 
-    class Model:
+    class Model(MatchingPlanReview):
         def submit_plan(self, payload):
             question = payload["messages"]["question"]
             source = {"message_key": "question", "quote": question}
@@ -186,7 +201,7 @@ def test_baseline_picker_waits_then_compares_against_the_chosen_run(output_field
     from .v2_cases import runs
     from .v2_harness import EvaluationJournal
 
-    class Model:
+    class Model(MatchingPlanReview):
         def submit_plan(self, payload):
             question = payload["messages"]["question"]
             source = {"message_key": "question", "quote": question}
@@ -232,7 +247,7 @@ def test_baseline_picker_waits_then_compares_against_the_chosen_run(output_field
     comparison = snapshot["stepResults"][-1]["outputs"]["toolResult"]
     assert snapshot["executionStatus"] == "COMPLETE"
     assert snapshot["budget"]["replans_used"] == 0
-    assert len(journal.models) == 1
+    assert len(journal.models) == 2
     assert comparison["baselineKey"] == "R2"
     assert comparison["comparisons"][0]["kind"] == "baseline_delta"
     assert comparison["comparisons"][0]["difference"]["value"] == -2

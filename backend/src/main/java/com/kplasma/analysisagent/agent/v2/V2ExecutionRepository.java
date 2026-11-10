@@ -19,7 +19,8 @@ import java.util.HashSet;
 @Repository
 public class V2ExecutionRepository {
     private static final Map<String, Integer> MODEL_LIMITS = Map.of(
-        "PLAN_INITIAL", 1, "REPLAN", 2, "COMPOSE", 3, "ANSWER_REWRITE", 1, "PARTIAL_COMPOSE", 1, "REVIEW", 5);
+        "PLAN_INITIAL", 1, "REPLAN", 2, "PLAN_REVIEW", 3, "COMPOSE", 3,
+        "ANSWER_REWRITE", 1, "PARTIAL_COMPOSE", 1, "REVIEW", 5);
     private static final Set<String> TOOLS = Set.of("forward_lookup", "reverse_search", "compare_runs", "decision_records");
     private final JdbcTemplate jdbc;
     private final ObjectMapper mapper;

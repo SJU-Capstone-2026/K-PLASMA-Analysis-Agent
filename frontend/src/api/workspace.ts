@@ -7,3 +7,4 @@ export const patchTurnUi=(stateToken:StateToken,id:string,ui:Partial<TurnUiSnaps
 /** R1: both fields are explicit, including null; active Run and candidate reference are independent. */
 export const writeReference=(stateToken:StateToken,candidateReference:ReferenceState,activeRun:RunRef|null,signal?:AbortSignal)=>request<WorkspaceView>('/api/workspace/reference',{...json({stateToken,candidateReference,activeRun},signal),method:'PUT'});
 export const replaceConversation=(stateToken:StateToken,reset=false)=>request<WorkspaceView>(`/api/workspace/${reset?'reset':'new-conversation'}`,{...json({stateToken}),method:'POST'});
+export const activateConversation=(stateToken:StateToken,epoch:number,signal?:AbortSignal)=>request<WorkspaceView>(`/api/workspace/conversations/${epoch}/activate`,{...json({stateToken},signal),method:'POST'});
