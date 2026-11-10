@@ -214,6 +214,25 @@ def _plan_defaults(value):
     return value
 
 
+def _decisions_response(client, settings, body):
+    with tracing.span("llm.decisions", kind="LLM", inputs=body,
+                      attributes={"llm.model_name": settings.decisions_model}) as observation:
+        response = client.post(settings.decisions_url, json=body,
+                               headers={"Authorization": "Bearer " + settings.writer.api_key})
+        observation.attribute("http.response.status_code", response.status_code)
+        response.raise_for_status()
+        data = response.json()
+        observation.output(data)
+        if not isinstance(data, dict):
+            raise ValueError("DECISIONS_INVALID_RESPONSE")
+        usage = data.get("usage") or {}
+        for source, target in (("input_tokens", "prompt"), ("output_tokens", "completion"),
+                               ("total_tokens", "total")):
+            if source in usage:
+                observation.attribute("llm.token_count." + target, usage[source])
+        return data
+
+
 def review_answer(client: httpx.Client, settings: V2Settings, payload):
     body = {
         "model": settings.decisions_model,
@@ -224,11 +243,9 @@ def review_answer(client: httpx.Client, settings: V2Settings, payload):
             for name, (instructions, choices) in QUESTIONS.items()
         ],
     }
+    data = {}
     try:
-        response = client.post(settings.decisions_url, json=body,
-                               headers={"Authorization": "Bearer " + settings.writer.api_key})
-        response.raise_for_status()
-        data = response.json()
+        data = _decisions_response(client, settings, body)
         rows = data["answers"]
         by_name = {row["name"]: row for row in rows}
         if len(rows) != len(QUESTIONS) or set(by_name) != set(QUESTIONS):
@@ -253,7 +270,7 @@ def review_answer(client: httpx.Client, settings: V2Settings, payload):
         reason = "DECISIONS_CONNECTION"
     except (ValueError, KeyError, TypeError):
         reason = "DECISIONS_INVALID_RESPONSE"
-    return ReviewDecision(status="UNAVAILABLE", answers=[], reason=reason), None
+    return ReviewDecision(status="UNAVAILABLE", answers=[], reason=reason), data.get("usage")
 
 
 def review_plan(client: httpx.Client, settings: V2Settings, payload):
@@ -262,11 +279,9 @@ def review_plan(client: httpx.Client, settings: V2Settings, payload):
         "input": [{"role": "user", "content": [{"type": "input_json", "data": payload}]}],
         "questions": review_questions(payload),
     }
+    data = {}
     try:
-        response = client.post(settings.decisions_url, json=body,
-                               headers={"Authorization": "Bearer " + settings.writer.api_key})
-        response.raise_for_status()
-        data = response.json()
+        data = _decisions_response(client, settings, body)
         return parse_plan_review(data, payload).model_dump(mode="json"), data.get("usage")
     except httpx.TimeoutException:
         reason = "DECISIONS_TIMEOUT"
@@ -276,7 +291,7 @@ def review_plan(client: httpx.Client, settings: V2Settings, payload):
         reason = "DECISIONS_CONNECTION"
     except (ValueError, KeyError, TypeError):
         reason = "DECISIONS_INVALID_RESPONSE"
-    return review_result(payload, "UNAVAILABLE", reason=reason).model_dump(mode="json"), None
+    return review_result(payload, "UNAVAILABLE", reason=reason).model_dump(mode="json"), data.get("usage")
 
 
 class V2ModelGateway:
@@ -305,11 +320,11 @@ class V2ModelGateway:
             )
         calls = [item for item in response.output if item.type == "function_call"]
         if len(calls) != 1 or calls[0].name != "submit_plan" or not calls[0].call_id:
-            raise ModelError("MODEL_OUTPUT_INVALID")
+            raise ModelError("MODEL_OUTPUT_INVALID", usage=usage, response=response)
         try:
             plan = PlanDraft.model_validate(_plan_defaults(json.loads(calls[0].arguments)))
         except (ValueError, TypeError):
-            raise ModelError("MODEL_OUTPUT_INVALID") from None
+            raise ModelError("MODEL_OUTPUT_INVALID", usage=usage, response=response) from None
         return plan.model_dump(mode="json"), usage
 
     def compose(self, context, *, on_block=None, numeric_values=None):

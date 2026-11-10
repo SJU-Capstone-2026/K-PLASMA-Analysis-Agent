@@ -145,7 +145,10 @@ def build_v2_graph(models, executions, checkpointer):
             except (ModelError, ValueError, TypeError) as error:
                 if stream is not None:
                     stream.invalidate("writer_failed")
-                saved = {"data": None, "usage": None, "error": getattr(error, "code", "MODEL_OUTPUT_INVALID")}
+                saved = {"data": None, "usage": getattr(error, "usage", None),
+                         "error": getattr(error, "code", "MODEL_OUTPUT_INVALID")}
+                if getattr(error, "response", None) is not None:
+                    saved["response"] = error.response
             if kind == "PLAN_REVIEW":
                 saved["reviewInput"] = context
             saved = executions.complete_model(permit["attemptId"], saved)["outcome"]

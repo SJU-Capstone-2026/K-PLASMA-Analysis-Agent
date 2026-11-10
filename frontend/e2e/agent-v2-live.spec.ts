@@ -122,7 +122,8 @@ test('v2 browser answers', async ({page}) => {
         await page.setViewportSize({width, height: 1000});
         const widthOk = await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1);
         expect.soft(widthOk, `page must not overflow at ${width}px`).toBe(true);
-        await page.screenshot({path: join(output!, `v2-${item.id}-${width}.png`)});
+        await answer.scrollIntoViewIfNeeded();
+        await page.screenshot({path: join(output!, `v2-${item.id}-${width}.png`), animations: 'disabled'});
       }
     }
   }

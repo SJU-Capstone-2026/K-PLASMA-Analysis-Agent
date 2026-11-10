@@ -134,6 +134,14 @@ DB 조회 제한은 30초이며 모델 호출 제한 90초와 구분한다. 실�
 평가가 시작한 worker와 브라우저는 종료하지만, 사용자가 준비한 backend·frontend·DB는
 종료하거나 삭제하지 않는다.
 
+## Phoenix와 실패 토큰 관측
+
+실제 평가에서도 `PHOENIX_COLLECTOR_ENDPOINT`, `PHOENIX_API_KEY`, `PHOENIX_PROJECT_NAME` 설정을 worker에 전달한다. Phoenix 사용 시 사전에 모델을 호출하지 않는 연결 trace로 수신을 확인한다. Decisions 단독 실행도 동일한 tracing 초기화·종료를 사용한다.
+
+Responses의 성공·실패·출력 한도 종료 모두 상태, 설정한 `maxOutputTokens`, 제공자가 반환한 입력·출력·추론 토큰과 raw usage를 기록한다. 출력 한도로 잘린 원문과 응답 상태는 오류를 발생시키기 전에 Phoenix에 남기고, 실패한 모델 시도에도 usage와 정제된 response를 저장한다. 로컬 `execution-records.json`에서 같은 내용을 확인할 수 있다. 스트림 종료 응답을 받지 못하면 확보한 텍스트까지만 남기고 usage는 미확인으로 둔다. 타임아웃·연결 실패에서 제공자가 토큰을 반환하지 않았으면 0으로 간주하지 않는다. HTTP 인증 정보와 임의의 provider 오류 메시지, API 키와 판단 메모는 전송하지 않는다.
+
+Phoenix는 실행·복구의 정답이나 상태 저장소로 쓰지 않는다. 토큰량은 제공자 값과 상한을 구분하며, 출력 토큰에는 추론 토큰이 포함될 수 있으므로 본문 길이만으로 한도 초과를 단정하지 않는다. 설정한 상한은 늘리지 않고 역할별 실제 값을 보고한다.
+
 ## 산출물과 점수 읽기
 
 - `manifest.json`: 입력 해시, 실제 worker 소스 해시, 모델·검토·timeout과 실행량.
