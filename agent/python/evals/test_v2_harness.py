@@ -242,7 +242,7 @@ def test_search_candidates_are_saved_before_requesting_comparison_selection(sele
     }
 
 
-@pytest.mark.parametrize("output_field, search_first", [("baseline", False), ("selection", False), (None, True)])
+@pytest.mark.parametrize("output_field, search_first", [("value", False), (None, False), (None, True)])
 def test_baseline_picker_waits_then_compares_against_the_chosen_run(output_field, search_first):
     from langgraph.checkpoint.memory import InMemorySaver
     from langgraph.types import Command

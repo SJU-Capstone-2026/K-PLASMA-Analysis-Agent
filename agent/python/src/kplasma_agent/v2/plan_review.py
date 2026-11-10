@@ -12,7 +12,7 @@ from ..metric_registry import UNITS, normalize_value
 from .contracts import ClosedModel, Operation, PlanDraft
 from .plan_checks import build_check_specs, choices_for, rejection_evidence
 
-PROMPT_VERSION = "plan-semantics-conditions-3-explain"
+PROMPT_VERSION = "plan-semantics-conditions-4-contracts"
 LEGACY_NAMES = {"request_coverage", "condition_preservation", "target_operation_alignment"}
 Choice = Literal["match", "mismatch", "unclear", "missing", "unexpected", "value_changed", "unit_changed",
                  "boundary_changed", "direction_changed", "target_changed"]
@@ -87,7 +87,7 @@ def plan_digest(plan) -> str:
 
 def tool_contracts() -> dict:
     return {
-        "forward_lookup": {"description": "압력·소스·바이어스 조건으로 저장된 실제 Run 조회",
+        "forward_lookup": {"description": "압력·소스·바이어스 조건으로 저장된 실제 Run 조회. 한 Run의 기본 ionFlux·meanIonEnergy·iedWidth를 표와 설명 근거로 제공한다. 기본 지표 조회에 별도 비교 단계는 필요 없다. 후보 참조의 출력 필드는 candidates다.",
                            "inputs": ["pressure", "source_power", "bias_power"], "outputs": ["candidates"]},
         "reverse_search": {"description": "constraints와 target_range로 후보를 필터링한 뒤 maximize/minimize 순서로 정렬",
                            "constraint_logic": "constraints와 goals의 target_range는 전부 AND 필터. 독립 범위를 각각 조회하려면 별개 검색 단계가 필요하다. maximize/minimize만 필터 통과 후 정렬이다.",
@@ -100,7 +100,7 @@ def tool_contracts() -> dict:
                            },
                            "goals": ["maximize", "minimize", "target_range"], "outputs": ["candidates"]},
         "compare_runs": {"description": "지정된 고정 Run들의 fields 값·절대 차이·범위·기준 대비 변화량과 plot_ids 그래프 제공. 두 Run 차이는 기본 계산한다.",
-                         "fields": FIELD_META, "plot_ids": list(get_args(PlotId)),
+                         "fields": FIELD_META, "plot_ids": list(get_args(PlotId)), "minimum_run_count": 2,
                          "input_semantics": {
                              "runs": "candidate_group이면 검색 결과 전체를 비교. baseline:null은 기준 없는 비교.",
                              "fields": "등록된 Run별 특징값은 compare_runs 안에서 계산한다. fields에 목록을 전달하면 충분하며 별도 derive 단계는 필요 없다.",
@@ -114,7 +114,7 @@ def tool_contracts() -> dict:
                    "output": "value: 단위가 있는 단일 quantity"},
         "await_input": {"confirmations": ["run_selection", "condition", "baseline", "trend_axis", "calculation_direction"],
                         "description": "미확정 입력을 사용자에게 묻고 정해진 입력으로 재개. selection_count는 검색 제한이 아닌 정확한 선택 개수.",
-                        "outputs": {"run_selection": "selection: 고정 Run 참조 목록", "others": "value: 확인된 입력"}},
+                        "outputs": {"run_selection": "selection: 고정 Run 참조 목록", "others": "value: 확인된 입력. baseline/trend_axis 확인은 target_step_id 비교에 코드가 연결한다."}},
         "bindings": {
             "literal": "원문 수치·단위·source.quote. 단위 생략은 null이며 코드 기본 단위 적용.",
             "context_ref": "확인된 selected_runs 또는 R1 등 Run 별칭·고정 버전 참조. 측정값이 아님.",

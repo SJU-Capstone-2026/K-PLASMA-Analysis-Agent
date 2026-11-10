@@ -186,8 +186,10 @@ def test_gateway_streams_safe_prose_before_provider_completion_with_one_writer_r
     from kplasma_agent.v2.contracts import Evidence
 
     observed, requests, guards = [], [], []
-    draft = {"fact_ids": ["compare:O12"], "interpretations": [{"id": "private-I1",
-              "evidence_ids": ["compare:O12"], "text": "차이는 {{value:compare:O12}}입니다.",
+    execution_id = "00000000-0000-0000-0000-000000000012"
+    evidence_id = execution_id + ":O12"
+    draft = {"fact_ids": [evidence_id], "interpretations": [{"id": "private-I1",
+              "evidence_ids": [evidence_id], "text": "차이는 {{value:" + evidence_id + "|value}}입니다.",
               "assumptions": ["동일한 조건입니다."]}], "limitations": []}
     raw = json.dumps(draft, ensure_ascii=False)
     response = {"id": "synthetic", "object": "response", "created_at": 0, "status": "in_progress",
@@ -223,16 +225,19 @@ def test_gateway_streams_safe_prose_before_provider_completion_with_one_writer_r
         requests.append(body)
         assert body["stream"] is True
         assert "numeric_values" not in json.loads(body["input"])
+        assert "{{value:" + evidence_id + "|value}}" in body["instructions"]
+        assert "{{value:compare:O7" not in body["instructions"]
         return httpx.Response(200, headers={"content-type": "text/event-stream"}, stream=Body())
 
     settings = V2Settings.from_env(Settings(api_key="test"))
     with httpx.Client(transport=httpx.MockTransport(transport)) as http_client:
         gateway = V2ModelGateway(settings, http_client, lambda payload, role: guards.append(role))
         gateway.writer = ModelClient(settings.writer, http_client=http_client)
-        evidence = Evidence(id="compare:O12", executionId="compare", field="observation",
+        evidence = Evidence(id=evidence_id, executionId=execution_id, field="observation",
                             value="검증된 값", unit=None)
-        context = {"mode": "data_request", "evidence": [evidence.model_dump(mode="json")]}
-        values = {"compare:O12": {"value": "12 V"}}
+        context = {"mode": "data_request", "evidence": [{**evidence.model_dump(mode="json"),
+                                                          "value_parts": ["value"]}]}
+        values = {evidence_id: {"value": "12 V"}}
         final, _ = gateway.stream_compose(context, on_block=lambda block, text: observed.append((block, text)),
                                           numeric_values=values)
         rendered, saved = assemble_answer(final, "data_request", [evidence], numeric_values=values)
@@ -279,7 +284,10 @@ def test_model_failure_code_is_preserved_in_the_existing_outcome_error(failure, 
         journal = EvaluationJournal([])
         state = build_v2_graph(gateway, journal, None).invoke({"request_id": "synthetic", "question": "조회",
                     "context": {}, "input_history": []}, {"recursion_limit": 80})
-    attempt, = journal.models.values()
+    attempts = list(journal.models.values())
+    expected_calls = 3 if failure == "max_output_tokens" else 1
+    assert len(attempts) == expected_calls
+    attempt = attempts[-1]
     outcome = attempt["outcome"]
     assert outcome["data"] is None and outcome["error"] == code
     if failure == "max_output_tokens":
@@ -292,7 +300,7 @@ def test_model_failure_code_is_preserved_in_the_existing_outcome_error(failure, 
         assert outcome["response"]["status"] in {"failed", "incomplete"}
     else:
         assert "response" not in outcome
-    assert len(requests) == 1 and not journal.steps
-    assert state.get("replans", 0) == 0
+    assert len(requests) == expected_calls and not journal.steps
+    assert state.get("replans", 0) == expected_calls - 1
     assert state["answer"]["answerSnapshot"]["executionStatus"] == "FAILED"
     assert "private" not in json.dumps(attempt["outcome"])

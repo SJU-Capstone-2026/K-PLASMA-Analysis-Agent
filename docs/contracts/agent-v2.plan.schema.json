@@ -152,6 +152,38 @@
       "title": "CandidateScope",
       "type": "object"
     },
+    "ChoiceResultRef": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "result_ref",
+          "title": "Kind",
+          "type": "string"
+        },
+        "step_id": {
+          "maxLength": 96,
+          "minLength": 1,
+          "title": "Step Id",
+          "type": "string"
+        },
+        "field": {
+          "const": "value",
+          "title": "Field",
+          "type": "string"
+        },
+        "scope": {
+          "$ref": "#/$defs/ScalarScope"
+        }
+      },
+      "required": [
+        "kind",
+        "step_id",
+        "field",
+        "scope"
+      ],
+      "title": "ChoiceResultRef",
+      "type": "object"
+    },
     "CompareInputs": {
       "additionalProperties": false,
       "properties": {
@@ -256,7 +288,7 @@
                 "mapping": {
                   "context_ref": "#/$defs/ContextRef",
                   "literal": "#/$defs/LiteralInput",
-                  "result_ref": "#/$defs/ResultRef"
+                  "result_ref": "#/$defs/ChoiceResultRef"
                 },
                 "propertyName": "kind"
               },
@@ -268,7 +300,7 @@
                   "$ref": "#/$defs/ContextRef"
                 },
                 {
-                  "$ref": "#/$defs/ResultRef"
+                  "$ref": "#/$defs/ChoiceResultRef"
                 }
               ]
             },
@@ -1183,10 +1215,54 @@
           "type": "string"
         },
         "field": {
-          "maxLength": 96,
-          "minLength": 1,
-          "title": "Field",
-          "type": "string"
+          "anyOf": [
+            {
+              "enum": [
+                "candidates",
+                "selection",
+                "value"
+              ],
+              "type": "string"
+            },
+            {
+              "enum": [
+                "ionFlux",
+                "meanIonEnergy",
+                "iedWidth",
+                "pressure",
+                "sourcePower",
+                "biasPower",
+                "current.maximum",
+                "current.minimum",
+                "current.peakToPeak",
+                "current.halfPeakToPeak",
+                "current.maximumPhase",
+                "current.minimumPhase",
+                "potential.maximum",
+                "potential.minimum",
+                "potential.peakToPeak",
+                "potential.halfPeakToPeak",
+                "potential.maximumPhase",
+                "potential.minimumPhase",
+                "ied.maximum",
+                "ied.peakEnergy",
+                "iad.maximum",
+                "iad.peakAngle",
+                "iead.maximum",
+                "iead.peakEnergy",
+                "iead.peakAngle",
+                "density.maximum",
+                "density.maximumPhase",
+                "density.maximumDistance",
+                "residual.maximum",
+                "residual.maximumIteration",
+                "residual.final",
+                "residual.finalIteration"
+              ],
+              "type": "string"
+            }
+          ],
+          "title": "Field"
         },
         "scope": {
           "discriminator": {

@@ -67,11 +67,19 @@ class RunScope(ClosedModel):
 class ResultRef(ClosedModel):
     kind: Literal["result_ref"]
     step_id: Identifier
-    field: Identifier
+    field: Literal["candidates", "selection", "value"] | ComparisonField
     scope: Annotated[Union[ScalarScope, SelectionScope, CandidateScope, ContextSelectionScope, RunScope], Field(discriminator="kind")]
 
 
 Binding = Annotated[Union[LiteralInput, ContextRef, ResultRef], Field(discriminator="kind")]
+
+
+class ChoiceResultRef(ResultRef):
+    field: Literal["value"]
+    scope: ScalarScope
+
+
+AxisBinding = Annotated[Union[LiteralInput, ContextRef, ChoiceResultRef], Field(discriminator="kind")]
 
 
 class OutputRequirement(ClosedModel):
@@ -127,7 +135,7 @@ class CompareInputs(ClosedModel):
     runs: Binding
     fields: Annotated[list[ComparisonField], Field(min_length=1)]
     baseline: Binding | None = None
-    trend_axis: Binding | None = None
+    trend_axis: AxisBinding | None = None
     plot_ids: list[PlotId] = Field(default_factory=list)
 
 
