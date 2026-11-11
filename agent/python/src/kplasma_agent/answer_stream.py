@@ -2,6 +2,7 @@
 
 import json
 from dataclasses import dataclass, field
+from typing import Any
 
 from .v2.composition import fill_value_references
 
@@ -20,11 +21,11 @@ class _JsonStrings:
     """Incremental JSON structure/string decoder; final schema validation stays with the caller."""
 
     def __init__(self):
-        self.strings = {}
-        self.complete = set()
-        self.stack = []
+        self.strings: dict[tuple, str] = {}
+        self.complete: set[tuple] = set()
+        self.stack: list[_Frame] = []
         self.root_done = False
-        self.string = None
+        self.string: dict[str, Any] | None = None
         self.scalar = ""
         self.escape = False
         self.unicode = None
@@ -44,6 +45,7 @@ class _JsonStrings:
             self.root_done = True
 
     def _character(self, char):
+        assert self.string is not None
         code = ord(char)
         if self.surrogate is not None:
             if not 0xDC00 <= code <= 0xDFFF:
@@ -60,6 +62,7 @@ class _JsonStrings:
             self.strings[self.string["path"]] = self.string["text"]
 
     def feed(self, delta):
+        frame: _Frame | None
         for char in delta:
             if self.string is not None:
                 if self.unicode is not None:
@@ -113,10 +116,12 @@ class _JsonStrings:
             frame = self.stack[-1] if self.stack else None
             state = frame.state if frame else "done" if self.root_done else "value"
             if state == "colon":
+                assert frame is not None
                 if char != ":":
                     raise ValueError("expected colon")
                 frame.state = "value"
             elif state == "separator":
+                assert frame is not None
                 if char == ",":
                     frame.state = "key" if frame.kind == "object" else "value"
                 elif char == ("}" if frame.kind == "object" else "]"):
@@ -126,6 +131,7 @@ class _JsonStrings:
                 else:
                     raise ValueError("expected separator")
             elif state in {"key", "key_or_end"}:
+                assert frame is not None
                 if char == '"':
                     self.string = {"path": None, "text": ""}
                 elif char == "}" and state == "key_or_end":
@@ -136,6 +142,7 @@ class _JsonStrings:
                     raise ValueError("expected object key")
             elif state in {"value", "value_or_end"}:
                 if char == "]" and state == "value_or_end":
+                    assert frame is not None
                     self.complete.add(frame.path)
                     self.stack.pop()
                     self._done()
@@ -173,6 +180,7 @@ class AnswerStreamProjector:
 
     def _prefix(self, path, text):
         marker = "{{value:"
+        citations: list[str] | None
         if self.mode == "general_only":
             citations = []
         else:

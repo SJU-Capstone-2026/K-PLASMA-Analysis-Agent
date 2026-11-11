@@ -11,7 +11,7 @@ QUESTION = "평균 이온 에너지가 150–160 eV인 실제 Run을 찾아줘."
 
 def example_plan():
     return PlanDraft.model_validate({
-        "schema_version": 1, "request_mode": "data_request", "base_revision": None,
+        "schema_version": 2, "request_mode": "data_request", "base_revision": None,
         "requirements": [{"id": "r", "text": QUESTION,
                           "sources": [{"message_key": "question", "quote": "150–160 eV"}],
                           "handled_by": ["search"]}],
@@ -48,7 +48,7 @@ def test_review_preserves_original_and_executable_inputs_even_if_requirement_pro
     assert context["confirmed_context"]["R1"]["runVersionId"] == "fixed-a"
     assert context["policy_context"]["default_units"]["ionFlux"] == "10¹⁸ m⁻²s⁻¹"
     assert set(context["tool_contracts"]) == {
-        "forward_lookup", "reverse_search", "compare_runs", "derive", "await_input", "bindings",
+        "forward_lookup", "reverse_search", "compare_runs", "explain_answer", "derive", "await_input", "bindings",
     }
     assert "iead.peakEnergy" in context["tool_contracts"]["compare_runs"]["fields"]
 

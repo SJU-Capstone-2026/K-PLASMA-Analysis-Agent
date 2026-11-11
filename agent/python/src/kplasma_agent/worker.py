@@ -159,7 +159,7 @@ def serve(settings, once=False):
     tracing.initialize(settings)
     client = BackendClient(settings)
     model = ModelClient(settings)
-    decisions = httpx.Client(timeout=min(settings.timeout, 30), transport=httpx.HTTPTransport(retries=0))
+    decisions = httpx.Client(timeout=settings.timeout, transport=httpx.HTTPTransport(retries=0))
     v2_models = V2ModelGateway(V2Settings.from_env(settings), decisions, check_payload)
     stopping = Event()
     worker_id = f"python-v1-v2-{uuid.uuid4()}"

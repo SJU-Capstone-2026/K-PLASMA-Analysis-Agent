@@ -9,7 +9,7 @@ from ..contracts import MetricId, OutputMetric
 
 GraphVersion = Literal["v1", "v2"]
 Identifier = Annotated[str, Field(min_length=1, max_length=96)]
-ToolName = Literal["forward_lookup", "reverse_search", "compare_runs"]
+ToolName = Literal["forward_lookup", "reverse_search", "compare_runs", "explain_answer"]
 Operation = Literal["min", "max", "difference", "scale", "ratio", "mean"]
 
 
@@ -67,11 +67,19 @@ class RunScope(ClosedModel):
 class ResultRef(ClosedModel):
     kind: Literal["result_ref"]
     step_id: Identifier
-    field: Identifier
+    field: Literal["candidates", "selection", "value"] | ComparisonField
     scope: Annotated[Union[ScalarScope, SelectionScope, CandidateScope, ContextSelectionScope, RunScope], Field(discriminator="kind")]
 
 
 Binding = Annotated[Union[LiteralInput, ContextRef, ResultRef], Field(discriminator="kind")]
+
+
+class ChoiceResultRef(ResultRef):
+    field: Literal["value"]
+    scope: ScalarScope
+
+
+AxisBinding = Annotated[Union[LiteralInput, ContextRef, ChoiceResultRef], Field(discriminator="kind")]
 
 
 class OutputRequirement(ClosedModel):
@@ -127,7 +135,7 @@ class CompareInputs(ClosedModel):
     runs: Binding
     fields: Annotated[list[ComparisonField], Field(min_length=1)]
     baseline: Binding | None = None
-    trend_axis: Binding | None = None
+    trend_axis: AxisBinding | None = None
     plot_ids: list[PlotId] = Field(default_factory=list)
 
 
@@ -147,6 +155,16 @@ class CompareStep(StepBase):
     kind: Literal["tool"]
     tool: Literal["compare_runs"]
     inputs: CompareInputs
+
+
+class ExplainInputs(ClosedModel):
+    mode: Literal["concept", "results"]
+
+
+class ExplainStep(StepBase):
+    kind: Literal["tool"]
+    tool: Literal["explain_answer"]
+    inputs: ExplainInputs
 
 
 class DeriveInputs(ClosedModel):
@@ -173,13 +191,12 @@ class AwaitInputStep(StepBase):
     inputs: AwaitInputs
 
 
-StepSpec = Union[ForwardStep, ReverseStep, CompareStep, DeriveStep, AwaitInputStep]
+StepSpec = Union[ForwardStep, ReverseStep, CompareStep, DeriveStep, AwaitInputStep, ExplainStep]
 
 
 class PlanDraft(ClosedModel):
-    schema_version: Literal[1]
+    schema_version: Literal[2]
     request_mode: Literal["general_only", "data_request"]
-    interpretation_requested: bool = False
     base_revision: Annotated[int, Field(ge=1)] | None
     requirements: list[Requirement]
     steps: Annotated[list[StepSpec], Field(max_length=16)]

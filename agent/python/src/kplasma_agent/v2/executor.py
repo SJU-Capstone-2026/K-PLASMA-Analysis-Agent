@@ -1,5 +1,7 @@
 """Execute a verified v2 step against the same numerical tools as v1."""
 
+from typing import cast
+
 from pydantic import ValidationError
 
 from ..backend_client import BackendError
@@ -43,7 +45,7 @@ class SequentialExecutor:
             return StepResult(executionId=execution, stepId=step.id, status="failed", outputs={},
                               reason="EXECUTION_OUTCOME_UNKNOWN")
         code = {"forward_lookup": "FORWARD_LOOKUP", "reverse_search": "REVERSE_SEARCH",
-                "compare_runs": "COMPARE_RUNS"}.get(getattr(step, "tool", None), "DERIVE")
+                "compare_runs": "COMPARE_RUNS"}.get(getattr(step, "tool", ""), "DERIVE")
         fields = {"stepId": step.id}
         if isinstance(step, CompareStep):
             fields.update(runCount=len(inputs["runs"]), metricIds=step.inputs.fields)
@@ -63,7 +65,7 @@ class SequentialExecutor:
         saved = StepResult.model_validate(self.executions.save_result(result)["result"])
         self.progress.activity(code, "completed", identity=execution, **fields)
         if saved.status in {"verified", "empty", "partial"} and code in {"FORWARD_LOOKUP", "REVERSE_SEARCH"}:
-            count = len(saved.outputs.get("candidates", []))
+            count = len(cast(list, saved.outputs.get("candidates", [])))
             self.progress.activity("SEARCH_COMPLETE" if count else "SEARCH_EMPTY", "completed",
                                    identity=f"found:{execution}", runCount=count)
         return saved

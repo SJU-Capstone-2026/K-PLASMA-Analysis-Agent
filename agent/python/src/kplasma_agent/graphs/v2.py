@@ -19,7 +19,7 @@ from ..v2.composition import (
 )
 from ..v2.contracts import (
     AwaitInputStep, BudgetState, CandidateScope, CompareStep, DataAnswerDraft, GeneralAnswerDraft,
-    GraphV2AnswerSnapshotV1, PlanDraft, ResultRef, ReviewDecision, StepResult,
+    ExplainStep, GraphV2AnswerSnapshotV1, PlanDraft, ResultRef, ReviewDecision, StepResult,
 )
 from ..v2.executor import SequentialExecutor
 from ..v2.plan_validation import InvalidPlan, validate_plan
@@ -45,6 +45,8 @@ class State(TypedDict, total=False):
     pending: dict
     failure: str | None
     feedback: str | None
+    validation_error: dict | None
+    generation_failure: dict | None
     route: str
     mode: str
     draft: dict | None
@@ -110,6 +112,29 @@ def _issue(reason):
     return "요청을 모두 완료하지 못했습니다. 확인된 결과를 표시합니다."
 
 
+def _validation_error(error, code):
+    if hasattr(error, "details"):
+        return error.details
+    if isinstance(error, ValidationError):
+        return {"code": code, "errors": [
+            {"path": "/" + "/".join(map(str, item["loc"])), "message": item["msg"], "type": item["type"]}
+            for item in error.errors(include_url=False)]}
+    return {"code": code, "message": str(error)[:1600]}
+
+
+def _generation_failure(outcome):
+    if not outcome or not outcome.get("error"):
+        return None
+    response = outcome.get("response") or {}
+    arguments = "".join(item.get("arguments", "") for item in response.get("output", [])
+                        if item.get("type") == "function_call")
+    return {"code": outcome["error"], "status": response.get("status"),
+            "reason": (response.get("incomplete_details") or {}).get("reason"),
+            "usage": outcome.get("usage"),
+            "trailing_whitespace_chars": len(arguments) - len(arguments.rstrip()),
+            "partial_arguments_tail": arguments.rstrip()[-500:]}
+
+
 def build_v2_graph(models, executions, checkpointer):
     executor = SequentialExecutor(executions)
     progress = getattr(executions, "progress", None) or ProgressReporter(None)
@@ -145,7 +170,11 @@ def build_v2_graph(models, executions, checkpointer):
             except (ModelError, ValueError, TypeError) as error:
                 if stream is not None:
                     stream.invalidate("writer_failed")
-                saved = {"data": None, "usage": None, "error": getattr(error, "code", "MODEL_OUTPUT_INVALID")}
+                saved = {"data": None, "usage": getattr(error, "usage", None),
+                         "error": getattr(error, "code", "MODEL_OUTPUT_INVALID")}
+                response = getattr(error, "response", None)
+                if response is not None:
+                    saved["response"] = response
             if kind == "PLAN_REVIEW":
                 saved["reviewInput"] = context
             saved = executions.complete_model(permit["attemptId"], saved)["outcome"]
@@ -157,6 +186,7 @@ def build_v2_graph(models, executions, checkpointer):
         updates = {
             "model_requests": state.get("model_requests", 0) + 1,
             "elapsed": state.get("elapsed", 0) + time.monotonic() - start,
+            "generation_failure": _generation_failure(saved),
         }
         if saved is None:
             return None, "MODEL_OUTCOME_UNKNOWN", updates
@@ -173,6 +203,9 @@ def build_v2_graph(models, executions, checkpointer):
             "confirmed_run_keys": [entry["key"] for entry in context["comparison_entries"]],
             "base_revision": state.get("plan_revision"),
             "previous_plan": state.get("plan"),
+            "rejected_plan": state.get("plan_draft") if replan and state.get("validation_error") else None,
+            "validation_error": state.get("validation_error") if replan else None,
+            "generation_failure": state.get("generation_failure") if replan else None,
             "feedback": state.get("feedback"),
             "plan_review_feedback": state.get("plan_review_feedback"),
             "verified_results": {step: value.get("status")
@@ -185,7 +218,7 @@ def build_v2_graph(models, executions, checkpointer):
         )
         enabled = state.get("plan_review_enabled", getattr(getattr(models, "settings", None), "plan_review_enabled", True))
         return {**counters, "plan_draft": data, "feedback": error, "replans": replan_number,
-                "plan_review_enabled": enabled}
+                "plan_review_enabled": enabled, "validation_error": None}
 
     def plan(state):
         return request_plan(state)
@@ -196,7 +229,8 @@ def build_v2_graph(models, executions, checkpointer):
     def validate_plan_state(state):
         incoming = state.get("plan_draft")
         if incoming is None:
-            retry = state.get("feedback") == "MODEL_OUTPUT_INVALID" and state.get("replans", 0) < 2
+            retry = state.get("feedback") in {"MODEL_OUTPUT_INVALID", "MODEL_OUTPUT_TRUNCATED"}
+            retry = retry and state.get("replans", 0) < 2
             return {"route": "replan" if retry else "compose",
                     "failure": state.get("feedback") or "PLAN_UNAVAILABLE"}
         messages = {"question": state["question"]}
@@ -215,7 +249,8 @@ def build_v2_graph(models, executions, checkpointer):
                                      selected_run_keys={entry["key"] for entry in context["comparison_entries"]})
         except (ValidationError, InvalidPlan) as error:
             return {"route": "replan" if state.get("replans", 0) < 2 else "compose",
-                    "failure": "INVALID_PLAN", "feedback": str(error)[:1600]}
+                    "failure": "INVALID_PLAN", "feedback": str(error)[:1600],
+                    "validation_error": _validation_error(error, "INVALID_PLAN")}
 
         prior_steps = {step["id"]: step for step in state.get("plan", {}).get("steps", [])}
         previous = state.get("step_results", {})
@@ -231,6 +266,7 @@ def build_v2_graph(models, executions, checkpointer):
         stored = executions.accept_plan(accepted)
         return {"plan": stored["plan"], "plan_revision": stored["revision"], "mode": accepted.request_mode,
                 "route": "plan_review" if accepted.steps else "compose", "failure": None, "feedback": None,
+                "validation_error": None,
                 "step_results": reusable, "step_inputs": used_inputs,
                 "durable_steps": [key for key in reusable if key in state.get("durable_steps", [])],
                 "draft": None, "last_draft": None, "plan_review": None, "plan_review_binding_digest": None}
@@ -296,7 +332,7 @@ def build_v2_graph(models, executions, checkpointer):
         accepted = PlanDraft.model_validate(state["plan"])
         previous = {key: StepResult.model_validate(val) for key, val in state.get("step_results", {}).items()}
         current = next((s for s in accepted.steps if s.id not in previous), None)
-        if current is None:
+        if current is None or isinstance(current, ExplainStep):
             return {"route": "compose"}
         if state.get("elapsed", 0) >= 600:
             return {"route": "compose", "failure": "TIME_BUDGET_EXHAUSTED"}
@@ -335,7 +371,7 @@ def build_v2_graph(models, executions, checkpointer):
         selection = (replacement or isinstance(step, AwaitInputStep) and step.confirmation == "run_selection"
                      or failure == "MISSING_INPUT:selected_runs")
         pending_id = str(uuid5(NAMESPACE_URL, f"{state['request_id']}:{step.id}:{len(state.get('input_history', []))}"))
-        pending = {"id": pending_id, "type": "run_selection", "message": "비교할 Run을 선택해 주세요.",
+        pending: dict = {"id": pending_id, "type": "run_selection", "message": "비교할 Run을 선택해 주세요.",
                    "minSelections": 2}
         if selection and isinstance(step, AwaitInputStep) and step.inputs.selection_count is not None:
             pending["minSelections"] = step.inputs.selection_count
@@ -463,14 +499,21 @@ def build_v2_graph(models, executions, checkpointer):
         return [row for row in evidence
                 if row["executionId"] not in summaries or row["id"] in summaries[row["executionId"]]]
 
+    def explanation_step(state):
+        return next((step for step in state.get("plan", {}).get("steps", [])
+                     if step.get("tool") == "explain_answer"), None)
+
     def results_only(state):
-        return (state.get("mode") == "data_request"
-                and state.get("plan", {}).get("interpretation_requested") is False)
+        return state.get("mode") == "data_request" and explanation_step(state) is None
+
+    def explanation_mode(state):
+        step = explanation_step(state)
+        return "general_only" if step and step["inputs"]["mode"] == "concept" else "data_request"
 
     def compose(state):
-        mode = state.get("mode", "data_request")
+        mode = explanation_mode(state)
         results = _results(state)
-        evidence = collect_evidence(results)
+        evidence = collect_evidence(results, search_measurements=mode == "data_request" and explanation_step(state) is not None)
         full_evidence = [entry.model_dump(mode="json") for entry in evidence]
         issue = _issue(state.get("failure"))
         review_blocked = state.get("failure") in {
@@ -481,18 +524,24 @@ def build_v2_graph(models, executions, checkpointer):
             return {"route": "finalize", "rendered": facts_only(evidence, issue),
                     "evidence": full_evidence, "draft": None}
         numeric_values = collect_numeric_values(results, evidence) if mode == "data_request" else {}
-        writer_evidence = [
+        writer_evidence = [] if mode == "general_only" else [
             {**row, "value_parts": list(numeric_values[row["id"]])} if row["id"] in numeric_values else row
             for row in answer_evidence(state, results, full_evidence)
         ]
         payload = {"question": state["question"], "mode": mode,
+                   "request_mode": state.get("mode"),
+                   "explanation_step": explanation_step(state),
+                   "requirements": [req for req in state.get("plan", {}).get("requirements", [])
+                                    if req["id"] in (explanation_step(state) or {}).get("requirement_ids", [])],
                    "input_history": state.get("input_history", []),
                    "evidence": writer_evidence,
-                   "search_evidence": collect_search_evidence(results),
-                   "comparison_coverage": collect_comparison_coverage(results),
+                   "search_evidence": collect_search_evidence(results) if mode != "general_only" else [],
+                   "comparison_coverage": collect_comparison_coverage(results) if mode != "general_only" else [],
                    "step_statuses": [{"step": r.stepId, "status": r.status, "reason": r.reason} for r in results],
                    "issue": state.get("failure"), "feedback": state.get("feedback")}
         rewrite = state.get("route") == "rewrite"
+        payload.update(rejected_draft=state.get("draft") if rewrite else None,
+                       validation_error=state.get("validation_error") if rewrite else None)
         partial = bool(state.get("failure")) and not rewrite
         if partial and state.get("partial_composes", 0):
             return {"route": "finalize"}
@@ -506,14 +555,21 @@ def build_v2_graph(models, executions, checkpointer):
             if error:
                 raise ValueError(error)
             rendered, saved_draft = assemble_answer(data, mode, evidence, issue, numeric_values=numeric_values)
+            if mode == "general_only" and state.get("mode") == "data_request":
+                rendered = "\n\n".join([facts_only(evidence, issue), rendered])
         except (ValueError, TypeError) as exc:
             progress.discard_answer("invalid_draft")
             if state.get("rewrites", 0) < 1 and not error and not partial:
-                return {**changes, "route": "rewrite", "feedback": str(exc)[:600]}
+                return {**changes, "route": "rewrite", "feedback": str(exc)[:600],
+                        "validation_error": _validation_error(exc, "INVALID_ANSWER")}
             last = state.get("last_draft")
+            if any(item.get("choice") == "overclaim" for item in (state.get("review") or {}).get("answers", [])):
+                last = None
+            failure = state.get("failure") or "ANSWER_VALIDATION_FAILED"
             return {**changes, "route": "finalize",
-                    "rendered": assemble_answer(last, mode, evidence, issue)[0] if last else facts_only(evidence, issue),
-                    "draft": last}
+                    "rendered": assemble_answer(last, mode, evidence, issue)[0] if last else facts_only(evidence, _issue(failure)),
+                    "draft": last, "failure": failure,
+                    "validation_error": _validation_error(exc, "INVALID_ANSWER")}
         if progress.enabled and (progress.current is None or progress.current.closed or not progress.current.chunks):
             # Saved outcomes restore at once; they never cause another writer call.
             stream = progress.start_answer("general" if mode == "general_only" else "interpretation", rewrite=rewrite)
@@ -529,6 +585,7 @@ def build_v2_graph(models, executions, checkpointer):
                     stream.append(f"limitations.{index}.text", item["text"])
             stream.flush()
         return {**changes, "rendered": rendered, "draft": saved_draft, "last_draft": saved_draft,
+                "validation_error": None,
                 "route": "finalize" if mode == "general_only" else "review"}
 
     def rewrite(state):
@@ -561,12 +618,13 @@ def build_v2_graph(models, executions, checkpointer):
         draft = state.get("draft")
         incomplete_work = bool(failure) or any(
             result.status in {"partial", "blocked", "failed"} for result in results
-        )
+        ) or (explanation_step(state) is not None and draft is None)
         completed = not failure and (
             draft is not None or (results_only(state) and bool(results) and not incomplete_work)
         )
         status: Literal["PARTIAL", "FAILED", "COMPLETE"] = "COMPLETE" if completed else "PARTIAL" if results else "FAILED"
-        parsed_draft = (DataAnswerDraft if data else GeneralAnswerDraft).model_validate(draft) if draft else None
+        parsed_draft = (GeneralAnswerDraft if explanation_mode(state) == "general_only"
+                        else DataAnswerDraft).model_validate(draft) if draft else None
         snapshot = GraphV2AnswerSnapshotV1(
             implementationId="v2", graphVersion="v2", schemaVersion=1, intent=intent,
             question=state["question"], confirmedContext=state.get("context", {}).get("comparisonReference") or {},
