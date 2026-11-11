@@ -1,0 +1,315 @@
+{
+  "schemaVersion": 1,
+  "sourceCommit": "51d077c9878b635c96da709eb7eb2aefd36699e1",
+  "graphVersion": "v3",
+  "status": "copy-only-not-activated",
+  "roots": [
+    "kplasma_agent.graphs.v2",
+    "kplasma_agent.v2.model_gateway",
+    "kplasma_agent.v2.backend",
+    "kplasma_agent.persistence.checkpointer",
+    "kplasma_agent.v2.budget"
+  ],
+  "identifierReplacements": {
+    "build_v2_graph": "build_v3_graph",
+    "GraphV2AnswerSnapshotV1": "GraphV3AnswerSnapshotV1",
+    "V2ModelGateway": "V3ModelGateway",
+    "V2Settings": "V3Settings",
+    "V2ExecutionPort": "V3ExecutionPort"
+  },
+  "stringReplacements": {
+    "AGENT_V2_": "AGENT_V3_",
+    "graph identity v2": "v3",
+    "v2.plan span": "v3.plan"
+  },
+  "modules": [
+    {
+      "sourcePath": "__init__.py",
+      "sourceModule": "kplasma_agent",
+      "targetPath": "__init__.py",
+      "targetModule": "kplasma_agent.v3",
+      "sourceSha256": "e9b6a2ed6a70822ab99b1ee07af5d1bb322b0cc43b7bcf9f56e7685d73f870e8",
+      "cloneSha256": "e9b6a2ed6a70822ab99b1ee07af5d1bb322b0cc43b7bcf9f56e7685d73f870e8"
+    },
+    {
+      "sourcePath": "answer_contracts.py",
+      "sourceModule": "kplasma_agent.answer_contracts",
+      "targetPath": "answer_contracts.py",
+      "targetModule": "kplasma_agent.v3.answer_contracts",
+      "sourceSha256": "f2b5d73c30bddb9ba8918cd91e79f5a24991ccff5c31ccc1a4f8e1429a3ada28",
+      "cloneSha256": "f2b5d73c30bddb9ba8918cd91e79f5a24991ccff5c31ccc1a4f8e1429a3ada28"
+    },
+    {
+      "sourcePath": "answer_stream.py",
+      "sourceModule": "kplasma_agent.answer_stream",
+      "targetPath": "answer_stream.py",
+      "targetModule": "kplasma_agent.v3.answer_stream",
+      "sourceSha256": "e646c4eec20419653ce5092faf6e441b50a9dc842d2edeabf45adaff27ede766",
+      "cloneSha256": "fde12a3988ff37429ee241d2124e4bff599e71d252820b49a62eabddab940b44"
+    },
+    {
+      "sourcePath": "backend_client.py",
+      "sourceModule": "kplasma_agent.backend_client",
+      "targetPath": "backend_client.py",
+      "targetModule": "kplasma_agent.v3.backend_client",
+      "sourceSha256": "decaf2303884508ccc3b5315f37a8d59e5570c2db41d726336f80aa9e54c9517",
+      "cloneSha256": "decaf2303884508ccc3b5315f37a8d59e5570c2db41d726336f80aa9e54c9517"
+    },
+    {
+      "sourcePath": "comparison_catalog.py",
+      "sourceModule": "kplasma_agent.comparison_catalog",
+      "targetPath": "comparison_catalog.py",
+      "targetModule": "kplasma_agent.v3.comparison_catalog",
+      "sourceSha256": "0025ccf3e1f3246c18ef1cfeb9fe7d625095f33a52755600e87d4853029997bd",
+      "cloneSha256": "0025ccf3e1f3246c18ef1cfeb9fe7d625095f33a52755600e87d4853029997bd"
+    },
+    {
+      "sourcePath": "config.py",
+      "sourceModule": "kplasma_agent.config",
+      "targetPath": "config.py",
+      "targetModule": "kplasma_agent.v3.config",
+      "sourceSha256": "e8683fe826bc404cc1f1bf444c999bcc35c478bdc0ded38758dbdd789bb936b9",
+      "cloneSha256": "e8683fe826bc404cc1f1bf444c999bcc35c478bdc0ded38758dbdd789bb936b9"
+    },
+    {
+      "sourcePath": "contracts.py",
+      "sourceModule": "kplasma_agent.contracts",
+      "targetPath": "contracts.py",
+      "targetModule": "kplasma_agent.v3.contracts",
+      "sourceSha256": "a406a00a376abe12e7793256f0e1679b0e53c6d0b248770e32637acc5aac0e0e",
+      "cloneSha256": "a406a00a376abe12e7793256f0e1679b0e53c6d0b248770e32637acc5aac0e0e"
+    },
+    {
+      "sourcePath": "domain/__init__.py",
+      "sourceModule": "kplasma_agent.domain",
+      "targetPath": "domain/__init__.py",
+      "targetModule": "kplasma_agent.v3.domain",
+      "sourceSha256": "49d8c13eb69fc9f6338dabd3b260d99e7d55c5e3ecd63d791c75c728ca732f78",
+      "cloneSha256": "49d8c13eb69fc9f6338dabd3b260d99e7d55c5e3ecd63d791c75c728ca732f78"
+    },
+    {
+      "sourcePath": "domain/common.py",
+      "sourceModule": "kplasma_agent.domain.common",
+      "targetPath": "domain/common.py",
+      "targetModule": "kplasma_agent.v3.domain.common",
+      "sourceSha256": "5d5fefb5eb445baec8056a202d9d5af1473968a31028ed0f9af2ddf26ee076e8",
+      "cloneSha256": "5d5fefb5eb445baec8056a202d9d5af1473968a31028ed0f9af2ddf26ee076e8"
+    },
+    {
+      "sourcePath": "domain/compare.py",
+      "sourceModule": "kplasma_agent.domain.compare",
+      "targetPath": "domain/compare.py",
+      "targetModule": "kplasma_agent.v3.domain.compare",
+      "sourceSha256": "c411e6cd852ae7e1e31c87c45ced7f598292504df9b883021485ac737048eb12",
+      "cloneSha256": "c411e6cd852ae7e1e31c87c45ced7f598292504df9b883021485ac737048eb12"
+    },
+    {
+      "sourcePath": "domain/comparison_evidence.py",
+      "sourceModule": "kplasma_agent.domain.comparison_evidence",
+      "targetPath": "domain/comparison_evidence.py",
+      "targetModule": "kplasma_agent.v3.domain.comparison_evidence",
+      "sourceSha256": "3e913e3010faeb3537bf828d39168199c6986aa34e81ceaad5d7bfed6cb4d949",
+      "cloneSha256": "3e913e3010faeb3537bf828d39168199c6986aa34e81ceaad5d7bfed6cb4d949"
+    },
+    {
+      "sourcePath": "domain/context.py",
+      "sourceModule": "kplasma_agent.domain.context",
+      "targetPath": "domain/context.py",
+      "targetModule": "kplasma_agent.v3.domain.context",
+      "sourceSha256": "513a2acebc67af18538d4832399fefb9a74d370397cbf88d5efca56c91542145",
+      "cloneSha256": "513a2acebc67af18538d4832399fefb9a74d370397cbf88d5efca56c91542145"
+    },
+    {
+      "sourcePath": "domain/forward.py",
+      "sourceModule": "kplasma_agent.domain.forward",
+      "targetPath": "domain/forward.py",
+      "targetModule": "kplasma_agent.v3.domain.forward",
+      "sourceSha256": "7e640e6d8bba0dde891b90e73b116c50e2cd0fee16b9575b1ea63e458150df85",
+      "cloneSha256": "7e640e6d8bba0dde891b90e73b116c50e2cd0fee16b9575b1ea63e458150df85"
+    },
+    {
+      "sourcePath": "domain/grounding.py",
+      "sourceModule": "kplasma_agent.domain.grounding",
+      "targetPath": "domain/grounding.py",
+      "targetModule": "kplasma_agent.v3.domain.grounding",
+      "sourceSha256": "731d714ff1062f8b0c122fb9c0bdf6ea9b22584ede06545f77faa556d39a6d99",
+      "cloneSha256": "731d714ff1062f8b0c122fb9c0bdf6ea9b22584ede06545f77faa556d39a6d99"
+    },
+    {
+      "sourcePath": "domain/reverse.py",
+      "sourceModule": "kplasma_agent.domain.reverse",
+      "targetPath": "domain/reverse.py",
+      "targetModule": "kplasma_agent.v3.domain.reverse",
+      "sourceSha256": "b97e58f79ff04bbf3362f2e6f431bac7de09156aadc1d867478442db89385b1c",
+      "cloneSha256": "b97e58f79ff04bbf3362f2e6f431bac7de09156aadc1d867478442db89385b1c"
+    },
+    {
+      "sourcePath": "domain/validation.py",
+      "sourceModule": "kplasma_agent.domain.validation",
+      "targetPath": "domain/validation.py",
+      "targetModule": "kplasma_agent.v3.domain.validation",
+      "sourceSha256": "30ba5e7c2e626d6e969586fd6284d86df63e63b19d3fc4dfb9d7a61c04f7efdb",
+      "cloneSha256": "30ba5e7c2e626d6e969586fd6284d86df63e63b19d3fc4dfb9d7a61c04f7efdb"
+    },
+    {
+      "sourcePath": "explanations/answers.py",
+      "sourceModule": "kplasma_agent.explanations.answers",
+      "targetPath": "explanations/answers.py",
+      "targetModule": "kplasma_agent.v3.explanations.answers",
+      "sourceSha256": "670e56435aad404939748590328d1be2a3de8aa0aa996ecaf915d6f81421bcee",
+      "cloneSha256": "670e56435aad404939748590328d1be2a3de8aa0aa996ecaf915d6f81421bcee"
+    },
+    {
+      "sourcePath": "graphs/v2.py",
+      "sourceModule": "kplasma_agent.graphs.v2",
+      "targetPath": "graph.py",
+      "targetModule": "kplasma_agent.v3.graph",
+      "sourceSha256": "247686e74e0db58b8d1980ffd8d9dce852145b236047bd38630536397d9bdbee",
+      "cloneSha256": "c71331c9c6ea121cb4c1c8bab4f71aa174153f920c65a984858579b26ea350be"
+    },
+    {
+      "sourcePath": "metric_registry.py",
+      "sourceModule": "kplasma_agent.metric_registry",
+      "targetPath": "metric_registry.py",
+      "targetModule": "kplasma_agent.v3.metric_registry",
+      "sourceSha256": "6a66c8848b766b380ae1148769a9bbd0e000700b5055521088f87eae37ce8f0c",
+      "cloneSha256": "6a66c8848b766b380ae1148769a9bbd0e000700b5055521088f87eae37ce8f0c"
+    },
+    {
+      "sourcePath": "model_client.py",
+      "sourceModule": "kplasma_agent.model_client",
+      "targetPath": "model_client.py",
+      "targetModule": "kplasma_agent.v3.model_client",
+      "sourceSha256": "394f6ccc6c714a09010b6ddc8586b50c3181c17937563b2606f5596e2a75a1d7",
+      "cloneSha256": "394f6ccc6c714a09010b6ddc8586b50c3181c17937563b2606f5596e2a75a1d7"
+    },
+    {
+      "sourcePath": "persistence/checkpointer.py",
+      "sourceModule": "kplasma_agent.persistence.checkpointer",
+      "targetPath": "persistence/checkpointer.py",
+      "targetModule": "kplasma_agent.v3.persistence.checkpointer",
+      "sourceSha256": "bbf6e6473286aaedee9b7cb519547241ba39d3aae181253ed0b0f5618fd230e8",
+      "cloneSha256": "bbf6e6473286aaedee9b7cb519547241ba39d3aae181253ed0b0f5618fd230e8"
+    },
+    {
+      "sourcePath": "progress.py",
+      "sourceModule": "kplasma_agent.progress",
+      "targetPath": "progress.py",
+      "targetModule": "kplasma_agent.v3.progress",
+      "sourceSha256": "98c4f533c0f34e68a0bdc8780379547349dbf0864484f9a59db01b6d0adac8ff",
+      "cloneSha256": "98c4f533c0f34e68a0bdc8780379547349dbf0864484f9a59db01b6d0adac8ff"
+    },
+    {
+      "sourcePath": "tools.py",
+      "sourceModule": "kplasma_agent.tools",
+      "targetPath": "tools.py",
+      "targetModule": "kplasma_agent.v3.tools",
+      "sourceSha256": "64008e465960848213f587a54d903bb148fffe05dfbcdd5779bcc4f8d48e8ee6",
+      "cloneSha256": "64008e465960848213f587a54d903bb148fffe05dfbcdd5779bcc4f8d48e8ee6"
+    },
+    {
+      "sourcePath": "tracing.py",
+      "sourceModule": "kplasma_agent.tracing",
+      "targetPath": "tracing.py",
+      "targetModule": "kplasma_agent.v3.tracing",
+      "sourceSha256": "03f44d381aab1afa5fed2eb9112b60fb08911115f541ec07e01cae7235e4c57b",
+      "cloneSha256": "03f44d381aab1afa5fed2eb9112b60fb08911115f541ec07e01cae7235e4c57b"
+    },
+    {
+      "sourcePath": "v2/__init__.py",
+      "sourceModule": "kplasma_agent.v2",
+      "targetPath": "core/__init__.py",
+      "targetModule": "kplasma_agent.v3.core",
+      "sourceSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "cloneSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "sourcePath": "v2/backend.py",
+      "sourceModule": "kplasma_agent.v2.backend",
+      "targetPath": "core/backend.py",
+      "targetModule": "kplasma_agent.v3.core.backend",
+      "sourceSha256": "f99f1052496b45f4e3b073b1d8f5aa018aa3edc873ea3448b79f2d554063b5e8",
+      "cloneSha256": "7dff6fd862e4e329d640b13332837098810eb46e3195043ae3c7f429cbbee5b9"
+    },
+    {
+      "sourcePath": "v2/bindings.py",
+      "sourceModule": "kplasma_agent.v2.bindings",
+      "targetPath": "core/bindings.py",
+      "targetModule": "kplasma_agent.v3.core.bindings",
+      "sourceSha256": "9eaa470cf3dea16750d35a354fc0bab1cdb59d299bbb13827dac86a5ae76b228",
+      "cloneSha256": "9eaa470cf3dea16750d35a354fc0bab1cdb59d299bbb13827dac86a5ae76b228"
+    },
+    {
+      "sourcePath": "v2/budget.py",
+      "sourceModule": "kplasma_agent.v2.budget",
+      "targetPath": "core/budget.py",
+      "targetModule": "kplasma_agent.v3.core.budget",
+      "sourceSha256": "d6bf10a0758bf98018349fcae42d5a8101b5457f3030eebfeefaef8408e78a80",
+      "cloneSha256": "8a0aa9b4f5f6da587e1fb440593864cf019d162a81dfda876e0ec3011a7debaa"
+    },
+    {
+      "sourcePath": "v2/composition.py",
+      "sourceModule": "kplasma_agent.v2.composition",
+      "targetPath": "core/composition.py",
+      "targetModule": "kplasma_agent.v3.core.composition",
+      "sourceSha256": "1420787dcba73701793dbb5156c0cefab9ccd5909b8529f1e5a83a6a065af465",
+      "cloneSha256": "1420787dcba73701793dbb5156c0cefab9ccd5909b8529f1e5a83a6a065af465"
+    },
+    {
+      "sourcePath": "v2/contracts.py",
+      "sourceModule": "kplasma_agent.v2.contracts",
+      "targetPath": "core/contracts.py",
+      "targetModule": "kplasma_agent.v3.core.contracts",
+      "sourceSha256": "538f4e363079a1d764b4ef5deb0f767248d3d6ada91692560b5df472ec688073",
+      "cloneSha256": "c6032cf832ce27d367b8ac3f6c96ca84d2378113a564e33a351b5b709007921b"
+    },
+    {
+      "sourcePath": "v2/derivations.py",
+      "sourceModule": "kplasma_agent.v2.derivations",
+      "targetPath": "core/derivations.py",
+      "targetModule": "kplasma_agent.v3.core.derivations",
+      "sourceSha256": "65c2264fceb4999effe8165a49a6ee9df2977f76983693ba770bc24c6ecbbad9",
+      "cloneSha256": "65c2264fceb4999effe8165a49a6ee9df2977f76983693ba770bc24c6ecbbad9"
+    },
+    {
+      "sourcePath": "v2/executor.py",
+      "sourceModule": "kplasma_agent.v2.executor",
+      "targetPath": "core/executor.py",
+      "targetModule": "kplasma_agent.v3.core.executor",
+      "sourceSha256": "f6aef3b28cf2000d33b198bc55a87d9f268da4e0fb1310d13e436f17ddfd66da",
+      "cloneSha256": "f6aef3b28cf2000d33b198bc55a87d9f268da4e0fb1310d13e436f17ddfd66da"
+    },
+    {
+      "sourcePath": "v2/model_gateway.py",
+      "sourceModule": "kplasma_agent.v2.model_gateway",
+      "targetPath": "core/model_gateway.py",
+      "targetModule": "kplasma_agent.v3.core.model_gateway",
+      "sourceSha256": "b3b0bc8eb93402a73852275bf907874ebc15cd5b2c6e01b68710b85f79feed81",
+      "cloneSha256": "5a4fe82b9c1760f018b22c21a4737df095a2733cbaebf81d85e19d0ae42608a9"
+    },
+    {
+      "sourcePath": "v2/plan_checks.py",
+      "sourceModule": "kplasma_agent.v2.plan_checks",
+      "targetPath": "core/plan_checks.py",
+      "targetModule": "kplasma_agent.v3.core.plan_checks",
+      "sourceSha256": "89031aa2ecd10d03949546fa2da594ed4a03f5861a56487f9e283852adb73b32",
+      "cloneSha256": "89031aa2ecd10d03949546fa2da594ed4a03f5861a56487f9e283852adb73b32"
+    },
+    {
+      "sourcePath": "v2/plan_review.py",
+      "sourceModule": "kplasma_agent.v2.plan_review",
+      "targetPath": "core/plan_review.py",
+      "targetModule": "kplasma_agent.v3.core.plan_review",
+      "sourceSha256": "aaefb772bf73f20f59b0f0551d2d4d15ece0742357d163818890c5dea4df29c1",
+      "cloneSha256": "aaefb772bf73f20f59b0f0551d2d4d15ece0742357d163818890c5dea4df29c1"
+    },
+    {
+      "sourcePath": "v2/plan_validation.py",
+      "sourceModule": "kplasma_agent.v2.plan_validation",
+      "targetPath": "core/plan_validation.py",
+      "targetModule": "kplasma_agent.v3.core.plan_validation",
+      "sourceSha256": "d7c245ca67276891cad921f18b5d7a3e1e0ff82be3eb775a22819699dc76ad17",
+      "cloneSha256": "d7c245ca67276891cad921f18b5d7a3e1e0ff82be3eb775a22819699dc76ad17"
+    }
+  ]
+}
