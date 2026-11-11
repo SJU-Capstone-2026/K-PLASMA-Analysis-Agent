@@ -125,7 +125,7 @@ def comparison_repair_feedback(draft, result):
 def answer_evidence(result, limit=80, character_budget=60000):
     """Bound the model context without dropping any rows from the stored/public result."""
     aggregate = [o for o in result["observations"] if o["source"]["kind"] in ("summary", "trend")]
-    run_groups = {r["key"]: [] for r in result["runs"]}
+    run_groups: dict[str, list[dict]] = {r["key"]: [] for r in result["runs"]}
     comparisons_by_id = {r["id"]: r for r in result["comparisons"]}
     comparison_observations = []
     for observation in result["observations"]:

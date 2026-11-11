@@ -16,12 +16,36 @@ from .contracts import DataAnswerDraft, GeneralAnswerDraft, PlanDraft, ReviewAns
 from .plan_checks import review_questions
 from .plan_review import parse_plan_review, review_result
 
-PLAN_INSTRUCTIONS = """원문과 확인된 문맥을 읽고 submit_plan을 정확히 한 번 제출한다.
-조회·검색·비교를 코드가 순차 실행한다. 정성 해석은 답변 단계가 맡는다.
-실험 결과의 경향·의미·이유 등 해석을 요청했으면 interpretation_requested를 true로 지정한다.
-조회·정렬·수치 차이 계산·그래프 표시만 요청했거나 general_only이면 false다.
-예: “RF 전류 파형과 최대·최소 차이를 보여줘”는 false, “전위 차이가 어디서 두드러지고 왜 그런지 설명해줘”는 true다.
+PLAN_INSTRUCTIONS = """# 역할과 제출
+원문과 확인된 문맥을 읽고 schema_version=2인 전체 계획을 submit_plan으로 정확히 한 번 제출한다.
+최초 계획의 base_revision은 null, 재계획은 제공된 revision을 유지한다.
+코드가 조회·검색·비교·계산·사용자 확인을 순차 처리한다. 설명은 마지막 explain_answer가 담당한다.
+
+# 요청 전체와 설명 단계
+request_mode는 원문의 요구로 정한다. 순수 개념 설명만 general_only, 실제 Run 정보가 필요한 요청과 혼합 요청은 data_request다.
+데이터 도구를 빠뜨린 계획을 general_only로 우회하지 않는다. interpretation_requested 필드는 제출하지 않는다.
+설명이 필요할 때만 explain_answer를 마지막에 정확히 하나 둔다. 수치·목록·차이·그래프 표시만 요청했으면 설명 단계를 만들지 않는다.
+explain_answer.inputs.mode는 concept 또는 results다. concept는 정의·공식·일반 원리, results는 실제 결과의 의미·경향·가능한 이유 해석이다.
+혼합 질문에서 개념 설명만 요구하면 data_request와 concept를 함께 쓴다. 실제 결과 해석과 개념을 모두 요구하면 results 한 단계가 함께 설명한다.
+explain_answer는 다른 모든 실행 단계에 의존해야 한다. run_if와 requires는 빈 배열이며 뒤에 다른 단계를 두지 않는다.
+results에는 앞선 실제 Run 조회·검색·비교 근거가 필요하다. 설명문을 후속 도구의 입력으로 쓰지 않는다.
+
+# 요구사항과 담당 단계
+원문의 데이터 작업과 설명 요구를 requirements로 기록하고 각각 실제 담당 단계에 연결한다.
+일반 개념 설명도 requirements를 비우지 않고 explain_answer의 ID로 연결한다. 모든 단계는 처리할 requirement_ids를 가진다.
+예시 입력: “IED가 뭐야?”의 순수 개념 계획:
+{"schema_version":2,"request_mode":"general_only","base_revision":null,"requirements":[{"id":"r1","text":"IED 개념 설명","sources":[{"message_key":"question","quote":"IED가 뭐야?"}],"handled_by":["s_explain"]}],"steps":[{"id":"s_explain","kind":"tool","tool":"explain_answer","requirement_ids":["r1"],"depends_on":[],"requires":[],"run_if":[],"inputs":{"mode":"concept"}}]}
+예: “선택한 두 Run의 플럭스 차이를 보여줘” → data_request, compare_runs만 실행한다.
+예: “후보를 찾고 플럭스 뜻도 알려줘” → 검색 요건은 검색 단계, 개념 요건은 마지막 explain_answer(concept)에 연결한다.
+예: “선택한 두 Run의 플럭스가 왜 달라?” → compare_runs 뒤 explain_answer(results)를 둔다.
+
+# 원문 보존
 원문의 조건·단위·정렬·엄격한 경계와 요구를 보존한다. 근거 없는 완화나 후보 제한을 추가하지 않는다.
+압력·소스 전력·바이어스 전력을 모두 지정한 Run의 기본 지표 조회는 forward_lookup을 사용한다.
+조회 결과에는 실제 Run의 ionFlux·meanIonEnergy·iedWidth와 비가용 이유가 있다. 한 Run의 기본 지표를 읽기 위해 compare_runs를 추가하지 않는다.
+compare_runs는 두 개 이상 Run 사이의 비교를 수행한다. 단일 Run 조회와 Run 간 차이·경향 비교를 구분한다.
+
+# 검색 조건·단위
 후보 검색에서 명시한 수치 범위는 “가깝게”라고 표현해도 양끝을 포함하는 between 제약으로 적용한다.
 예를 들어 “Ion Flux는 높게, Mean Ion Energy는 150–160 eV에 가깝게”는
 meanIonEnergy between 150–160 eV와 ionFlux maximize다. 범위 밖 후보를 포함하지 않는다.
@@ -33,6 +57,8 @@ Torr를 mTorr로, m⁻²s⁻¹를 10¹⁸ m⁻²s⁻¹로 바꾸지 않는다. v
 단위가 명시됐지만 지원되지 않으면 unsupported, 단위가 생략됐으면 null을 사용한다.
 한 검색에 압력과 이온 플럭스처럼 조건이 여럿이면 constraints에 각 조건을 별도 항목으로 넣는다.
 선택한 두 Run 모두보다 높은 값은 max 후 gt, 모두보다 낮은 값은 min 후 lt다.
+
+# 비교 대상·사용자 선택
 비교마다 질문의 의미와 확인된 문맥으로 대상을 세 가지 중 하나로 정해 inputs.runs에 표현한다.
 1. 검색 결과 전체: 조건으로 비교 집합을 지정하면 “모두”라는 단어가 없어도 전체 집합이다.
 예: “플럭스 50 넘는 Run끼리 압력이 어떻게 달라?”는 ionFlux gt 50으로 reverse_search한 뒤 압력을 비교한다.
@@ -58,8 +84,11 @@ compare_runs는 확인 단계에 의존하고 inputs.runs에
 이 단계의 inputs는 {"target_step_id":"compare","field":"baseline","selection_count":null,"candidates":null}이다.
 compare의 inputs.runs는 그대로 비교 대상 출처를 가리킨다. 비교 대상도 선택해야 하면 먼저 run_selection을 계획한다.
 기준 선택 단계가 있으면 compare의 inputs.baseline은 null로 두고, 코드는 기준 선택 결과를 연결한다.
+경향 축을 직접 고르겠다면 confirmation=trend_axis, inputs.field=trend_axis로 대상 비교를 지정한다.
+compare의 inputs.trend_axis는 null로 두면 코드가 확인 결과를 연결한다. 직접 참조할 때는 결과 field=value, scope=scalar다.
 사용자가 “R1을 기준으로”처럼 기준을 직접 지정했으면 그 Run의 확인된 문맥을 baseline에 참조한다.
-순수 개념 설명이면 requirements와 steps를 빈 배열로, 최초 계획의 base_revision은 null로 제출한다.
+
+# 지표·추가 계산
 정확한 필드 이름은 ionFlux, meanIonEnergy, iedWidth, pressure, sourcePower, biasPower다.
 compare_runs는 기준 없는 두 Run의 동일 지표 절대 차이, 기준 대비 변화량, 여러 Run의 범위와 경향을 제공한다.
 두 Run의 최댓값·최솟값 차이를 보여주거나 해석하려면 해당 지표를 compare_runs의 fields에만 넣는다. derive를 추가하지 않는다.
@@ -73,14 +102,24 @@ selected_runs와 R1 같은 문맥 키는 Run 참조이며 수치가 아니다. �
 derive의 values에서 한 집합을 읽을 때는 위 참조 객체 하나를 사용한다. 입력 배열은 개별 값에만 사용하며, R1·R2는 confirmed_run으로 참조한다.
 max/min/mean 결과의 참조 예: {"kind":"result_ref","step_id":"max","field":"value","scope":{"kind":"scalar"}}.
 두 Run 모두에 관한 계산은 단일 confirmed_run 범위를 사용하지 않는다.
-각 단계의 requirement_ids와 requirements의 handled_by에는 실제로 존재하는 ID를 넣는다.
+
+# 연결·재계획
+각 단계의 requirement_ids는 requirements[].id를, requirements[].handled_by는 steps[].id를 참조한다.
 이전 단계에서 만든 값을 쓰는 경우 depends_on에 그 단계의 ID를 넣는다.
 앞 결과는 등록 필드와 범위가 있는 result_ref로 연결한다. JSON 경로나 계산된 수치를 만들지 않는다.
 결과가 누락되면 입력을 확인하거나 지원되는 복구 계획을 세운다. 없는 데이터는 만들지 않는다.
 재계획 시 base_revision을 유지하고 변경과 무관한 유효 단계의 ID와 내용을 보존한다.
-메시지 인용은 제공된 messages의 키와 원문 구절을 사용한다. 순수 개념 설명만 general_only로 분류한다."""
+메시지 인용은 제공된 messages의 키와 원문 구절을 사용한다.
+rejected_plan과 validation_error가 있으면 거절된 계획의 오류 위치·actual·allowed를 보고 수정한다. previous_plan은 마지막 승인 계획이다.
+generation_failure는 직전 생성 실패 정보다. 잘린 JSON을 그대로 실행하지 말고 원문 조건을 보존한 완전한 계획을 제출한다."""
 
-COMPOSE_INSTRUCTIONS = """사용자 질문과 확인된 근거로 한국어 답변을 구성한다.
+COMPOSE_INSTRUCTIONS = """# 설명 담당 범위
+explanation_step의 requirement_ids에 연결된 requirements와 사용자 원문을 읽고 그 설명 요구를 빠짐없이 처리한다.
+mode=general_only이면 개념 설명을 paragraphs에 작성한다. 전체 request_mode가 data_request여도 이 개념 설명은 실제 Run 결과 해석이 아니다.
+개념의 정의·공식·차이·일반 원리를 설명하고 특정 Run의 측정값이나 관측 결과를 일반 지식으로 만들어내지 않는다.
+
+# 실제 결과 설명: mode=data_request
+사용자 질문과 확인된 근거로 한국어 답변을 구성한다.
 사용자가 설명·해석·의미·차이의 이유를 요구하면 interpretations에 그 요구를 직접 다루는 해석을 작성한다.
 조회·수치 비교만 요청했으면 interpretations는 빈 배열로 두고, 설명을 요청했는데 근거가 부족하면 limitations에 한계를 적는다.
 각 해석은 evidence_ids로 근거를 연결하고, 원인 추정에 필요한 전제는 assumptions에 명시한다.
@@ -88,8 +127,8 @@ COMPOSE_INSTRUCTIONS = """사용자 질문과 확인된 근거로 한국어 답�
 feedback이 overclaim이면 관찰 가능한 범위로 해석을 고치고, 원인을 알 수 없으면 그 한계를 설명한다.
 실험 답변의 fact_ids에는 실제 근거 ID를 넣는다. 표에 있는 Run별 값을 나열하지 말고 질문에 답하는 핵심 수치만 인용한다.
 인용하는 모든 실험값(측정값, 위상, 차이, 배율, 공정 조건)은 근거의 value_parts에서 선택한다.
-예: “최솟값 차이 {{value:compare:O7}}가 최댓값 차이 {{value:compare:O8}}보다 큽니다.”
-value 이외의 항목은 {{value:compare:O7|percent}}처럼 고른 항목 이름을 붙인다. 숫자와 단위는 코드가 채운다.
+참조 문법은 {{value:근거ID|항목명}}이다. 근거ID는 이번 evidence[].id 전체를 그대로 복사하고 항목명은 그 근거의 value_parts에서 선택한다.
+단계 이름·Run 이름·compare 접두사를 근거 ID에 추가하거나 실행 ID를 생략하지 않는다. 숫자와 단위는 코드가 채운다.
 각 참조는 해당 해석·가정·한계의 evidence_ids에 넣은 실제 근거 ID여야 한다. 참조 가능한 값이 없으면 관찰의 범위를 설명한다.
 최댓값·최솟값의 부호와 비교 방향은 인용한 관측값과 일치시킨다.
 Run이 많으면 각 Run의 근거 ID를 나열하지 않는다. 요청한 항목의 최솟값·최댓값·범위처럼
@@ -101,9 +140,11 @@ comparison_coverage.rawRunValues는 IEAD 최대 강도처럼 단위를 확인할
 모델 입력에 파형 좌표가 없어도 화면은 좌표를 별도로 조회한다. 표시 여부는 본문에 쓰지 말고, 해석의 한계만 limitations에 적는다.
 실제로 비교·검색한 내용만 설명하고 누락, 0건, 미지원, 미실행을 구별한다.
 search_evidence의 조건과 측정값은 저장된 검색 결과다.
+조회 측정값의 숫자 근거가 evidence에 있으면 그 ID와 value_parts로 인용한다. 가용 수치가 있는데 측정값이 없다고 설명하지 않는다.
 순방향 조회의 EXACT는 requestedConditions에 정확히 일치하는 실제 Run 조회가 완료된 상태다.
 검색의 측정값에는 필수 조건과 정렬 목표의 지표가 모두 포함된다. 개별 후보 목록은 화면에 표시된다.
-관찰만으로 원인을 단정하지 않는다. 일반 지식은 실제 Run을 조회한 것처럼 표현하지 않는다."""
+관찰만으로 원인을 단정하지 않는다. 일반 지식은 실제 Run을 조회한 것처럼 표현하지 않는다.
+rejected_draft와 validation_error가 있으면 직전 답변의 해당 오류를 수정한다. 실제 근거가 있으면 fact_ids를 비우지 않는다."""
 
 QUESTIONS = {
     "interpretation_scope": (
@@ -123,7 +164,7 @@ class V2Settings:
     writer: Settings
     decisions_model: str
     decisions_url: str
-    plan_review_enabled: bool = False
+    plan_review_enabled: bool = True
 
     @classmethod
     def from_env(cls, base: Settings) -> "V2Settings":
@@ -134,17 +175,16 @@ class V2Settings:
         return cls(
             planner=replace(base, model=os.getenv("AGENT_V2_PLAN_MODEL", "gpt-6-luna"),
                             reasoning_effort=os.getenv("AGENT_V2_PLAN_REASONING_EFFORT", "low")),
-            writer=replace(base, model=os.getenv("AGENT_V2_ANSWER_MODEL", base.model),
-                           reasoning_effort=os.getenv("AGENT_V2_ANSWER_REASONING_EFFORT", base.reasoning_effort)),
+            writer=replace(base, model=os.getenv("AGENT_V2_ANSWER_MODEL", "gpt-6-luna"),
+                           reasoning_effort=os.getenv("AGENT_V2_ANSWER_REASONING_EFFORT", "low")),
             decisions_model=os.getenv("AGENT_V2_DECISIONS_MODEL", "gpt-6-luna"),
             decisions_url=url + "/decisions",
-            plan_review_enabled=os.getenv("AGENT_V2_PLAN_REVIEW_ENABLED", "false").lower() not in {"false", "0"},
+            plan_review_enabled=os.getenv("AGENT_V2_PLAN_REVIEW_ENABLED", "true").lower() not in {"false", "0"},
         )
 
 
 def submit_plan_tool_schema():
     parameters = strict_schema(PlanDraft)
-    parameters["properties"]["interpretation_requested"] = {"type": "boolean"}
     definitions = parameters["$defs"]
     definitions["LiteralInput"]["properties"]["unit"] = {
         "type": ["string", "null"],
@@ -183,6 +223,25 @@ def _plan_defaults(value):
     return value
 
 
+def _decisions_response(client, settings, body):
+    with tracing.span("llm.decisions", kind="LLM", inputs=body,
+                      attributes={"llm.model_name": settings.decisions_model}) as observation:
+        response = client.post(settings.decisions_url, json=body,
+                               headers={"Authorization": "Bearer " + settings.writer.api_key})
+        observation.attribute("http.response.status_code", response.status_code)
+        response.raise_for_status()
+        data = response.json()
+        observation.output(data)
+        if not isinstance(data, dict):
+            raise ValueError("DECISIONS_INVALID_RESPONSE")
+        usage = data.get("usage") or {}
+        for source, target in (("input_tokens", "prompt"), ("output_tokens", "completion"),
+                               ("total_tokens", "total")):
+            if source in usage:
+                observation.attribute("llm.token_count." + target, usage[source])
+        return data
+
+
 def review_answer(client: httpx.Client, settings: V2Settings, payload):
     body = {
         "model": settings.decisions_model,
@@ -193,11 +252,9 @@ def review_answer(client: httpx.Client, settings: V2Settings, payload):
             for name, (instructions, choices) in QUESTIONS.items()
         ],
     }
+    data = {}
     try:
-        response = client.post(settings.decisions_url, json=body,
-                               headers={"Authorization": "Bearer " + settings.writer.api_key})
-        response.raise_for_status()
-        data = response.json()
+        data = _decisions_response(client, settings, body)
         rows = data["answers"]
         by_name = {row["name"]: row for row in rows}
         if len(rows) != len(QUESTIONS) or set(by_name) != set(QUESTIONS):
@@ -214,8 +271,15 @@ def review_answer(client: httpx.Client, settings: V2Settings, payload):
             }))
         status: Literal["PASS", "ISSUE"] = "PASS" if answers[0].choice == "within_evidence" else "ISSUE"
         return ReviewDecision(status=status, answers=answers), data.get("usage")
-    except (httpx.HTTPError, ValueError, KeyError, TypeError):
-        return ReviewDecision(status="UNAVAILABLE", answers=[], reason="DECISIONS_UNAVAILABLE"), None
+    except httpx.TimeoutException:
+        reason = "DECISIONS_TIMEOUT"
+    except httpx.HTTPStatusError as error:
+        reason = f"DECISIONS_HTTP_{error.response.status_code}"
+    except httpx.HTTPError:
+        reason = "DECISIONS_CONNECTION"
+    except (ValueError, KeyError, TypeError):
+        reason = "DECISIONS_INVALID_RESPONSE"
+    return ReviewDecision(status="UNAVAILABLE", answers=[], reason=reason), data.get("usage")
 
 
 def review_plan(client: httpx.Client, settings: V2Settings, payload):
@@ -224,11 +288,9 @@ def review_plan(client: httpx.Client, settings: V2Settings, payload):
         "input": [{"role": "user", "content": [{"type": "input_json", "data": payload}]}],
         "questions": review_questions(payload),
     }
+    data = {}
     try:
-        response = client.post(settings.decisions_url, json=body,
-                               headers={"Authorization": "Bearer " + settings.writer.api_key})
-        response.raise_for_status()
-        data = response.json()
+        data = _decisions_response(client, settings, body)
         return parse_plan_review(data, payload).model_dump(mode="json"), data.get("usage")
     except httpx.TimeoutException:
         reason = "DECISIONS_TIMEOUT"
@@ -238,7 +300,7 @@ def review_plan(client: httpx.Client, settings: V2Settings, payload):
         reason = "DECISIONS_CONNECTION"
     except (ValueError, KeyError, TypeError):
         reason = "DECISIONS_INVALID_RESPONSE"
-    return review_result(payload, "UNAVAILABLE", reason=reason).model_dump(mode="json"), None
+    return review_result(payload, "UNAVAILABLE", reason=reason).model_dump(mode="json"), data.get("usage")
 
 
 class V2ModelGateway:
@@ -267,23 +329,29 @@ class V2ModelGateway:
             )
         calls = [item for item in response.output if item.type == "function_call"]
         if len(calls) != 1 or calls[0].name != "submit_plan" or not calls[0].call_id:
-            raise ModelError("MODEL_OUTPUT_INVALID")
+            raise ModelError("MODEL_OUTPUT_INVALID", usage=usage, response=response)
         try:
             plan = PlanDraft.model_validate(_plan_defaults(json.loads(calls[0].arguments)))
         except (ValueError, TypeError):
-            raise ModelError("MODEL_OUTPUT_INVALID") from None
+            raise ModelError("MODEL_OUTPUT_INVALID", usage=usage, response=response) from None
         return plan.model_dump(mode="json"), usage
 
     def compose(self, context, *, on_block=None, numeric_values=None):
         schema = GeneralAnswerDraft if context["mode"] == "general_only" else DataAnswerDraft
-        self.input_guard({"instructions": COMPOSE_INSTRUCTIONS, "input": context,
+        instructions = COMPOSE_INSTRUCTIONS
+        example = next((row for row in context.get("evidence", []) if row.get("value_parts")), None)
+        if example and context["mode"] != "general_only":
+            reference = "{{value:" + example["id"] + "|" + example["value_parts"][0] + "}}"
+            instructions += "\n이번 입력의 유효한 참조 예시: " + json.dumps({
+                "evidence_ids": [example["id"]], "text": "검증된 값은 " + reference + "입니다."}, ensure_ascii=False)
+        self.input_guard({"instructions": instructions, "input": context,
                           "schema": strict_schema(schema)}, "answer")
         if on_block is None:
-            return self.writer.generate(COMPOSE_INSTRUCTIONS, context, schema)
+            return self.writer.generate(instructions, context, schema)
         projection = AnswerStreamProjector(context["mode"], on_block,
                                            evidence_ids={row["id"] for row in context.get("evidence", [])},
                                            numeric_values=numeric_values)
-        return self.writer.generate(COMPOSE_INSTRUCTIONS, context, schema, on_text_delta=projection.feed)
+        return self.writer.generate(instructions, context, schema, on_text_delta=projection.feed)
 
     def stream_compose(self, context, *, on_block, numeric_values=None):
         return self.compose(context, on_block=on_block, numeric_values=numeric_values)

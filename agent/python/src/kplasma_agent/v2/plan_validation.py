@@ -9,13 +9,16 @@ from ..comparison_catalog import FIELD_META, ComparisonField, PlotId
 from ..contracts import ConditionId, OutputMetric
 from ..metric_registry import NumericError, normalize_value
 from .contracts import (
-    AwaitInputStep, CompareStep, ContextRef, ContextSelectionScope, DeriveStep, ForwardStep, LiteralInput,
-    PlanDraft, ResultRef, ReverseStep, RunScope, ScalarScope, SelectionScope, StepSpec,
+    AwaitInputStep, ChoiceResultRef, CompareStep, ContextRef, ContextSelectionScope, DeriveStep, ForwardStep, LiteralInput,
+    ExplainStep, PlanDraft, ResultRef, ReverseStep, RunScope, ScalarScope, SelectionScope, StepSpec,
 )
 
 
 class InvalidPlan(ValueError):
-    pass
+    def __init__(self, message, *, path="/", actual=None, allowed=None):
+        super().__init__(message)
+        self.details = {"code": "INVALID_PLAN", "message": message, "path": path,
+                        "actual": actual, "allowed": allowed}
 
 
 def _bindings(value: object) -> Iterator[ContextRef | LiteralInput | ResultRef]:
@@ -30,6 +33,8 @@ def _bindings(value: object) -> Iterator[ContextRef | LiteralInput | ResultRef]:
 
 
 def _fields(step: StepSpec) -> set[str]:
+    if isinstance(step, ExplainStep):
+        return set()
     if isinstance(step, CompareStep):
         return set(step.inputs.fields)
     if isinstance(step, DeriveStep):
@@ -39,28 +44,30 @@ def _fields(step: StepSpec) -> set[str]:
     return {"selection"} if step.confirmation == "run_selection" else {"value"}
 
 
-def _connect_baseline_choices(steps: dict[str, StepSpec]) -> None:
+def _connect_comparison_choices(steps: dict[str, StepSpec]) -> None:
     for choice in list(steps.values()):
-        if not isinstance(choice, AwaitInputStep) or choice.confirmation != "baseline":
+        if not isinstance(choice, AwaitInputStep) or choice.confirmation not in {"baseline", "trend_axis"}:
             continue
         comparison = steps.get(choice.inputs.target_step_id)
-        if not isinstance(comparison, CompareStep) or choice.inputs.field != "baseline":
-            raise InvalidPlan("baseline confirmation must target compare_runs.inputs.baseline")
-        baseline = comparison.inputs.baseline
-        if baseline is not None and (not isinstance(baseline, ResultRef) or baseline.step_id != choice.id):
-            raise InvalidPlan("comparison baseline conflicts with its user confirmation")
+        field = choice.confirmation
+        if not isinstance(comparison, CompareStep) or choice.inputs.field != field:
+            raise InvalidPlan(f"{field} confirmation must target compare_runs.inputs.{field}")
+        binding = getattr(comparison.inputs, field)
+        if binding is not None and (not isinstance(binding, ResultRef) or binding.step_id != choice.id
+                                    or binding.field != "value" or not isinstance(binding.scope, ScalarScope)):
+            raise InvalidPlan(f"comparison {field} conflicts with its user confirmation")
 
-        # Use the comparison's Run list for the picker and bind the actual confirmation output.
+        # Connect the confirmed value before accepting the plan; dependency order alone cannot bind it.
         dependencies = choice.depends_on
         if isinstance(comparison.inputs.runs, ResultRef):
             dependencies = list(dict.fromkeys([*dependencies, comparison.inputs.runs.step_id]))
         steps[choice.id] = choice.model_copy(update={
             "depends_on": dependencies, "inputs": choice.inputs.model_copy(update={"candidates": None}),
         })
-        result = ResultRef(kind="result_ref", step_id=choice.id, field="value", scope=ScalarScope(kind="scalar"))
+        result = ChoiceResultRef(kind="result_ref", step_id=choice.id, field="value", scope=ScalarScope(kind="scalar"))
         steps[comparison.id] = comparison.model_copy(update={
             "depends_on": list(dict.fromkeys([*comparison.depends_on, choice.id])),
-            "inputs": comparison.inputs.model_copy(update={"baseline": result}),
+            "inputs": comparison.inputs.model_copy(update={field: result}),
         })
 
 
@@ -161,30 +168,46 @@ def validate_plan(
 ) -> PlanDraft:
     if plan.base_revision != base_revision:
         raise InvalidPlan("plan base revision is stale")
+    explanations = [step for step in plan.steps if isinstance(step, ExplainStep)]
+    work = [step for step in plan.steps if not isinstance(step, ExplainStep)]
+    if len(explanations) > 1:
+        raise InvalidPlan("explain_answer must appear at most once, as the last step")
+    if explanations:
+        explanation = explanations[0]
+        if plan.steps[-1].id != explanation.id or explanation.run_if or explanation.requires:
+            raise InvalidPlan("explain_answer must be the last, unconditional step without requires")
+        if any(explanation.id in step.depends_on for step in work):
+            raise InvalidPlan("no step may depend on explain_answer")
     if plan.request_mode == "general_only":
-        if plan.steps or data_required:
+        if work or data_required:
             raise InvalidPlan("general-only mode cannot perform or bypass a data request")
-    elif not plan.steps or not plan.requirements:
+        if len(explanations) != 1 or explanations[0].inputs.mode != "concept":
+            raise InvalidPlan("general_only needs one explain_answer with mode=concept and mapped requirements")
+    elif not work or not plan.requirements:
         raise InvalidPlan("data requests need steps and requirements")
 
     by_id = {s.id: s for s in plan.steps}
     if len(by_id) != len(plan.steps):
         raise InvalidPlan("duplicate step ID")
-    _connect_baseline_choices(by_id)
+    _connect_comparison_choices(by_id)
     requirements = {r.id: r for r in plan.requirements}
     if len(requirements) != len(plan.requirements):
         raise InvalidPlan("duplicate requirement ID")
 
-    def check_quote(key: str, quote: str) -> None:
+    def check_quote(key: str, quote: str, path="/") -> None:
         if key not in messages or quote not in messages[key]:
-            raise InvalidPlan(f"unrecognized original text at {key}")
+            raise InvalidPlan(f"unrecognized original text at {key}", path=path, actual=quote,
+                              allowed={"message_key": key, "original_text": messages.get(key)})
 
-    for req in plan.requirements:
-        for source in req.sources:
-            check_quote(source.message_key, source.quote)
+    for req_index, req in enumerate(plan.requirements):
+        for source_index, source in enumerate(req.sources):
+            check_quote(source.message_key, source.quote,
+                        f"/requirements/{req_index}/sources/{source_index}/quote")
         actual = {s.id for s in plan.steps if req.id in s.requirement_ids}
         if not set(req.handled_by) <= actual or (plan.steps and not req.handled_by):
-            raise InvalidPlan(f"requirement mapping does not match its steps: {req.id}")
+            raise InvalidPlan(f"requirement mapping does not match its steps: {req.id}",
+                              path=f"/requirements/{req_index}/handled_by", actual=req.handled_by,
+                              allowed=sorted(actual))
 
     pending = list(by_id.values())
     ordered: list[StepSpec] = []
@@ -208,13 +231,21 @@ def validate_plan(
     allowed_search_fields = set(get_args(OutputMetric) + get_args(ConditionId))
     for step in ordered:
         parents = ancestors[step.id]
+        if isinstance(step, ExplainStep):
+            if not {item.id for item in work} <= parents:
+                raise InvalidPlan("explain_answer must depend on all preceding work steps")
+            if step.inputs.mode == "results" and not any(
+                isinstance(by_id[parent], (ForwardStep, ReverseStep, CompareStep)) for parent in parents
+            ):
+                raise InvalidPlan("explain_answer results needs preceding Run data evidence")
 
         def producer(step_id: str, field: str) -> StepSpec:
             if step_id not in parents:
                 raise InvalidPlan(f"{step.id} references a non-predecessor: {step_id}")
             previous = by_id[step_id]
             if field not in _fields(previous):
-                raise InvalidPlan(f"{step_id} does not produce {field}")
+                raise InvalidPlan(f"{step_id} does not produce {field}", actual=field,
+                                  allowed=sorted(_fields(previous)))
             return previous
 
         if isinstance(step, AwaitInputStep) and step.inputs.selection_count is not None and step.confirmation != "run_selection":
@@ -252,7 +283,8 @@ def validate_plan(
                 selected = by_id.get(step.inputs.runs.step_id)
                 if isinstance(selected, ReverseStep) and step.inputs.runs.scope.kind == "candidate_group":
                     if step.inputs.runs.field != "candidates":
-                        raise InvalidPlan("whole-group comparison must read the search candidates field")
+                        raise InvalidPlan("whole-group comparison must read the search candidates field",
+                                          actual=step.inputs.runs.field, allowed=["candidates"])
                 elif not isinstance(selected, AwaitInputStep) or selected.confirmation != "run_selection":
                     raise InvalidPlan("search candidates must be confirmed before comparison unless the plan uses the whole candidate group")
                 elif step.inputs.runs.field != "selection" or step.inputs.runs.scope.kind != "scalar":

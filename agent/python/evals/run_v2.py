@@ -40,6 +40,8 @@ def main():
     parser.add_argument("--workers", type=int, default=4)
     parser.add_argument("--plan-review", choices=("on", "off"), default="on")
     args = parser.parse_args()
+    if args.live and args.plan_review != "on":
+        parser.error("live evaluation requires plan review; --plan-review off is not allowed")
     output = args.output.resolve()
     repo = Path(__file__).resolve().parents[3]
     if output.is_relative_to(repo):
@@ -59,14 +61,17 @@ def main():
     if not base.api_key:
         parser.error("live mode requires OPENAI_API_KEY")
     configured = V2Settings.from_env(base)
+    if not configured.plan_review_enabled:
+        parser.error("live evaluation requires AGENT_V2_PLAN_REVIEW_ENABLED=true")
     check_payload({}, "plan")
 
     def run(job):
         model, effort, case, trial = job
-        v2 = replace(configured, planner=replace(base, model=model, reasoning_effort=effort))
-        with httpx.Client(timeout=min(base.timeout, 30), transport=httpx.HTTPTransport(retries=0)) as client:
+        v2 = replace(configured, planner=replace(base, model=model, reasoning_effort=effort),
+                     plan_review_enabled=True)
+        with httpx.Client(timeout=base.timeout, transport=httpx.HTTPTransport(retries=0)) as client:
             gateway = V2ModelGateway(v2, client, check_payload)
-            row = evaluate_case(case, gateway, plan_review_enabled=args.plan_review == "on")
+            row = evaluate_case(case, gateway, plan_review_enabled=True)
         return {**row, "model": model, "effort": effort, "trial": trial}
 
     with ThreadPoolExecutor(max_workers=args.workers) as pool, (output / "results.jsonl").open("w") as file:

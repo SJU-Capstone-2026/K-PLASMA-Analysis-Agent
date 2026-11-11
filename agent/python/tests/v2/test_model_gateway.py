@@ -9,10 +9,10 @@ from kplasma_agent.v2.model_gateway import (
 )
 
 
-def test_planner_must_decide_whether_the_user_requested_interpretation():
+def test_planner_selects_explanation_instead_of_an_interpretation_boolean():
     schema = submit_plan_tool_schema()["parameters"]
-    assert "interpretation_requested" in schema["required"]
-    assert schema["properties"]["interpretation_requested"] == {"type": "boolean"}
+    assert "interpretation_requested" not in schema["properties"]
+    assert schema["$defs"]["ExplainInputs"]["properties"]["mode"]["enum"] == ["concept", "results"]
 
 
 def test_planner_literal_units_are_closed_choices_and_preserve_scale():
@@ -50,14 +50,16 @@ def test_between_drops_only_a_repeated_bound():
     assert _plan_defaults(missing)["value"] == low
 
 
-def test_planner_defaults_to_luna_low_and_answer_inherits(monkeypatch):
+def test_v2_models_default_to_gpt6_without_changing_v1_settings(monkeypatch):
     for name in ("AGENT_V2_PLAN_MODEL", "AGENT_V2_PLAN_REASONING_EFFORT", "AGENT_V2_ANSWER_MODEL",
-                 "AGENT_V2_ANSWER_REASONING_EFFORT"):
+                 "AGENT_V2_ANSWER_REASONING_EFFORT", "AGENT_V2_DECISIONS_MODEL"):
         monkeypatch.delenv(name, raising=False)
     base = Settings(model="gpt-5.6-luna", reasoning_effort="none")
     settings = V2Settings.from_env(base)
     assert (settings.planner.model, settings.planner.reasoning_effort) == ("gpt-6-luna", "low")
-    assert settings.writer == base
+    assert settings.planner.model == settings.writer.model == settings.decisions_model == "gpt-6-luna"
+    assert settings.writer.reasoning_effort == "low"
+    assert base.model == "gpt-5.6-luna"
 
 
 def test_decisions_sends_only_the_interpretation_question_and_uses_choice():
@@ -126,9 +128,11 @@ def test_plan_review_has_condition_questions_in_one_request_and_preserves_low_co
 
 @pytest.mark.parametrize("failure,reason", [
     ("timeout", "DECISIONS_TIMEOUT"), ("connection", "DECISIONS_CONNECTION"),
-    ("rate_limit", "DECISIONS_HTTP_429"), ("missing", "DECISIONS_INVALID_RESPONSE"),
+    (429, "DECISIONS_HTTP_429"), (401, "DECISIONS_HTTP_401"),
+    (500, "DECISIONS_HTTP_500"), ("missing", "DECISIONS_INVALID_RESPONSE"),
 ])
-def test_plan_review_outage_is_unavailable_and_never_retries(failure, reason):
+@pytest.mark.parametrize("kind", ["plan", "answer"])
+def test_decisions_outage_is_classified_and_never_retries(failure, reason, kind):
     from .test_plan_review import example_context
 
     calls = []
@@ -139,20 +143,21 @@ def test_plan_review_outage_is_unavailable_and_never_retries(failure, reason):
             raise httpx.ReadTimeout("private message", request=request)
         if failure == "connection":
             raise httpx.ConnectError("private message", request=request)
-        return httpx.Response(429 if failure == "rate_limit" else 200, json={"answers": []})
+        return httpx.Response(failure if isinstance(failure, int) else 200, json={"answers": []})
 
     with httpx.Client(transport=httpx.MockTransport(transport)) as client:
         gateway = V2ModelGateway(V2Settings.from_env(Settings()), client, lambda *_: None)
-        result, usage = gateway.review_plan(example_context())
+        result, usage = (gateway.review_plan(example_context()) if kind == "plan"
+                         else gateway.review({"interpretations": [], "evidence": []}))
     assert len(calls) == 1
     assert result["status"] == "UNAVAILABLE" and result["reason"] == reason
     assert usage is None
     assert "private message" not in json.dumps(result)
 
 
-def test_plan_review_is_opt_in_until_quality_gate_passes(monkeypatch):
+def test_plan_review_defaults_to_enabled_and_can_be_explicitly_disabled(monkeypatch):
     monkeypatch.delenv("AGENT_V2_PLAN_REVIEW_ENABLED", raising=False)
-    assert V2Settings.from_env(Settings()).plan_review_enabled is False
+    assert V2Settings.from_env(Settings()).plan_review_enabled is True
     monkeypatch.setenv("AGENT_V2_PLAN_REVIEW_ENABLED", "true")
     assert V2Settings.from_env(Settings()).plan_review_enabled is True
     monkeypatch.setenv("AGENT_V2_PLAN_REVIEW_ENABLED", "false")
@@ -181,8 +186,10 @@ def test_gateway_streams_safe_prose_before_provider_completion_with_one_writer_r
     from kplasma_agent.v2.contracts import Evidence
 
     observed, requests, guards = [], [], []
-    draft = {"fact_ids": ["compare:O12"], "interpretations": [{"id": "private-I1",
-              "evidence_ids": ["compare:O12"], "text": "차이는 {{value:compare:O12}}입니다.",
+    execution_id = "00000000-0000-0000-0000-000000000012"
+    evidence_id = execution_id + ":O12"
+    draft = {"fact_ids": [evidence_id], "interpretations": [{"id": "private-I1",
+              "evidence_ids": [evidence_id], "text": "차이는 {{value:" + evidence_id + "|value}}입니다.",
               "assumptions": ["동일한 조건입니다."]}], "limitations": []}
     raw = json.dumps(draft, ensure_ascii=False)
     response = {"id": "synthetic", "object": "response", "created_at": 0, "status": "in_progress",
@@ -218,16 +225,19 @@ def test_gateway_streams_safe_prose_before_provider_completion_with_one_writer_r
         requests.append(body)
         assert body["stream"] is True
         assert "numeric_values" not in json.loads(body["input"])
+        assert "{{value:" + evidence_id + "|value}}" in body["instructions"]
+        assert "{{value:compare:O7" not in body["instructions"]
         return httpx.Response(200, headers={"content-type": "text/event-stream"}, stream=Body())
 
     settings = V2Settings.from_env(Settings(api_key="test"))
     with httpx.Client(transport=httpx.MockTransport(transport)) as http_client:
         gateway = V2ModelGateway(settings, http_client, lambda payload, role: guards.append(role))
         gateway.writer = ModelClient(settings.writer, http_client=http_client)
-        evidence = Evidence(id="compare:O12", executionId="compare", field="observation",
+        evidence = Evidence(id=evidence_id, executionId=execution_id, field="observation",
                             value="검증된 값", unit=None)
-        context = {"mode": "data_request", "evidence": [evidence.model_dump(mode="json")]}
-        values = {"compare:O12": {"value": "12 V"}}
+        context = {"mode": "data_request", "evidence": [{**evidence.model_dump(mode="json"),
+                                                          "value_parts": ["value"]}]}
+        values = {evidence_id: {"value": "12 V"}}
         final, _ = gateway.stream_compose(context, on_block=lambda block, text: observed.append((block, text)),
                                           numeric_values=values)
         rendered, saved = assemble_answer(final, "data_request", [evidence], numeric_values=values)
@@ -235,3 +245,62 @@ def test_gateway_streams_safe_prose_before_provider_completion_with_one_writer_r
     assert guards == ["answer"]
     assert rendered.endswith("차이는 12 V입니다.\n\n동일한 조건입니다.")
     assert saved["interpretations"][0]["text"] == observed[0][1]
+
+
+@pytest.mark.parametrize("failure,code", [("timeout", "MODEL_TIMEOUT"), (429, "MODEL_RATE_LIMITED"),
+                                        (503, "MODEL_HTTP_503"), ("failed", "MODEL_RESPONSE_FAILED"),
+                                        ("incomplete", "MODEL_RESPONSE_INCOMPLETE"),
+                                        ("max_output_tokens", "MODEL_OUTPUT_TRUNCATED"),
+                                        ("content_filter", "MODEL_CONTENT_FILTERED")])
+def test_model_failure_code_is_preserved_in_the_existing_outcome_error(failure, code):
+    from evals.v2_harness import EvaluationJournal
+    from kplasma_agent.graphs.v2 import build_v2_graph
+    from kplasma_agent.model_client import ModelClient
+
+    requests = []
+
+    def transport(request):
+        requests.append(request)
+        if failure == "timeout":
+            raise httpx.ReadTimeout("private-provider-body", request=request)
+        if isinstance(failure, str):
+            return httpx.Response(200, json={
+                "id": "synthetic", "object": "response", "created_at": 0,
+                "status": "failed" if failure == "failed" else "incomplete", "model": "gpt-6-luna",
+                "usage": {"input_tokens": 11, "output_tokens": 6000, "total_tokens": 6011,
+                          "output_tokens_details": {"reasoning_tokens": 5900}} if failure == "max_output_tokens" else None,
+                "output": [{"type": "message", "id": "partial", "role": "assistant", "status": "incomplete",
+                            "content": [{"type": "output_text", "text": "PARTIAL MODEL OUTPUT", "annotations": []}]}]
+                          if failure == "max_output_tokens" else [], "parallel_tool_calls": False, "tool_choice": "auto", "tools": [],
+                "incomplete_details": {"reason": failure} if failure in ("max_output_tokens", "content_filter") else None,
+                "error": {"code": "server_error", "message": "private-provider-body"} if failure == "failed" else None,
+            })
+        return httpx.Response(failure, json={"error": {"message": "private-provider-body"}})
+
+    with httpx.Client(transport=httpx.MockTransport(transport)) as client:
+        settings = V2Settings.from_env(Settings(api_key="private-api-key"))
+        gateway = V2ModelGateway(settings, client, lambda *_: None)
+        gateway.planner = ModelClient(settings.planner, http_client=client)
+        journal = EvaluationJournal([])
+        state = build_v2_graph(gateway, journal, None).invoke({"request_id": "synthetic", "question": "조회",
+                    "context": {}, "input_history": []}, {"recursion_limit": 80})
+    attempts = list(journal.models.values())
+    expected_calls = 3 if failure == "max_output_tokens" else 1
+    assert len(attempts) == expected_calls
+    attempt = attempts[-1]
+    outcome = attempt["outcome"]
+    assert outcome["data"] is None and outcome["error"] == code
+    if failure == "max_output_tokens":
+        assert outcome["usage"]["outputTokens"] == outcome["usage"]["maxOutputTokens"] == 6000
+        assert outcome["usage"]["rawUsage"]["output_tokens_details"]["reasoning_tokens"] == 5900
+        assert outcome["response"]["output"][0]["content"][0]["text"] == "PARTIAL MODEL OUTPUT"
+    elif outcome["usage"] is not None:
+        assert outcome["usage"]["usageAvailable"] is False
+        assert outcome["usage"]["inputTokens"] is outcome["usage"]["outputTokens"] is None
+        assert outcome["response"]["status"] in {"failed", "incomplete"}
+    else:
+        assert "response" not in outcome
+    assert len(requests) == expected_calls and not journal.steps
+    assert state.get("replans", 0) == expected_calls - 1
+    assert state["answer"]["answerSnapshot"]["executionStatus"] == "FAILED"
+    assert "private" not in json.dumps(attempt["outcome"])

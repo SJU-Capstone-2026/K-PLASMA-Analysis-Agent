@@ -34,3 +34,4 @@ kplasma:
   storage-root: ${KPLASMA_STORAGE_ROOT:./storage}
   agent:
     worker-token: ${AGENT_WORKER_TOKEN:}
+    model-timeout-seconds: ${AGENT_MODEL_TIMEOUT_SECONDS:90}
