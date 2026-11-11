@@ -15,8 +15,9 @@ from .v2_cases import Case, runs
 
 
 class EvaluationJournal:
-    def __init__(self, source):
+    def __init__(self, source, records=()):
         self.source = source
+        self.records = list(records)  # artificial decision records only
         self.steps = {}
         self.models = {}
         self.revisions = []
@@ -35,6 +36,9 @@ class EvaluationJournal:
     def load_context(self, execution):
         wanted = self.steps[execution]["inputs"].get("runs")
         return deepcopy([r for r in self.source if not wanted or run_ref(r) in wanted])
+
+    def decision_records(self, execution):
+        return deepcopy(self.records)
 
     def comparison_outputs(self, execution, refs, plots):
         return []

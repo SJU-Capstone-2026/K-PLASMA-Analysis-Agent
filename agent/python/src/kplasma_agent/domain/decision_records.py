@@ -170,6 +170,15 @@ def parse_request(text):
     return {"exclude": exclude, "threshold": threshold}
 
 
+def quoted_threshold(text):
+    """The number of an explicit "N건 이상" in the text, or None."""
+    match = _THRESHOLD.search(_text(text))
+    if not match:
+        return None
+    value = float(match.group(1))
+    return int(value) if value.is_integer() else value
+
+
 def mentions_cost(text):
     return bool(_COST_TERM.search(_text(text)))
 
@@ -180,3 +189,64 @@ def has_numeric_condition(text):
 
 def mentions_candidate_group(text):
     return bool(_CANDIDATE_GROUP.search(_text(text)))
+
+
+# Shown instead of a result when the request cannot be applied (prototype wording).
+NOTICES = {
+    "COST_ONLY": "현재 시연에서는 비용 사유가 명확한 반려 기록만 자동 제외합니다. 다른 사유는 기록 원문을 확인해 주세요.",
+    "THRESHOLD": "제외 기준은 1건 이상의 정수로 입력해 주세요. 후보를 제외하지 않았습니다.",
+    "SCOPE": "먼저 후보 탐색을 실행하거나 결과의 전체 후보를 질문 대상으로 선택해 주세요.",
+}
+
+
+def threshold_reply(reply):
+    """Read a threshold confirmation (button or typed "3건") without calling a model."""
+    if reply.get("type") == "decision_threshold":
+        value = reply.get("threshold")
+        return value if isinstance(value, (int, float)) and not isinstance(value, bool) else "INVALID"
+    match = re.fullmatch(r"\s*([+-]?[0-9]+(?:\.[0-9]+)?)\s*(?:건)?\s*(?:이상)?\s*", reply.get("text") or "")
+    if not match:
+        return "INVALID"
+    value = float(match.group(1))
+    return int(value) if value.is_integer() else value
+
+
+def record_rows(summaries, refs_by_id):
+    rows = []
+    for summary in summaries:
+        # A record's own Run version is renamed so it is never mistaken for a result Run reference.
+        entries = [
+            {**{k: v for k, v in entry.items() if k != "runVersionId"}, "recordRunVersionId": entry["runVersionId"]}
+            for entry in summary["entries"]
+        ]
+        rows.append({**summary, **refs_by_id[summary["runId"]], "entries": entries})
+    return rows
+
+
+def build_result(action, threshold, refs, decision_rows):
+    """Deterministic RECORD_REUSE result: the same inputs always give the same rows and wording."""
+    exclude = action == "exclude"
+    threshold = threshold if exclude else None
+    refs_by_id = {ref["runId"]: ref for ref in refs}
+    filtered = filter_runs(decision_rows, list(refs_by_id), threshold if exclude else math.inf)
+    remaining = record_rows(filtered["remaining"], refs_by_id)
+    excluded = record_rows(filtered["excluded"], refs_by_id)
+    if not exclude:
+        status, text = "RECORDS_READY", "이 Run의 과거 판단과 사유입니다."
+    elif excluded:
+        status, text = "EXCLUSION_APPLIED", f"비용 반려 {threshold}건 이상이 확인된 후보 {len(excluded)}개를 제외했습니다."
+    else:
+        status, text = "NO_EXCLUSION", f"비용 반려 {threshold}건 이상이 확인된 후보는 없습니다."
+    return {
+        "kind": "decision_records",
+        "resultStatus": status,
+        "action": action,
+        "threshold": threshold,
+        "summaryText": text,
+        "notice": None,
+        "remaining": remaining,
+        "excluded": excluded,
+        "canUndo": exclude,
+        "recordPolicyVersion": RECORD_POLICY_VERSION,
+        "usedRunRefs": [{"runId": row["runId"], "runVersionId": row["runVersionId"]} for row in [*remaining, *excluded]],
+    }

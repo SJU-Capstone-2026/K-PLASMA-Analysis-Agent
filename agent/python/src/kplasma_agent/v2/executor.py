@@ -3,7 +3,9 @@
 from pydantic import ValidationError
 
 from ..backend_client import BackendError
+from ..answer_contracts import DecisionRecordsResult
 from ..comparison_catalog import comparison_plan
+from ..domain import decision_records as records
 from ..domain.common import DomainError
 from ..domain.compare import compare_selected
 from ..domain.forward import lookup_forward
@@ -12,8 +14,9 @@ from ..domain.validation import validate_result
 from ..metric_registry import UNITS
 from ..progress import ProgressReporter
 from .bindings import BlockedInput, resolve_inputs, should_run
-from .contracts import CompareStep, DeriveStep, ForwardStep, Quantity, StepResult
+from .contracts import CandidateScope, CompareStep, DecisionRecordStep, DeriveStep, ForwardStep, Quantity, ResultRef, StepResult
 from .derivations import compute_derived
+from .records import record_plan
 
 
 class SequentialExecutor:
@@ -21,11 +24,15 @@ class SequentialExecutor:
         self.executions = executions
         self.progress = getattr(executions, "progress", None) or ProgressReporter(None)
 
-    def execute(self, revision, step, context, results):
+    def execute(self, revision, step, context, results, *, question="", record_threshold=None):
         try:
             if not should_run(step, results):
                 return StepResult(executionId=f"skipped:{step.id}", stepId=step.id, status="skipped", outputs={})
             inputs = resolve_inputs(step, context, results)
+            if isinstance(step, DecisionRecordStep):
+                runs = step.inputs.runs
+                inputs = record_plan(inputs, question, record_threshold,
+                                     from_result=isinstance(runs, ResultRef) and isinstance(runs.scope, CandidateScope))
         except BlockedInput as error:
             return StepResult(executionId=f"blocked:{step.id}", stepId=step.id, status="blocked",
                               outputs={}, reason=f"MISSING_INPUT:{error.field}")
@@ -43,7 +50,9 @@ class SequentialExecutor:
             return StepResult(executionId=execution, stepId=step.id, status="failed", outputs={},
                               reason="EXECUTION_OUTCOME_UNKNOWN")
         code = {"forward_lookup": "FORWARD_LOOKUP", "reverse_search": "REVERSE_SEARCH",
-                "compare_runs": "COMPARE_RUNS"}.get(getattr(step, "tool", None), "DERIVE")
+                "compare_runs": "COMPARE_RUNS",
+                # Public progress codes are a closed backend list; this reads the chosen Runs' records.
+                "decision_records": "QUESTION_CHECK"}.get(getattr(step, "tool", None), "DERIVE")
         fields = {"stepId": step.id}
         if isinstance(step, CompareStep):
             fields.update(runCount=len(inputs["runs"]), metricIds=step.inputs.fields)
@@ -75,6 +84,8 @@ class SequentialExecutor:
             return StepResult(executionId=execution, stepId=step.id, status="verified",
                               outputs={"value": quantity.model_dump(mode="json")})
 
+        if isinstance(step, DecisionRecordStep):
+            return self._records(execution, step, inputs)
         source = self.executions.load_context(execution)
         if isinstance(step, CompareStep):
             opts = inputs["options"]
@@ -117,6 +128,29 @@ class SequentialExecutor:
         return StepResult(executionId=execution, stepId=step.id, status="verified" if candidates else "empty",
                           outputs={"toolResult": raw, "candidates": candidates}, runRefs=raw["usedRunRefs"],
                           groupId="common", reason=raw["resultStatus"])
+
+    def _records(self, execution, step, inputs):
+        if inputs["notice"]:
+            # The request was understood but cannot be applied; the answer shows the prototype notice.
+            raise DomainError(f"RECORD_NOTICE:{inputs['notice']}", records.NOTICES[inputs["notice"]])
+        if not inputs["runs"]:
+            # An empty search leaves nothing to check; later steps see an empty candidate group.
+            return StepResult(executionId=execution, stepId=step.id, status="empty",
+                              outputs={"candidates": [], "excluded": []}, groupId="records", reason="NO_RECORD_TARGETS")
+        rows = self.executions.decision_records(execution)
+        with self.progress.work("RESULT_VALIDATE", identity=f"verify:{execution}", stepId=step.id):
+            raw = records.build_result(inputs["action"], inputs["threshold"], inputs["runs"], rows)
+            DecisionRecordsResult.model_validate(raw)
+            if raw != records.build_result(inputs["action"], inputs["threshold"], inputs["runs"], rows):
+                raise ValueError("decision record result source mismatch")
+
+        def refs(group):
+            return [{"runId": row["runId"], "runVersionId": row["runVersionId"]} for row in raw[group]]
+
+        remaining = refs("remaining")
+        return StepResult(executionId=execution, stepId=step.id, status="verified" if remaining else "empty",
+                          outputs={"toolResult": raw, "candidates": remaining, "excluded": refs("excluded")},
+                          runRefs=raw["usedRunRefs"], groupId="records", reason=raw["resultStatus"])
 
 
 def _apply_default_units(inputs):

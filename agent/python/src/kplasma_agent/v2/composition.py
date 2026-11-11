@@ -7,7 +7,7 @@ from typing import Any, cast
 from ..domain.common import scalar
 from ..domain.reverse import check_rule
 from ..metric_registry import CONDITION_KEYS, LABELS, OUTPUT_METRICS, UNITS, format_value, is_finite
-from .contracts import DataAnswerDraft, Evidence, GeneralAnswerDraft, Quantity, StepResult
+from .contracts import DataAnswerDraft, Evidence, GeneralAnswerDraft, Quantity, RunRef, StepResult
 
 
 VALUE_REFERENCE = re.compile(r"\{\{value:([^{}|]+)(?:\|([^{}|]+))?\}\}")
@@ -29,6 +29,9 @@ def collect_evidence(results: list[StepResult]) -> list[Evidence]:
                 entries.append(Evidence(id=identifier, executionId=result.executionId,
                                         field=quantity.field, value=quantity.value, unit=quantity.unit, runRef=ref))
         raw = result.outputs.get("toolResult")
+        if isinstance(raw, dict) and raw.get("kind") == "decision_records":
+            entries.extend(_record_evidence(result, raw))
+            continue
         if isinstance(raw, dict):
             for observation in cast(list[dict[str, Any]], raw.get("observations", [])):
                 entries.append(Evidence(id=f"{result.executionId}:{observation['id']}",
@@ -41,6 +44,23 @@ def collect_evidence(results: list[StepResult]) -> list[Evidence]:
                                     field="candidates", value=names, unit=None))
     return entries
 
+
+def _record_evidence(result: StepResult, raw: dict[str, Any]) -> list[Evidence]:
+    """Counts, Run IDs and the fixed summary only. Notes, comments, past questions and the
+    per-record reason never reach a model (design 2026-11-08 section 6.6)."""
+    execution = result.executionId
+    rows = [*raw["remaining"], *raw["excluded"]]
+    entries = [Evidence(id=f"{execution}:records", executionId=execution, field="recordSummary",
+                        value=raw["summaryText"], unit=None)]
+    entries.extend(
+        Evidence(id=f"{execution}:{row['runId']}:costRejections", executionId=execution, field="costRejections",
+                 value=row["count"], unit="건", runRef=RunRef(runId=row["runId"], runVersionId=row["runVersionId"]))
+        for row in rows
+    )
+    for field, group in (("remainingRuns", "remaining"), ("excludedRuns", "excluded")):
+        entries.append(Evidence(id=f"{execution}:{field}", executionId=execution, field=field,
+                                value=[row["runId"] for row in raw[group]], unit=None))
+    return entries
 
 
 def collect_search_evidence(results: list[StepResult]) -> list[dict[str, Any]]:
@@ -181,6 +201,14 @@ def collect_numeric_values(results: list[StepResult], evidence: list[Evidence]) 
 def _render_fact(evidence: Evidence) -> str:
     if evidence.field == "observation":
         return str(evidence.value)
+    if evidence.field == "recordSummary":
+        return str(evidence.value)
+    if evidence.field == "costRejections" and evidence.runRef:
+        return f"{evidence.runRef.runId}의 비용 반려 기록: {evidence.value}건"
+    if evidence.field in {"remainingRuns", "excludedRuns"} and isinstance(evidence.value, list):
+        label = "남은 후보" if evidence.field == "remainingRuns" else "제외한 후보"
+        names = [str(name) for name in evidence.value]
+        return f"{label} {len(names)}개" + (f": {', '.join(names)}" if names else "")
     if evidence.field == "candidates" and isinstance(evidence.value, list):
         return f"검색 결과 {len(evidence.value)}개" if evidence.value else "조건에 맞는 후보가 없습니다."
     label = LABELS.get(evidence.field, evidence.field)

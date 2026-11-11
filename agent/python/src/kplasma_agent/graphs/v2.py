@@ -9,6 +9,7 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.types import interrupt
 from pydantic import ValidationError
 
+from ..domain import decision_records as records
 from ..model_client import ModelError
 from ..metric_registry import CONDITION_KEYS
 from ..progress import ProgressReporter
@@ -22,7 +23,7 @@ from ..v2.contracts import (
     GraphV2AnswerSnapshotV1, PlanDraft, ResultRef, ReviewDecision, StepResult,
 )
 from ..v2.executor import SequentialExecutor
-from ..v2.plan_validation import InvalidPlan, validate_plan
+from ..v2.plan_validation import InvalidPlan, MissingRecordStep, validate_plan
 from ..v2.plan_review import (
     PROMPT_VERSION, PlanReviewResult, build_plan_review_context, digest, plan_digest,
     matches_review_context, plan_review_feedback, review_result,
@@ -43,6 +44,7 @@ class State(TypedDict, total=False):
     waiting_step: str | None
     replacement_pending: bool
     pending: dict
+    record_threshold: int | float | str | None
     failure: str | None
     feedback: str | None
     route: str
@@ -74,6 +76,9 @@ def _binding_context(context):
     for key in ("activeRun", "selectedRunRef"):
         if context.get(key):
             values[key] = context[key]
+    if context.get("candidateReferences"):
+        # The current candidate group, readable only by decision_records steps (Agent v1 scope).
+        values["candidate_references"] = context["candidateReferences"]
     if selection.get("baselineKey"):
         values["baseline"] = selection["baselineKey"]
     values.update(context.get("v2ConfirmedInputs", {}))
@@ -103,6 +108,10 @@ def _issue(reason):
         return "계획 검토에 필요한 정보를 구성하지 못해 실행하지 않았습니다."
     if reason == "STALE_PLAN_REVIEW":
         return "질문 또는 선택 정보가 변경되어 이전 검토로 실행할 수 없습니다."
+    if reason.startswith("RECORD_NOTICE:"):
+        return records.NOTICES.get(reason.split(":", 1)[1], "요청을 모두 완료하지 못했습니다. 확인된 결과를 표시합니다.")
+    if reason == "RECORD_STEP_MISSING":
+        return "비용 반려 기록 제외를 계획하지 못해 후보를 제외하지 않았습니다. 확인된 결과만 표시합니다."
     if reason == "INSUFFICIENT_CANDIDATES":
         return "검색 결과에서 비교에 필요한 수의 Run을 확보하지 못했습니다."
     if reason.startswith("MISSING_INPUT:"):
@@ -215,7 +224,8 @@ def build_v2_graph(models, executions, checkpointer):
                                      selected_run_keys={entry["key"] for entry in context["comparison_entries"]})
         except (ValidationError, InvalidPlan) as error:
             return {"route": "replan" if state.get("replans", 0) < 2 else "compose",
-                    "failure": "INVALID_PLAN", "feedback": str(error)[:1600]}
+                    "failure": "RECORD_STEP_MISSING" if isinstance(error, MissingRecordStep) else "INVALID_PLAN",
+                    "feedback": str(error)[:1600]}
 
         prior_steps = {step["id"]: step for step in state.get("plan", {}).get("steps", [])}
         previous = state.get("step_results", {})
@@ -304,7 +314,8 @@ def build_v2_graph(models, executions, checkpointer):
         if isinstance(current, AwaitInputStep) and should_run(current, previous):
             return {"route": "await", "waiting_step": current.id}
         start = time.monotonic()
-        result = executor.execute(state["plan_revision"], current, context, previous)
+        result = executor.execute(state["plan_revision"], current, context, previous,
+                                  question=state["question"], record_threshold=state.get("record_threshold"))
         elapsed = state.get("elapsed", 0) + time.monotonic() - start
         if result.status == "blocked":
             if result.reason == "MISSING_INPUT:INSUFFICIENT_CANDIDATES":
@@ -357,6 +368,16 @@ def build_v2_graph(models, executions, checkpointer):
             source = getattr(step.inputs.candidates, "step_id", None)
             if source:
                 pending["sourceExecutionId"] = previous[source].executionId
+        if failure == "MISSING_INPUT:record_threshold":
+            # Same confirmation as Agent v1; the reply is a number, so it never goes back to a model.
+            pending = {"id": pending_id, "type": "decision_threshold", "message": "제외할 기록 건수를 선택해 주세요.",
+                       "options": [{"label": f"{n}건", "input": {"type": "decision_threshold", "threshold": n}}
+                                   for n in (1, 2)]}
+            user_input = interrupt(pending)
+            history = [*state.get("input_history", []), user_input]
+            return {"pending": pending, "input_history": history, "route": "execute", "failure": None,
+                    "feedback": None, "record_threshold": records.threshold_reply(user_input),
+                    "plan_review_binding_digest": binding_digest(state, history=history)}
         option_field = None
         if not selection and isinstance(step, AwaitInputStep):
             option_field = {"baseline": "baselineKey", "trend_axis": "trendAxis"}.get(step.confirmation)

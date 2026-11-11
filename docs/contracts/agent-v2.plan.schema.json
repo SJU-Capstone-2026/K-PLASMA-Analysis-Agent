@@ -74,18 +74,6 @@
     "AwaitInputs": {
       "additionalProperties": false,
       "properties": {
-        "target_step_id": {
-          "maxLength": 96,
-          "minLength": 1,
-          "title": "Target Step Id",
-          "type": "string"
-        },
-        "field": {
-          "maxLength": 96,
-          "minLength": 1,
-          "title": "Field",
-          "type": "string"
-        },
         "selection_count": {
           "anyOf": [
             {
@@ -98,6 +86,18 @@
           ],
           "default": null,
           "title": "Selection Count"
+        },
+        "target_step_id": {
+          "maxLength": 96,
+          "minLength": 1,
+          "title": "Target Step Id",
+          "type": "string"
+        },
+        "field": {
+          "maxLength": 96,
+          "minLength": 1,
+          "title": "Field",
+          "type": "string"
         },
         "candidates": {
           "anyOf": [
@@ -534,6 +534,122 @@
         "key"
       ],
       "title": "ContextSelectionScope",
+      "type": "object"
+    },
+    "DecisionRecordInputs": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "enum": [
+            "view",
+            "exclude"
+          ],
+          "title": "Action",
+          "type": "string"
+        },
+        "runs": {
+          "discriminator": {
+            "mapping": {
+              "context_ref": "#/$defs/ContextRef",
+              "literal": "#/$defs/LiteralInput",
+              "result_ref": "#/$defs/ResultRef"
+            },
+            "propertyName": "kind"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/LiteralInput"
+            },
+            {
+              "$ref": "#/$defs/ContextRef"
+            },
+            {
+              "$ref": "#/$defs/ResultRef"
+            }
+          ],
+          "title": "Runs"
+        },
+        "threshold": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LiteralInput"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "action",
+        "runs"
+      ],
+      "title": "DecisionRecordInputs",
+      "type": "object"
+    },
+    "DecisionRecordStep": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "maxLength": 96,
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "requirement_ids": {
+          "items": {
+            "maxLength": 96,
+            "minLength": 1,
+            "type": "string"
+          },
+          "title": "Requirement Ids",
+          "type": "array"
+        },
+        "depends_on": {
+          "items": {
+            "maxLength": 96,
+            "minLength": 1,
+            "type": "string"
+          },
+          "title": "Depends On",
+          "type": "array"
+        },
+        "requires": {
+          "items": {
+            "$ref": "#/$defs/OutputRequirement"
+          },
+          "title": "Requires",
+          "type": "array"
+        },
+        "run_if": {
+          "items": {
+            "$ref": "#/$defs/RunCondition"
+          },
+          "title": "Run If",
+          "type": "array"
+        },
+        "kind": {
+          "const": "tool",
+          "title": "Kind",
+          "type": "string"
+        },
+        "tool": {
+          "const": "decision_records",
+          "title": "Tool",
+          "type": "string"
+        },
+        "inputs": {
+          "$ref": "#/$defs/DecisionRecordInputs"
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "tool",
+        "inputs"
+      ],
+      "title": "DecisionRecordStep",
       "type": "object"
     },
     "DeriveInputs": {
@@ -1416,6 +1532,9 @@
           },
           {
             "$ref": "#/$defs/CompareStep"
+          },
+          {
+            "$ref": "#/$defs/DecisionRecordStep"
           },
           {
             "$ref": "#/$defs/DeriveStep"

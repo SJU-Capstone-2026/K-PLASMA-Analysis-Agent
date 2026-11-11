@@ -1,7 +1,6 @@
 """v1: one native tool selection, deterministic comparison, optional general answer."""
 
 from copy import deepcopy
-import math
 import re
 import time
 from typing import TypedDict
@@ -161,9 +160,7 @@ def _resolve(selector, manifest, context):
 
 
 RECORD_NOTICES = {
-    "COST_ONLY": "현재 시연에서는 비용 사유가 명확한 반려 기록만 자동 제외합니다. 다른 사유는 기록 원문을 확인해 주세요.",
-    "THRESHOLD": "제외 기준은 1건 이상의 정수로 입력해 주세요. 후보를 제외하지 않았습니다.",
-    "SCOPE": "먼저 후보 탐색을 실행하거나 결과의 전체 후보를 질문 대상으로 선택해 주세요.",
+    **records.NOTICES,
     "NUMERIC": "수치 조건을 해석하지 못했습니다. 예: Flux가 500 이상인 후보를 찾되, 비용 때문에 반려된 건 제외해줘.",
 }
 
@@ -185,55 +182,13 @@ def _record_scope(context):
     return None, []
 
 
-def _threshold_reply(reply):
-    if reply.get("type") == "decision_threshold":
-        value = reply.get("threshold")
-        return value if isinstance(value, (int, float)) and not isinstance(value, bool) else "INVALID"
-    match = re.fullmatch(r"\s*([+-]?[0-9]+(?:\.[0-9]+)?)\s*(?:건)?\s*(?:이상)?\s*", reply.get("text") or "")
-    if not match:
-        return "INVALID"
-    value = float(match.group(1))
-    return int(value) if value.is_integer() else value
-
-
-def _record_rows(summaries, refs_by_id):
-    rows = []
-    for summary in summaries:
-        entries = [
-            {**{k: v for k, v in entry.items() if k != "runVersionId"}, "recordRunVersionId": entry["runVersionId"]}
-            for entry in summary["entries"]
-        ]
-        rows.append({**summary, **refs_by_id[summary["runId"]], "entries": entries})
-    return rows
+_threshold_reply = records.threshold_reply
+_record_rows = records.record_rows
 
 
 def _record_result(plan, decision_rows):
     """Deterministic RECORD_REUSE answer: the same inputs always give the same rows and wording."""
-    exclude = plan["action"] == "exclude"
-    threshold = plan["threshold"] if exclude else None
-    refs_by_id = {ref["runId"]: ref for ref in plan["refs"]}
-    filtered = records.filter_runs(decision_rows, list(refs_by_id), threshold if exclude else math.inf)
-    remaining = _record_rows(filtered["remaining"], refs_by_id)
-    excluded = _record_rows(filtered["excluded"], refs_by_id)
-    if not exclude:
-        status, text = "RECORDS_READY", "이 Run의 과거 판단과 사유입니다."
-    elif excluded:
-        status, text = "EXCLUSION_APPLIED", f"비용 반려 {threshold}건 이상이 확인된 후보 {len(excluded)}개를 제외했습니다."
-    else:
-        status, text = "NO_EXCLUSION", f"비용 반려 {threshold}건 이상이 확인된 후보는 없습니다."
-    return {
-        "kind": "decision_records",
-        "resultStatus": status,
-        "action": plan["action"],
-        "threshold": threshold,
-        "summaryText": text,
-        "notice": None,
-        "remaining": remaining,
-        "excluded": excluded,
-        "canUndo": exclude,
-        "recordPolicyVersion": records.RECORD_POLICY_VERSION,
-        "usedRunRefs": [{"runId": row["runId"], "runVersionId": row["runVersionId"]} for row in [*remaining, *excluded]],
-    }
+    return records.build_result(plan["action"], plan["threshold"], plan["refs"], decision_rows)
 
 
 def build_graph(model, backend, settings, checkpointer):

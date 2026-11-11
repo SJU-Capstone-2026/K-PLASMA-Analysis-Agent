@@ -6,7 +6,8 @@ from ..contracts import ForwardInputs, ReverseInputs
 from ..metric_registry import UNITS, normalize_value
 from ..tools import CompareToolInputs
 from .contracts import (
-    AwaitInputStep, CandidateScope, CompareStep, ContextRef, ContextSelectionScope, DeriveStep, ForwardStep,
+    AwaitInputStep, CandidateScope, CompareStep, ContextRef, ContextSelectionScope, DecisionRecordStep, DeriveStep,
+    ForwardStep,
     LiteralInput, Quantity, ResultRef, ReverseStep, RunScope, ScalarScope, StepResult, StepSpec,
 )
 
@@ -172,6 +173,19 @@ def resolve_inputs(step: StepSpec, context: dict, results: dict[str, StepResult]
             "plot_ids": step.inputs.plot_ids or None, "analysis": "trend" if axis else "auto",
         }).model_dump(exclude_none=True)
         inputs = {"runs": [entry["ref"] for entry in entries], "entries": entries, "options": options}
+        run_input = step.inputs.runs
+        if isinstance(run_input, ResultRef) and isinstance(run_input.scope, CandidateScope):
+            inputs["candidateExecutionId"] = results[run_input.step_id].executionId
+        return inputs
+    if isinstance(step, DecisionRecordStep):
+        runs = [{"runId": ref.get("runId"), "runVersionId": ref.get("runVersionId")}
+                for ref in _refs(bind(step.inputs.runs))]
+        if any(not isinstance(value, str) or not value for ref in runs for value in ref.values()):
+            raise ValueError("decision records need fixed Run references")
+        # Records are summarized per Run ID, so two versions of one Run cannot share a step.
+        if len({ref["runId"] for ref in runs}) != len(runs):
+            raise ValueError("decision records need distinct Runs")
+        inputs = {"action": step.inputs.action, "runs": runs}
         run_input = step.inputs.runs
         if isinstance(run_input, ResultRef) and isinstance(run_input.scope, CandidateScope):
             inputs["candidateExecutionId"] = results[run_input.step_id].executionId

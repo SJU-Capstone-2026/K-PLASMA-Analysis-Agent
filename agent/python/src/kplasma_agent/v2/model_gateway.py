@@ -59,6 +59,17 @@ compare_runs는 확인 단계에 의존하고 inputs.runs에
 compare의 inputs.runs는 그대로 비교 대상 출처를 가리킨다. 비교 대상도 선택해야 하면 먼저 run_selection을 계획한다.
 기준 선택 단계가 있으면 compare의 inputs.baseline은 null로 두고, 코드는 기준 선택 결과를 연결한다.
 사용자가 “R1을 기준으로”처럼 기준을 직접 지정했으면 그 Run의 확인된 문맥을 baseline에 참조한다.
+과거 판단 기록 확인과 비용 반려 제외는 decision_records 단계로 계획한다.
+action은 기록 보기면 view, 후보에서 빼라는 요청이면 exclude다.
+제외 대상은 앞 reverse_search나 decision_records의 candidates(candidate_group) 또는 run_selection 확인 결과를 runs로 연결한다.
+검색 없이 이미 확인된 Run이 대상이면 context_ref selected_runs, candidate_references, activeRun 중 확인된 것을 사용한다.
+제외 뒤 비교·선택은 decision_records 단계의 candidates를 읽는다. 검색 결과를 직접 읽지 않는다.
+예: “에너지 30 eV 이상 찾되 비용 때문에 반려된 건 빼고 남은 후보끼리 플럭스 비교해줘”는
+meanIonEnergy gte 30 eV로 reverse_search → decision_records(exclude, 검색 candidates/candidate_group)
+→ compare_runs(decision_records의 candidates/candidate_group)이다.
+기준 건수는 원문에 'N건 이상'이 있을 때만 threshold 리터럴로 인용한다. 없으면 null이다.
+수치 조건은 reverse_search에 두고 decision_records에는 넣지 않는다.
+메모 내용으로 판단하지 않는다. 사유 판정은 코드가 한다.
 순수 개념 설명이면 requirements와 steps를 빈 배열로, 최초 계획의 base_revision은 null로 제출한다.
 정확한 필드 이름은 ionFlux, meanIonEnergy, iedWidth, pressure, sourcePower, biasPower다.
 compare_runs는 기준 없는 두 Run의 동일 지표 절대 차이, 기준 대비 변화량, 여러 Run의 범위와 경향을 제공한다.

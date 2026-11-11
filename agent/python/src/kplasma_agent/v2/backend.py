@@ -17,6 +17,10 @@ class V2ExecutionPort:
     def load_context(self, execution_id):
         return self.backend.post(f"steps/{execution_id}/context")["runs"]
 
+    def decision_records(self, execution_id):
+        # The backend checks the reserved Runs and pins the records for the whole request.
+        return self.backend.post(f"steps/{execution_id}/decision-records")["records"]
+
     def comparison_outputs(self, execution_id, refs, plots):
         return self.backend.post(f"steps/{execution_id}/comparison-outputs", runRefs=refs, plotIds=plots)["outputs"]
 

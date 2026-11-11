@@ -107,6 +107,13 @@ def tool_contracts() -> dict:
                              "plot_ids": "같은 Run들의 분포를 보조 그래프로 제공. 검색 조건이나 비교 집합을 변경하지 않음.",
                          },
                          "outputs": "각 요청 field의 Run별 quantity 목록과 candidates 참조"},
+        "decision_records": {"description": "저장된 판단 기록으로 runs의 과거 판단을 보거나(view) 비용 반려 기록이 있는 Run을 제외(exclude). 비용 사유 판정과 기준 건수는 코드가 원문으로 결정한다.",
+                             "input_semantics": {
+                                 "action": "view는 기록 보기, exclude는 비용 반려 후보 제외",
+                                 "runs": "candidate_group이면 앞 검색·기록 단계의 후보 전체, selection이면 사용자가 고른 Run, context_ref는 확인된 선택·현재 후보·활성 Run",
+                                 "threshold": "원문의 'N건 이상' 인용 또는 null. 없으면 코드가 1건 또는 사용자 확인으로 정함",
+                             },
+                             "outputs": ["candidates: 제외 뒤 남은 Run(입력 순서 유지)"]},
         "derive": {"operations": list(get_args(Operation)),
                    "description": "values가 참조한 검증된 수치에 등록 연산을 적용. 후속 도구의 새 기준값 등에 사용.",
                    "output": "value: 단위가 있는 단일 quantity"},
@@ -225,6 +232,10 @@ def program_effects(plan: PlanDraft) -> list[str]:
             text += f"; baseline={_binding_text(inputs['baseline'])}; trend_axis={_binding_text(inputs['trend_axis'])}"
             if inputs["plot_ids"]:
                 text += "; supplementary plots=" + ",".join(inputs["plot_ids"])
+        elif item.get("tool") == "decision_records":
+            threshold = inputs["threshold"]["value"] if inputs["threshold"] else "code default"
+            text = (f"decision_records {inputs['action']} for {_binding_text(inputs['runs'])}"
+                    + (f"; exclude Runs with cost rejections >= {threshold}" if inputs["action"] == "exclude" else ""))
         elif item["kind"] == "derive":
             text = f"{item['operation']}({_binding_text(inputs['values'])}); direction={inputs['direction']}"
         elif item["kind"] == "await_input":

@@ -6,16 +6,28 @@ from typing import get_args
 from pydantic import BaseModel
 
 from ..comparison_catalog import FIELD_META, ComparisonField, PlotId
+from ..domain import decision_records as records
 from ..contracts import ConditionId, OutputMetric
 from ..metric_registry import NumericError, normalize_value
 from .contracts import (
-    AwaitInputStep, CompareStep, ContextRef, ContextSelectionScope, DeriveStep, ForwardStep, LiteralInput,
+    AwaitInputStep, CompareStep, ContextRef, ContextSelectionScope, DecisionRecordStep, DeriveStep, ForwardStep,
+    LiteralInput,
     PlanDraft, ResultRef, ReverseStep, RunScope, ScalarScope, SelectionScope, StepSpec,
 )
 
 
 class InvalidPlan(ValueError):
     pass
+
+
+class MissingRecordStep(InvalidPlan):
+    """The question asks to exclude Runs by their records, but the plan has no exclusion step."""
+
+
+# Confirmed context a decision_records step may read (Agent v1 scope order: attached, candidates, active Run).
+RECORD_CONTEXT_KEYS = {"selected_runs", "candidate_references", "activeRun"}
+# Steps whose whole `candidates` group a later step may use without another confirmation.
+GROUP_PRODUCERS = (ReverseStep, DecisionRecordStep)
 
 
 def _bindings(value: object) -> Iterator[ContextRef | LiteralInput | ResultRef]:
@@ -34,7 +46,7 @@ def _fields(step: StepSpec) -> set[str]:
         return set(step.inputs.fields)
     if isinstance(step, DeriveStep):
         return {"value"}
-    if isinstance(step, (ForwardStep, ReverseStep)):
+    if isinstance(step, (ForwardStep, ReverseStep, DecisionRecordStep)):
         return {"candidates"}
     return {"selection"} if step.confirmation == "run_selection" else {"value"}
 
@@ -155,6 +167,30 @@ def _reuse_builtin_differences(plan: PlanDraft, selected_run_keys: Set[str]) -> 
     return plan.model_copy(update={"steps": steps, "requirements": requirements})
 
 
+def _check_record_step(step: DecisionRecordStep, steps: Mapping[str, StepSpec], request) -> None:
+    runs = step.inputs.runs
+    if isinstance(runs, LiteralInput):
+        raise InvalidPlan("decision_records.runs must come from confirmed context or an earlier result")
+    if isinstance(runs, ContextRef) and runs.key not in RECORD_CONTEXT_KEYS:
+        raise InvalidPlan("decision_records.runs context must be selected_runs, candidate_references or activeRun")
+    if isinstance(runs, ResultRef):
+        source = steps.get(runs.step_id)
+        whole_group = (isinstance(source, GROUP_PRODUCERS) and runs.field == "candidates"
+                       and runs.scope.kind == "candidate_group")
+        confirmed = (isinstance(source, AwaitInputStep) and source.confirmation == "run_selection"
+                     and runs.field == "selection" and runs.scope.kind == "scalar")
+        if not whole_group and not confirmed:
+            raise InvalidPlan("decision_records.runs must read a whole search or record candidate group, "
+                              "or a run_selection confirmation")
+    threshold = step.inputs.threshold
+    if threshold is not None:
+        # The code decides the threshold from the question; a model value is only a checked quote.
+        expected = request["threshold"] if request and request["exclude"] else None
+        quoted = records.quoted_threshold(threshold.source.quote)
+        if step.inputs.action != "exclude" or expected is None or not threshold.value == quoted == expected:
+            raise InvalidPlan("decision_records.threshold must quote the original 'N건 이상' or be null")
+
+
 def validate_plan(
     plan: PlanDraft, *, messages: Mapping[str, str], context_keys: Set[str],
     base_revision: int | None = None, data_required: bool = False, selected_run_keys: Set[str] = frozenset(),
@@ -205,6 +241,15 @@ def validate_plan(
             parents.update(ancestors[dependency])
         ancestors[ready.id] = parents
 
+    request = records.parse_request(messages.get("question", ""))
+    if request and request["exclude"] and not any(
+        isinstance(step, DecisionRecordStep) and step.inputs.action == "exclude" for step in plan.steps
+    ):
+        raise MissingRecordStep(
+            "The question asks to exclude Runs by their decision records. Plan a decision_records step with "
+            "action exclude and read its candidates in later steps."
+        )
+
     allowed_search_fields = set(get_args(OutputMetric) + get_args(ConditionId))
     for step in ordered:
         parents = ancestors[step.id]
@@ -250,19 +295,23 @@ def validate_plan(
                 raise InvalidPlan("Run references must come from confirmed context")
             if isinstance(step.inputs.runs, ResultRef):
                 selected = by_id.get(step.inputs.runs.step_id)
-                if isinstance(selected, ReverseStep) and step.inputs.runs.scope.kind == "candidate_group":
+                if isinstance(selected, GROUP_PRODUCERS) and step.inputs.runs.scope.kind == "candidate_group":
                     if step.inputs.runs.field != "candidates":
                         raise InvalidPlan("whole-group comparison must read the search candidates field")
                 elif not isinstance(selected, AwaitInputStep) or selected.confirmation != "run_selection":
                     raise InvalidPlan("search candidates must be confirmed before comparison unless the plan uses the whole candidate group")
                 elif step.inputs.runs.field != "selection" or step.inputs.runs.scope.kind != "scalar":
                     raise InvalidPlan("compare_runs.inputs.runs must read the confirmation step's selection field with scalar scope")
+        if isinstance(step, DecisionRecordStep):
+            _check_record_step(step, by_id, request)
         for binding in _bindings(step.inputs):
             if isinstance(binding, LiteralInput):
                 check_quote(binding.source.message_key, binding.source.quote)
             elif isinstance(binding, ContextRef):
                 if binding.key not in context_keys:
                     raise InvalidPlan(f"unknown context key: {binding.key}")
+                if binding.key == "candidate_references" and not isinstance(step, DecisionRecordStep):
+                    raise InvalidPlan("candidate_references is only a decision_records target")
             else:
                 previous = producer(binding.step_id, binding.field)
                 if any(condition not in step.run_if for condition in previous.run_if):
@@ -277,8 +326,9 @@ def validate_plan(
                         raise InvalidPlan("a single confirmed Run is not a comparison value set")
                 if scope.kind == "candidate_group" and not (
                     isinstance(step, AwaitInputStep) and step.confirmation == "run_selection"
-                    and isinstance(previous, (ForwardStep, ReverseStep))
-                    or isinstance(step, CompareStep) and binding is step.inputs.runs and isinstance(previous, ReverseStep)
+                    and isinstance(previous, (ForwardStep, *GROUP_PRODUCERS))
+                    or isinstance(step, (CompareStep, DecisionRecordStep)) and binding is step.inputs.runs
+                    and isinstance(previous, GROUP_PRODUCERS)
                 ):
                     raise InvalidPlan("candidate groups require user confirmation or a whole-group comparison")
                 if isinstance(scope, SelectionScope):

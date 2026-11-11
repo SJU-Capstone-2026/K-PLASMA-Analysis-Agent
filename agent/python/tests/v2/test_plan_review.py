@@ -48,7 +48,7 @@ def test_review_preserves_original_and_executable_inputs_even_if_requirement_pro
     assert context["confirmed_context"]["R1"]["runVersionId"] == "fixed-a"
     assert context["policy_context"]["default_units"]["ionFlux"] == "10¹⁸ m⁻²s⁻¹"
     assert set(context["tool_contracts"]) == {
-        "forward_lookup", "reverse_search", "compare_runs", "derive", "await_input", "bindings",
+        "forward_lookup", "reverse_search", "compare_runs", "decision_records", "derive", "await_input", "bindings",
     }
     assert "iead.peakEnergy" in context["tool_contracts"]["compare_runs"]["fields"]
 
