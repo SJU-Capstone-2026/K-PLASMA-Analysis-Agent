@@ -4,7 +4,7 @@
 
 **Goal:** Preserve the v2 implementation and make an independent, mechanically verified v3 copy.
 
-**Architecture:** Copy the Python dependency closure of the v2 graph, model gateway, backend port and checkpoint adapter into `kplasma_agent.v3`. Store v2 planning modules under `v3/core`, shared-root dependencies under `v3`, and the graph under `v3/graph.py`; this is copied source, not runtime reuse. Only package imports and explicit graph/version/config identities change.
+**Architecture:** Copy the Python dependency closure of the v2 graph, model gateway, backend port, checkpoint adapter and worker-injected input budget into `kplasma_agent.v3`. Store v2 planning modules under `v3/core`, shared-root dependencies under `v3`, and the graph under `v3/graph.py`; this is copied source, not runtime reuse. Only package imports and explicit graph/version/config identities change.
 
 **Tech Stack:** Existing Python 3.12, LangGraph, Pydantic, pytest, Ruff and mypy; no new dependencies.
 
@@ -35,7 +35,7 @@
 
 - [ ] Write failing checks for the manifest, complete internal import closure, original file hashes and independent graph/model/schema objects.
 - [ ] Run the checks and confirm failure because the v3 package does not exist.
-- [ ] Copy the 35-module dependency closure from the frozen Git source. Rewrite internal imports and explicit v2 graph/config identities only.
+- [ ] Copy the 36-module dependency closure from the frozen Git source. Rewrite internal imports and explicit v2 graph/config identities only.
 - [ ] Compare every copied file with its transformed frozen source and reject imports outside the new package except standard/third-party libraries.
 - [ ] Run the boundary tests and commit only the clone, manifest and checks.
 
