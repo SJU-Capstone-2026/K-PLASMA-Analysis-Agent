@@ -6,10 +6,6 @@
 
 초기 목표는 v12.3.1의 UI·UX와 기능을 모두 이관하는 것이다. 기능 축소나 재설계는 이관 작업과 섞지 않고 팀이 별도로 합의한다. 제품 작업 영역은 `backend/`, `frontend/`, `agent/`이며 설계와 구현 계획은 `docs/`에서 관리한다.
 
-Agent v3의 독립 복제·ON/OFF 개발 방향은 [팀 개발 규칙 초안](docs/development/agent-v3-team-development-draft.md),
-규칙 기반과 RAG의 비교는 [실험 방법 초안](docs/development/agent-v3-evaluation-method-draft.md)에 정리한다.
-두 문서는 팀 검토용 초안이며 구현 완료나 유료 실험 실행을 뜻하지 않는다.
-
 ## 작업 절차
 
 1. 이슈 또는 팀 작업 목록에 목적, 완료 조건, 담당 범위와 의존 작업을 적는다. API·데이터 계약을 같이 쓰는 담당자와 먼저 합의한다.
