@@ -32,7 +32,7 @@ PR #33 통합 코드 `51d077c9878b635c96da709eb7eb2aefd36699e1`에서 새로 실
   RAG는 포함하지 않았다. 실패 문항의 추가 유료 실행은 없었다.
 
 준비물·현재 실행 명령·산출물 판정 방법은 [v2 평가 실행 안내](../development/agent-v2-evaluations.md)에 있다.
-향후 규칙 기반/RAG 비교는 [v3 실험 방법 초안](../development/agent-v3-evaluation-method-draft.md)과 별개로 구분한다.
+향후 규칙 기반/RAG 비교는 [별도 문서 PR #34의 v3 실험 방법](https://github.com/SJU-Capstone-2026/K-PLASMA-Analysis-Agent/pull/34)과 별개로 구분한다.
 
 ## 최초 통과와 복구
 
