@@ -9,7 +9,7 @@ from ..contracts import MetricId, OutputMetric
 
 GraphVersion = Literal["v1", "v3"]
 Identifier = Annotated[str, Field(min_length=1, max_length=96)]
-ToolName = Literal["forward_lookup", "reverse_search", "compare_runs", "explain_answer"]
+ToolName = Literal["forward_lookup", "reverse_search", "compare_runs", "explain_answer", "decision_records"]
 Operation = Literal["min", "max", "difference", "scale", "ratio", "mean"]
 
 
@@ -167,6 +167,20 @@ class ExplainStep(StepBase):
     inputs: ExplainInputs
 
 
+class DecisionRecordInputs(ClosedModel):
+    runs: Binding
+    action: Literal["search", "cost_exclusion"]
+    query: Annotated[str, Field(min_length=1, max_length=4000)]
+    source: SourceQuote
+    threshold: LiteralInput | None = None
+
+
+class DecisionRecordStep(StepBase):
+    kind: Literal["tool"]
+    tool: Literal["decision_records"]
+    inputs: DecisionRecordInputs
+
+
 class DeriveInputs(ClosedModel):
     values: Binding | list[Binding]
     direction: Literal["absolute", "first_minus_second", "second_minus_first"] | None = None
@@ -191,7 +205,7 @@ class AwaitInputStep(StepBase):
     inputs: AwaitInputs
 
 
-StepSpec = Union[ForwardStep, ReverseStep, CompareStep, DeriveStep, AwaitInputStep, ExplainStep]
+StepSpec = Union[ForwardStep, ReverseStep, CompareStep, DeriveStep, AwaitInputStep, ExplainStep, DecisionRecordStep]
 
 
 class PlanDraft(ClosedModel):
@@ -296,3 +310,5 @@ class GraphV3AnswerSnapshotV1(ClosedModel):
     hasIncompleteWork: bool = False
     review: ReviewDecision
     budget: BudgetState
+    executionMode: dict[str, JsonValue] | None = None
+    decisionEvidence: list[dict[str, JsonValue]] | None = None

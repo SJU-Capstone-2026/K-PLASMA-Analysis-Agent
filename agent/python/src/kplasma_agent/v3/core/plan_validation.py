@@ -10,7 +10,7 @@ from ..contracts import ConditionId, OutputMetric
 from ..metric_registry import NumericError, normalize_value
 from .contracts import (
     AwaitInputStep, ChoiceResultRef, CompareStep, ContextRef, ContextSelectionScope, DeriveStep, ForwardStep, LiteralInput,
-    ExplainStep, PlanDraft, ResultRef, ReverseStep, RunScope, ScalarScope, SelectionScope, StepSpec,
+    DecisionRecordStep, ExplainStep, PlanDraft, ResultRef, ReverseStep, RunScope, ScalarScope, SelectionScope, StepSpec,
 )
 
 
@@ -39,7 +39,7 @@ def _fields(step: StepSpec) -> set[str]:
         return set(step.inputs.fields)
     if isinstance(step, DeriveStep):
         return {"value"}
-    if isinstance(step, (ForwardStep, ReverseStep)):
+    if isinstance(step, (ForwardStep, ReverseStep, DecisionRecordStep)):
         return {"candidates"}
     return {"selection"} if step.confirmation == "run_selection" else {"value"}
 
@@ -235,7 +235,7 @@ def validate_plan(
             if not {item.id for item in work} <= parents:
                 raise InvalidPlan("explain_answer must depend on all preceding work steps")
             if step.inputs.mode == "results" and not any(
-                isinstance(by_id[parent], (ForwardStep, ReverseStep, CompareStep)) for parent in parents
+                isinstance(by_id[parent], (ForwardStep, ReverseStep, CompareStep, DecisionRecordStep)) for parent in parents
             ):
                 raise InvalidPlan("explain_answer results needs preceding Run data evidence")
 
@@ -250,6 +250,23 @@ def validate_plan(
 
         if isinstance(step, AwaitInputStep) and step.inputs.selection_count is not None and step.confirmation != "run_selection":
             raise InvalidPlan("selection_count is only valid for Run selection")
+        if isinstance(step, AwaitInputStep) and step.confirmation == "run_selection":
+            candidate_source = step.inputs.candidates
+            if candidate_source is not None and not (
+                isinstance(candidate_source, ResultRef) and candidate_source.field == "candidates"
+                and candidate_source.scope.kind == "candidate_group"
+                and isinstance(by_id.get(candidate_source.step_id), (ForwardStep, ReverseStep, DecisionRecordStep))
+            ):
+                raise InvalidPlan(
+                    "Run selection candidates must reference a preceding candidate_group result. "
+                    "Only when the original request asks to choose from the registered Run catalog, "
+                    "set candidates to null; comparison_entries and selected_runs are prior selections, "
+                    "not the catalog. Never replace an attached or filtered candidate scope with null.",
+                    path=f"/steps/{plan.steps.index(step)}/inputs/candidates",
+                    actual=candidate_source.model_dump(mode="json"),
+                    allowed=[None, {"kind": "result_ref", "field": "candidates",
+                                    "scope": {"kind": "candidate_group"}}],
+                )
         if isinstance(step, ForwardStep):
             conditions = {"pressure": step.inputs.pressure, "sourcePower": step.inputs.source_power,
                           "biasPower": step.inputs.bias_power}
@@ -272,6 +289,22 @@ def validate_plan(
                     raise InvalidPlan("unsupported search objective")
                 for binding in (goal.min, goal.max):
                     _check_numeric_input(goal.field, binding, by_id)
+        if isinstance(step, DecisionRecordStep):
+            check_quote(step.inputs.source.message_key, step.inputs.source.quote)
+            if step.inputs.query != messages[step.inputs.source.message_key]:
+                raise InvalidPlan("record query must preserve the complete original source message")
+            if isinstance(step.inputs.runs, LiteralInput):
+                raise InvalidPlan("record Runs must come from confirmed context or a whole candidate group")
+            if step.inputs.action == "cost_exclusion":
+                from ..decision_rag import policy
+                parsed = policy.parse_request(step.inputs.query)
+                threshold = step.inputs.threshold
+                if (parsed is None or not parsed["exclude"] or not policy.mentions_cost(step.inputs.query)
+                        or not policy.valid_threshold(parsed["threshold"]) or threshold is None
+                        or threshold.value != parsed["threshold"] or threshold.unit is not None):
+                    raise InvalidPlan("cost exclusion requires the original explicit positive integer threshold and cost reason")
+            elif step.inputs.threshold is not None:
+                raise InvalidPlan("semantic retrieval does not apply an exclusion threshold")
         if isinstance(step, CompareStep):
             if not set(step.inputs.fields) <= set(get_args(ComparisonField)):
                 raise InvalidPlan("unsupported comparison field")
@@ -281,7 +314,7 @@ def validate_plan(
                 raise InvalidPlan("Run references must come from confirmed context")
             if isinstance(step.inputs.runs, ResultRef):
                 selected = by_id.get(step.inputs.runs.step_id)
-                if isinstance(selected, ReverseStep) and step.inputs.runs.scope.kind == "candidate_group":
+                if isinstance(selected, (ReverseStep, DecisionRecordStep)) and step.inputs.runs.scope.kind == "candidate_group":
                     if step.inputs.runs.field != "candidates":
                         raise InvalidPlan("whole-group comparison must read the search candidates field",
                                           actual=step.inputs.runs.field, allowed=["candidates"])
@@ -309,8 +342,9 @@ def validate_plan(
                         raise InvalidPlan("a single confirmed Run is not a comparison value set")
                 if scope.kind == "candidate_group" and not (
                     isinstance(step, AwaitInputStep) and step.confirmation == "run_selection"
-                    and isinstance(previous, (ForwardStep, ReverseStep))
-                    or isinstance(step, CompareStep) and binding is step.inputs.runs and isinstance(previous, ReverseStep)
+                    and isinstance(previous, (ForwardStep, ReverseStep, DecisionRecordStep))
+                    or isinstance(step, (CompareStep, DecisionRecordStep)) and binding is step.inputs.runs
+                    and isinstance(previous, (ForwardStep, ReverseStep, DecisionRecordStep))
                 ):
                     raise InvalidPlan("candidate groups require user confirmation or a whole-group comparison")
                 if isinstance(scope, SelectionScope):

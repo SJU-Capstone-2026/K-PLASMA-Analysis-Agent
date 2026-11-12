@@ -1,0 +1,101 @@
+{
+  "schemaVersion": 1,
+  "origin": "existing local V1 decision-record RAG, uncommitted feature work",
+  "graphOwner": "v3",
+  "initialV3CloneManifestPreserved": true,
+  "modules": [
+    {
+      "file": "__init__.py",
+      "sourceSha256": "6af3f6625701cf72a6713098b85817369d4775b3ee3f4089ef818862b16bf85e",
+      "copiedWithoutLogicChanges": true
+    },
+    {
+      "file": "corpus.py",
+      "sourceSha256": "bd574cef0c3525611118c37f2c17e822c088c303275a0992215569148ae3c9e6",
+      "copiedWithoutLogicChanges": true
+    },
+    {
+      "file": "embedding.py",
+      "sourceSha256": "c1a956d10b238866424916dbc19a0ddca3af40a44dace97546886fff24500464",
+      "copiedWithoutLogicChanges": true,
+      "typeCheckingOnlyChange": "Annotate optional NumPy, ONNX and tokenizer imports for the core CI environment; runtime and original source hash are unchanged."
+    },
+    {
+      "file": "index.py",
+      "sourceSha256": "471e7a8fd6a429f7ed68f7925dae44ff995890b8cec72aecb112b3ac057b9d31",
+      "copiedWithoutLogicChanges": true,
+      "typeCheckingOnlyChange": "Annotate the optional NumPy import for the core CI environment; runtime and original source hash are unchanged."
+    },
+    {
+      "file": "service.py",
+      "sourceSha256": "51e7bc5217de9f000cb9a779d75170da24c2129389c4cf69364898cb4c859d81",
+      "copiedWithoutLogicChanges": false
+    },
+    {
+      "file": "policy.py",
+      "sourceSha256": "e588421f64be97d93a74890e27af3c26932a668f5257b3472583bb5e77ff45d6",
+      "copiedWithoutLogicChanges": false,
+      "v3FollowupChange": "V3 cost-regex-2 cost-clause classification; original cost-regex-1 remains V1/V2 policy."
+    },
+    {
+      "file": "support.py",
+      "sourceSha256": "69aeabd286881d6f57574e4758710f7a0dc23b26a90bc9be220ff08d2a3fc85a",
+      "copiedWithoutLogicChanges": false,
+      "v3FollowupChange": "V3 requested proof/excluded examples, causal event/state/direction support."
+    },
+    {
+      "file": "attribution.py",
+      "sourceSha256": "e3b8c265ebc594c9c1cf7901a33de415dab906412a8b1a964532cfcf93a6ef00",
+      "copiedWithoutLogicChanges": false,
+      "v3FollowupChange": "V3 scope permissions separate retrieval bans from attribution bans and shared/individual contrast."
+    },
+    {
+      "file": "evidence_selection.py",
+      "sourceSha256": "b0cea7d4e5dd6afcf719888d1d70944a7a4f6d5de7e1b25d24f72f09c5487c1a",
+      "copiedWithoutLogicChanges": false,
+      "v3FollowupChange": "V3 required causal proof cannot be bypassed by early topic/state branches."
+    },
+    {
+      "file": "constraints.py",
+      "sourceSha256": "6ec2a259d13c8ba42500f8f0e72f7d24b877ad3ecca27afdb4cb7f12b363a04b",
+      "copiedWithoutLogicChanges": true
+    },
+    {
+      "file": "facets.py",
+      "sourceSha256": "c2cce245e7d81eaa3426313bab6c7fa2dc37eabcbc764b73d1c5dbf4b09811df",
+      "copiedWithoutLogicChanges": true
+    },
+    {
+      "file": "reranking.py",
+      "sourceSha256": "314d90d22a4aea2211c2e898d8b30dc9dab7cd1e28460fe7f9fbf7de00eb41cb",
+      "copiedWithoutLogicChanges": true,
+      "typeCheckingOnlyChange": "Annotate optional NumPy, ONNX and tokenizer imports for the core CI environment; runtime and original source hash are unchanged."
+    }
+  ],
+  "intentionalPortChanges": [
+    "service include_rules=False disables semantic-search cost aggregation and output",
+    "live_corpus extracted from chat_adapter; V1 routing/worker shortcuts not copied",
+    "request-frozen decision_records actions and immutable evidence snapshots integrated into V3 graph",
+    "type-checker-only annotations allow the core CI environment to check optional retrieval dependency imports without installing the isolated V3 retrieval environment"
+  ],
+  "retrieval": {
+    "embedding": "intfloat/multilingual-e5-small@614241f622f53c4eeff9890bdc4f31cfecc418b3",
+    "minScore": 0.78,
+    "relativeMargin": 0.08,
+    "topK": 5,
+    "rerankerEnabled": false,
+    "experimentalFacets": false
+  },
+  "followupChanges": {
+    "date": "2026-11-11",
+    "recordPolicy": "cost-regex-2",
+    "reason": "User-authorized precision fixes before expanding actual Agent evaluation.",
+    "changes": [
+      "V3 scope permissions separate retrieval bans from attribution bans and shared/individual contrast.",
+      "V3 requested proof/excluded examples, causal event/state/direction support.",
+      "V3 required causal proof cannot be bypassed by early topic/state branches.",
+      "V3 cost-regex-2 cost-clause classification; original cost-regex-1 remains V1/V2 policy."
+    ],
+    "originalSourceHashesPreserved": true
+  }
+}

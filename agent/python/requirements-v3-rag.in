@@ -1,0 +1,8 @@
+# Independent V3 runtime; requirements-v3-rag.lock preserves the validated V1 RAG hashes.
+-r requirements-rag-v3.in
+langgraph>=1.0,<2
+openai>=2,<3
+pydantic>=2.10,<3
+httpx>=0.28,<1
+python-dotenv>=1,<2
+tiktoken>=0.14.0

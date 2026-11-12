@@ -33,6 +33,20 @@ def _search_runs(raw):
 def collect_evidence(results: list[StepResult], *, search_measurements=False) -> list[Evidence]:
     entries = []
     for result in results:
+        record_evidence = result.outputs.get("decisionEvidence")
+        if isinstance(record_evidence, dict):
+            record_rows = record_evidence.get("citations", [])
+            if not isinstance(record_evidence.get("answer"), str) or not isinstance(record_rows, list):
+                raise InvalidAnswer("invalid stored decision evidence")
+            entries.append(Evidence(id=f"{result.executionId}:record_status", executionId=result.executionId,
+                                    field="record_status", value=record_evidence["answer"], unit=None))
+            for record_row in record_rows:
+                if (not isinstance(record_row, dict) or not isinstance(record_row.get("citationId"), str)
+                        or not isinstance(record_row.get("quote"), str)):
+                    raise InvalidAnswer("invalid stored decision citation")
+                entries.append(Evidence(id=f"{result.executionId}:record:{record_row['citationId']}",
+                                        executionId=result.executionId, field="decision_record",
+                                        value=record_row["quote"], unit=None))
         for field, values in result.outputs.items():
             if field in {"toolResult", "candidates"}:
                 continue
@@ -203,6 +217,10 @@ def collect_numeric_values(results: list[StepResult], evidence: list[Evidence]) 
 
 
 def _render_fact(evidence: Evidence) -> str:
+    if evidence.field == "record_status":
+        return str(evidence.value)
+    if evidence.field == "decision_record":
+        return "저장된 판단 원문: “" + str(evidence.value) + "”"
     if evidence.field == "observation":
         return str(evidence.value)
     if evidence.field == "candidates" and isinstance(evidence.value, list):

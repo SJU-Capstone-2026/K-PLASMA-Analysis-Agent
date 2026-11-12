@@ -4,6 +4,7 @@ import com.kplasma.analysisagent.ingestion.IntakeException;
 import com.kplasma.analysisagent.workspace.*;
 import java.util.List;
 import com.kplasma.analysisagent.agent.v2.V2StepOrigins;
+import com.kplasma.analysisagent.agent.v3.V3StepOrigins;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 @Service
@@ -23,7 +24,7 @@ public class DecisionService {
         if (source == null) return;
         var turn = current.conversation().turns().stream().filter(t -> t.id().equals(source.turnId()))
             .findFirst().orElse(null);
-        if (!write.runRefs().stream().allMatch(ref -> V2StepOrigins.contains(turn,source,ref))) {
+        if (!write.runRefs().stream().allMatch(ref -> V2StepOrigins.contains(turn,source,ref)||V3StepOrigins.contains(turn,source,ref))) {
             throw new IntakeException("INVALID_DECISION", 400, "Decision Runs must belong to the saved execution group");
         }
     }

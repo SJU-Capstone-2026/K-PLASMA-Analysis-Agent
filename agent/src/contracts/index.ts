@@ -105,17 +105,19 @@ export type AgentRequestStatus = 'QUEUED' | 'RUNNING' | 'NEEDS_INPUT' | 'COMPLET
 export interface AgentPendingInput { id: string; message: string; type?:'text'|'run_selection'|'comparison_options'|'decision_threshold'; fields?: string[]; options?: {label:string;input:Snapshot}[]; minSelections?:number;maxSelections?:number;baselineRequired?:boolean;optionsUrl?:string;optionsFormat?:2;snapshotId?:string;allowedRunKeys?:string[];allowedTrendAxes?:import('./answers.js').ConditionId[] }
 export interface AgentRequestView {
   requestId:string; requestRevision:number; status:AgentRequestStatus; stage:string; graphVersion:GraphVersion; question:string;
+  v3Options?:import('./v3.js').StoredV3Options|null;
   pendingInput:AgentPendingInput|null; error:{code:string;message:string}|null; partialResult:Snapshot|null;
   turnId:string|null; answerSnapshot:Snapshot|null; inputEvents:Snapshot[]; explanationComplete?:boolean;
   workspaceEpoch?:number; conversationEpoch?:number;
   progress?:import('./progress.js').AgentProgressSnapshot;
   executionSummary?:import('./progress.js').AgentExecutionSummary|null;
 }
-export interface AgentSubmission {graphVersion?:GraphVersion;text:string;stateToken:StateToken;selectedRunRef?:RunRef;baseline?:RunRef;candidateReferences?:RunRef[];attachedRunRefs?:RunRef[];referenceOrigins?:import('./answers.js').ReferenceOrigin[]}
+export interface AgentSubmission {graphVersion?:GraphVersion;v3Options?:import('./v3.js').V3Options;text:string;stateToken:StateToken;selectedRunRef?:RunRef;baseline?:RunRef;candidateReferences?:RunRef[];attachedRunRefs?:RunRef[];referenceOrigins?:import('./answers.js').ReferenceOrigin[]}
 export interface AgentResume {expectedRequestRevision:number;pendingInputId:string;input:Snapshot}
 export function isV1AnswerSnapshot(snapshot:Snapshot):boolean {return snapshot.implementationId==='v1'&&(snapshot.schemaVersion===1||snapshot.schemaVersion===2||snapshot.schemaVersion===3);}
 export type * from './answers.js';
 export {queryDefaultUnits} from './answers.js';
 
 export * from './v2.js';
+export * from './v3.js';
 export type * from './progress.js';

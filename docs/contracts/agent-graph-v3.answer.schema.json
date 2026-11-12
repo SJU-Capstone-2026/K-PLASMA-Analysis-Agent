@@ -1,0 +1,896 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "BudgetState": {
+      "additionalProperties": false,
+      "properties": {
+        "replans_used": {
+          "maximum": 2,
+          "minimum": 0,
+          "title": "Replans Used",
+          "type": "integer"
+        },
+        "answer_rewrites_used": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Answer Rewrites Used",
+          "type": "integer"
+        },
+        "partial_finalizations_used": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Partial Finalizations Used",
+          "type": "integer"
+        },
+        "model_requests_used": {
+          "maximum": 13,
+          "minimum": 0,
+          "title": "Model Requests Used",
+          "type": "integer"
+        },
+        "tool_invocations_used": {
+          "maximum": 12,
+          "minimum": 0,
+          "title": "Tool Invocations Used",
+          "type": "integer"
+        },
+        "active_elapsed_seconds": {
+          "minimum": 0,
+          "title": "Active Elapsed Seconds",
+          "type": "number"
+        }
+      },
+      "required": [
+        "replans_used",
+        "answer_rewrites_used",
+        "partial_finalizations_used",
+        "model_requests_used",
+        "tool_invocations_used",
+        "active_elapsed_seconds"
+      ],
+      "title": "BudgetState",
+      "type": "object"
+    },
+    "DataAnswerDraft": {
+      "additionalProperties": false,
+      "properties": {
+        "fact_ids": {
+          "items": {
+            "maxLength": 96,
+            "minLength": 1,
+            "type": "string"
+          },
+          "title": "Fact Ids",
+          "type": "array"
+        },
+        "interpretations": {
+          "items": {
+            "$ref": "#/$defs/Interpretation"
+          },
+          "title": "Interpretations",
+          "type": "array"
+        },
+        "limitations": {
+          "items": {
+            "$ref": "#/$defs/Limitation"
+          },
+          "title": "Limitations",
+          "type": "array"
+        }
+      },
+      "required": [
+        "fact_ids",
+        "interpretations",
+        "limitations"
+      ],
+      "title": "DataAnswerDraft",
+      "type": "object"
+    },
+    "Evidence": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "maxLength": 96,
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "executionId": {
+          "maxLength": 96,
+          "minLength": 1,
+          "title": "Executionid",
+          "type": "string"
+        },
+        "field": {
+          "maxLength": 96,
+          "minLength": 1,
+          "title": "Field",
+          "type": "string"
+        },
+        "value": {
+          "$ref": "#/$defs/JsonValue"
+        },
+        "unit": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Unit"
+        },
+        "runRef": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RunRef"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "id",
+        "executionId",
+        "field",
+        "value",
+        "unit"
+      ],
+      "title": "Evidence",
+      "type": "object"
+    },
+    "GeneralAnswerDraft": {
+      "additionalProperties": false,
+      "properties": {
+        "paragraphs": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Paragraphs",
+          "type": "array"
+        },
+        "sources": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Sources",
+          "type": "array"
+        }
+      },
+      "required": [
+        "paragraphs",
+        "sources"
+      ],
+      "title": "GeneralAnswerDraft",
+      "type": "object"
+    },
+    "Interpretation": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "maxLength": 96,
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "evidence_ids": {
+          "items": {
+            "maxLength": 96,
+            "minLength": 1,
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Evidence Ids",
+          "type": "array"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        },
+        "assumptions": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Assumptions",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "evidence_ids",
+        "text",
+        "assumptions"
+      ],
+      "title": "Interpretation",
+      "type": "object"
+    },
+    "JsonValue": {},
+    "Limitation": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "maxLength": 96,
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "evidence_ids": {
+          "items": {
+            "maxLength": 96,
+            "minLength": 1,
+            "type": "string"
+          },
+          "title": "Evidence Ids",
+          "type": "array"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "evidence_ids",
+        "text"
+      ],
+      "title": "Limitation",
+      "type": "object"
+    },
+    "ReviewAnswer": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "enum": [
+            "request_coverage",
+            "evidence_alignment",
+            "interpretation_scope"
+          ],
+          "title": "Name",
+          "type": "string"
+        },
+        "choice": {
+          "title": "Choice",
+          "type": "string"
+        },
+        "probabilities": {
+          "additionalProperties": {
+            "maximum": 1,
+            "minimum": 0,
+            "type": "number"
+          },
+          "title": "Probabilities",
+          "type": "object"
+        },
+        "confidence": {
+          "anyOf": [
+            {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Confidence"
+        }
+      },
+      "required": [
+        "name",
+        "choice",
+        "probabilities",
+        "confidence"
+      ],
+      "title": "ReviewAnswer",
+      "type": "object"
+    },
+    "ReviewDecision": {
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "enum": [
+            "PASS",
+            "ISSUE",
+            "UNAVAILABLE",
+            "SKIPPED"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "answers": {
+          "items": {
+            "$ref": "#/$defs/ReviewAnswer"
+          },
+          "title": "Answers",
+          "type": "array"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reason"
+        }
+      },
+      "required": [
+        "status",
+        "answers"
+      ],
+      "title": "ReviewDecision",
+      "type": "object"
+    },
+    "RunRef": {
+      "additionalProperties": false,
+      "properties": {
+        "runId": {
+          "maxLength": 96,
+          "minLength": 1,
+          "title": "Runid",
+          "type": "string"
+        },
+        "runVersionId": {
+          "maxLength": 96,
+          "minLength": 1,
+          "title": "Runversionid",
+          "type": "string"
+        }
+      },
+      "required": [
+        "runId",
+        "runVersionId"
+      ],
+      "title": "RunRef",
+      "type": "object"
+    },
+    "StepResult": {
+      "additionalProperties": false,
+      "properties": {
+        "executionId": {
+          "maxLength": 96,
+          "minLength": 1,
+          "title": "Executionid",
+          "type": "string"
+        },
+        "stepId": {
+          "maxLength": 96,
+          "minLength": 1,
+          "title": "Stepid",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "verified",
+            "empty",
+            "partial",
+            "blocked",
+            "failed",
+            "skipped"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "outputs": {
+          "additionalProperties": {
+            "$ref": "#/$defs/JsonValue"
+          },
+          "title": "Outputs",
+          "type": "object"
+        },
+        "runRefs": {
+          "items": {
+            "$ref": "#/$defs/RunRef"
+          },
+          "title": "Runrefs",
+          "type": "array"
+        },
+        "groupId": {
+          "anyOf": [
+            {
+              "maxLength": 96,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Groupid"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reason"
+        }
+      },
+      "required": [
+        "executionId",
+        "stepId",
+        "status",
+        "outputs"
+      ],
+      "title": "StepResult",
+      "type": "object"
+    },
+    "V3OptionsSnapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "rulesEnabled",
+        "ragEnabled",
+        "configDigest"
+      ],
+      "properties": {
+        "rulesEnabled": {
+          "type": "boolean"
+        },
+        "ragEnabled": {
+          "type": "boolean"
+        },
+        "configDigest": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    },
+    "DecisionEvidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "kind",
+        "status",
+        "synthetic",
+        "answer",
+        "scopeRunRefs",
+        "citations",
+        "rules",
+        "retrieval",
+        "snapshotFingerprint",
+        "limitations"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": 1
+        },
+        "kind": {
+          "const": "decision_rag"
+        },
+        "status": {
+          "type": "string",
+          "pattern": "^[A-Z_]+$"
+        },
+        "synthetic": {
+          "type": "boolean"
+        },
+        "answer": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 65536
+        },
+        "scopeRunRefs": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/RunRef"
+          }
+        },
+        "citations": {
+          "type": "array",
+          "maxItems": 5,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "citationId",
+              "documentId",
+              "recordId",
+              "subjectRunId",
+              "recordRunVersionId",
+              "attribution",
+              "quote",
+              "score",
+              "decision",
+              "createdAt",
+              "sourceNoteSha256",
+              "sourceRecordSha256"
+            ],
+            "properties": {
+              "citationId": {
+                "type": "string",
+                "maxLength": 96
+              },
+              "documentId": {
+                "type": "string",
+                "maxLength": 300
+              },
+              "recordId": {
+                "type": "string",
+                "maxLength": 200
+              },
+              "subjectRunId": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "recordRunVersionId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid"
+              },
+              "attribution": {
+                "enum": [
+                  "PER_RUN",
+                  "REFERENCE_ONLY",
+                  "SHARED_UNASSIGNED"
+                ]
+              },
+              "quote": {
+                "type": "string",
+                "maxLength": 2000
+              },
+              "score": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "decision": {
+                "enum": [
+                  "ADOPT",
+                  "REJECT",
+                  "HOLD",
+                  null
+                ]
+              },
+              "createdAt": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              },
+              "sourceNoteSha256": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              "sourceRecordSha256": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              }
+            },
+            "allOf": [
+              {
+                "if": {
+                  "properties": {
+                    "attribution": {
+                      "const": "SHARED_UNASSIGNED"
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "subjectRunId": {
+                      "type": "null"
+                    },
+                    "recordRunVersionId": {
+                      "type": "null"
+                    },
+                    "decision": {
+                      "type": "null"
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "rules": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "policy",
+            "action",
+            "threshold",
+            "perRun",
+            "excludedRunIds",
+            "remainingRunIds",
+            "completeAggregation"
+          ],
+          "properties": {
+            "policy": {
+              "enum": [
+                "disabled",
+                "cost-regex-1",
+                "cost-regex-2"
+              ]
+            },
+            "action": {
+              "type": "string"
+            },
+            "threshold": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "completeAggregation": {
+              "type": "boolean"
+            },
+            "aggregationScope": {
+              "const": "ALL_RECORDS_FOR_RUN_ID_INCLUDING_HISTORY"
+            },
+            "excludedRunIds": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "type": "string"
+              }
+            },
+            "remainingRunIds": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "type": "string"
+              }
+            },
+            "perRun": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "runId",
+                  "count",
+                  "status",
+                  "mixed",
+                  "costRejectionRecordIds"
+                ],
+                "properties": {
+                  "runId": {
+                    "type": "string"
+                  },
+                  "count": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "status": {
+                    "type": "string"
+                  },
+                  "mixed": {
+                    "type": "boolean"
+                  },
+                  "costRejectionRecordIds": {
+                    "type": "array",
+                    "uniqueItems": true,
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "allOf": [
+            {
+              "if": {
+                "properties": {
+                  "policy": {
+                    "const": "disabled"
+                  }
+                }
+              },
+              "then": {
+                "properties": {
+                  "action": {
+                    "const": "DISABLED"
+                  },
+                  "threshold": {
+                    "type": "null"
+                  },
+                  "perRun": {
+                    "maxItems": 0
+                  },
+                  "excludedRunIds": {
+                    "maxItems": 0
+                  },
+                  "completeAggregation": {
+                    "const": false
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "retrieval": {
+          "type": "object",
+          "required": [
+            "totalInScope",
+            "returned"
+          ],
+          "properties": {
+            "totalInScope": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "returned": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 5
+            },
+            "model": {
+              "type": "string"
+            },
+            "strategy": {
+              "type": "string"
+            },
+            "similarityIsProbability": {
+              "const": false
+            }
+          }
+        },
+        "snapshotFingerprint": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "limitations": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "implementationId": {
+      "const": "v3",
+      "title": "Implementationid",
+      "type": "string"
+    },
+    "graphVersion": {
+      "const": "v3",
+      "title": "Graphversion",
+      "type": "string"
+    },
+    "schemaVersion": {
+      "const": 1,
+      "title": "Schemaversion",
+      "type": "integer"
+    },
+    "intent": {
+      "enum": [
+        "COMPOSITE_ANSWER",
+        "GENERAL_ANSWER"
+      ],
+      "title": "Intent",
+      "type": "string"
+    },
+    "question": {
+      "title": "Question",
+      "type": "string"
+    },
+    "confirmedContext": {
+      "additionalProperties": {
+        "$ref": "#/$defs/JsonValue"
+      },
+      "title": "Confirmedcontext",
+      "type": "object"
+    },
+    "planRevision": {
+      "anyOf": [
+        {
+          "minimum": 1,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Planrevision"
+    },
+    "stepResults": {
+      "items": {
+        "$ref": "#/$defs/StepResult"
+      },
+      "title": "Stepresults",
+      "type": "array"
+    },
+    "evidence": {
+      "items": {
+        "$ref": "#/$defs/Evidence"
+      },
+      "title": "Evidence",
+      "type": "array"
+    },
+    "draft": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/DataAnswerDraft"
+        },
+        {
+          "$ref": "#/$defs/GeneralAnswerDraft"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Draft"
+    },
+    "answer": {
+      "title": "Answer",
+      "type": "string"
+    },
+    "executionStatus": {
+      "enum": [
+        "COMPLETE",
+        "PARTIAL",
+        "FAILED"
+      ],
+      "title": "Executionstatus",
+      "type": "string"
+    },
+    "hasIncompleteWork": {
+      "default": false,
+      "title": "Hasincompletework",
+      "type": "boolean"
+    },
+    "review": {
+      "$ref": "#/$defs/ReviewDecision"
+    },
+    "budget": {
+      "$ref": "#/$defs/BudgetState"
+    },
+    "executionMode": {
+      "$ref": "#/$defs/V3OptionsSnapshot"
+    },
+    "decisionEvidence": {
+      "type": "array",
+      "maxItems": 16,
+      "items": {
+        "$ref": "#/$defs/DecisionEvidence"
+      }
+    }
+  },
+  "required": [
+    "implementationId",
+    "graphVersion",
+    "schemaVersion",
+    "intent",
+    "question",
+    "confirmedContext",
+    "planRevision",
+    "stepResults",
+    "evidence",
+    "draft",
+    "answer",
+    "executionStatus",
+    "review",
+    "budget",
+    "executionMode"
+  ],
+  "title": "GraphV3AnswerSnapshotV1",
+  "type": "object",
+  "$comment": "Activated graph v3, answer schema 1. Distinct from graph-v1 answer schema 3 in agent-answer-v3.schemas.yaml. Runtime verifies frozen source records/quotes/hashes, exact Run ownership, request switches, and saved step equality beyond JSON shape."
+}

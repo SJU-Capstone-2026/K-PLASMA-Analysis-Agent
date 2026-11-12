@@ -6,7 +6,7 @@ from ..contracts import ForwardInputs, ReverseInputs
 from ..metric_registry import UNITS, normalize_value
 from ..tools import CompareToolInputs
 from .contracts import (
-    AwaitInputStep, CandidateScope, CompareStep, ContextRef, ContextSelectionScope, DeriveStep, ForwardStep,
+    AwaitInputStep, CandidateScope, CompareStep, ContextRef, ContextSelectionScope, DecisionRecordStep, DeriveStep, ForwardStep,
     LiteralInput, Quantity, ResultRef, ReverseStep, RunScope, ScalarScope, StepResult, StepSpec,
 )
 
@@ -159,6 +159,23 @@ def resolve_inputs(step: StepSpec, context: dict, results: dict[str, StepResult]
             else:
                 goals.append({**bounds, "direction": goal.direction})
         return ReverseInputs.model_validate({"constraints": constraints, "goals": goals}).model_dump(exclude_none=True)
+    if isinstance(step, DecisionRecordStep):
+        runs = _refs(bind(step.inputs.runs))
+        if not runs or len(runs) > 150 or len({(r.get("runId"), r.get("runVersionId")) for r in runs}) != len(runs):
+            raise BlockedInput("selected_runs")
+        known = [entry["ref"] for entry in context.get("comparison_entries", [])]
+        known += [context[key] for key in ("activeRun", "selectedRunRef") if isinstance(context.get(key), dict)]
+        known += context.get("candidateReferences", [])
+        known += context.get("namedRunReferences", [])
+        record_source = step.inputs.runs
+        from_group = isinstance(record_source, ResultRef) and isinstance(record_source.scope, CandidateScope)
+        if not from_group and any(ref not in known for ref in runs):
+            raise BlockedInput("selected_runs")
+        record_inputs = {"runs": runs, "action": step.inputs.action, "query": step.inputs.query,
+                    "threshold": step.inputs.threshold.value if step.inputs.threshold is not None else None}
+        if isinstance(record_source, ResultRef) and from_group:
+            record_inputs["candidateExecutionId"] = results[record_source.step_id].executionId
+        return record_inputs
     if isinstance(step, CompareStep):
         baseline = bind(step.inputs.baseline) if step.inputs.baseline is not None else None
         axis = bind(step.inputs.trend_axis) if step.inputs.trend_axis is not None else None

@@ -37,12 +37,12 @@ export function explicitReferences(state:WorkspaceView,override?:{candidateRefer
  // A catalog-only legacy reference has no saved turn origin; the comparison picker resolves it.
  const isCatalog=(ref:RunRef)=>reference?.catalogRefs?.some(item=>sameRef(item,ref));
  const refs=proposed.filter(ref=>isCatalog(ref)||reference?.v2Origins?.some(o=>sameRef(o.ref,ref))||
-  state.conversation.turns.some(t=>t.answerSnapshot.implementationId!=='v2'&&t.answerRunRefs.some(r=>sameRef(r,ref))));
+  state.conversation.turns.some(t=>!['v2','v3'].includes(String(t.answerSnapshot.implementationId))&&t.answerRunRefs.some(r=>sameRef(r,ref))));
  const origins=refs.map(ref=>{
   const explicit=reference?.v2Origins?.find(o=>sameRef(o.ref,ref));
   if(explicit)return {ref,kind:'candidate_group' as const,...explicit.source};
   if(isCatalog(ref))return {ref,kind:'catalog_tag' as const,turnId:null,groupId:null};
-  const turn=state.conversation.turns.slice().reverse().find(t=>t.answerSnapshot.implementationId!=='v2'&&t.answerRunRefs.some(r=>sameRef(r,ref)));
+  const turn=state.conversation.turns.slice().reverse().find(t=>!['v2','v3'].includes(String(t.answerSnapshot.implementationId))&&t.answerRunRefs.some(r=>sameRef(r,ref)));
   if(!turn)throw new Error(`${ref.runId}의 저장된 실험 참조를 찾을 수 없습니다. 실험 선택 화면에서 다시 선택해 주세요.`);
   const group=reference?.kind==='후보 집합'&&reference.runs.some(r=>r.runVersionId===ref.runVersionId)&&isV1AnswerSnapshot(turn.answerSnapshot)&&['forward_lookup','reverse_search'].includes(String(turn.answerSnapshot.kind))?searchGroups(snapshotResult<SearchResult>(turn.answerSnapshot)).find(g=>g.runs.some(r=>r.runId===ref.runId&&r.runVersionId===ref.runVersionId)):undefined;
   return {ref,kind:group?'candidate_group' as const:'run_tag' as const,turnId:turn.id,groupId:group?.id??null};

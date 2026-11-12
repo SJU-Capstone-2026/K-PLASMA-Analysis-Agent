@@ -20,7 +20,7 @@ public class AgentRequestRepository {
     public record Row(UUID id,long workspaceEpoch,long conversationEpoch,long revision,long generation,
         String status,String stage,String question,Map<String,Object> context,Map<String,Object> manifest,
         Map<String,Object> pending,Map<String,Object> error,Map<String,Object> partial,Map<String,Object> answer,
-        String turnId,Instant createdAt,Instant leaseUntil,boolean dependsOnContext,String operationKind,Map<String,Object> attempts,String graphVersion,
+        String turnId,Instant createdAt,Instant leaseUntil,boolean dependsOnContext,String operationKind,Map<String,Object> attempts,String graphVersion,Map<String,Object> v3Options,
         long lastEventSeq,Long durationMs,Instant finishedAt) {}
     private Row row(ResultSet rs,int index) throws SQLException {
         var lease=rs.getTimestamp("lease_until");
@@ -28,7 +28,7 @@ public class AgentRequestRepository {
             rs.getLong("request_revision"),rs.getLong("claim_generation"),rs.getString("status"),rs.getString("stage"),rs.getString("question"),
             read(rs.getString("context_snapshot")),read(rs.getString("manifest")),read(rs.getString("pending_input")),read(rs.getString("error")),
             read(rs.getString("partial_result")),read(rs.getString("final_answer")),rs.getString("turn_id"),rs.getTimestamp("created_at").toInstant(),
-            lease==null?null:lease.toInstant(),rs.getBoolean("depends_on_context"),rs.getString("operation_kind"),read(rs.getString("attempts")),rs.getString("graph_version"),
+            lease==null?null:lease.toInstant(),rs.getBoolean("depends_on_context"),rs.getString("operation_kind"),read(rs.getString("attempts")),rs.getString("graph_version"),read(rs.getString("v3_options")),
             rs.getLong("last_public_event_seq"),rs.getObject("running_duration_ms",Long.class),rs.getTimestamp("execution_finished_at")==null?null:rs.getTimestamp("execution_finished_at").toInstant());
     }
     public Map<String,Object> read(String value){return value==null?null:mapper.readValue(value,MAP);}
@@ -41,6 +41,7 @@ public class AgentRequestRepository {
         Map<String,Object> value=new LinkedHashMap<>();value.put("requestId",row.id().toString());value.put("requestRevision",row.revision());
         value.put("workspaceEpoch",row.workspaceEpoch());value.put("conversationEpoch",row.conversationEpoch());
         value.put("status",row.status());value.put("stage",row.stage());value.put("graphVersion",row.graphVersion());value.put("question",row.question());
+        if(row.v3Options()!=null)value.put("v3Options",row.v3Options());
         value.put("pendingInput",row.pending());value.put("error",row.error());value.put("partialResult",row.partial());value.put("turnId",row.turnId());
         value.put("answerSnapshot",row.answer()==null?null:row.answer().get("answerSnapshot"));value.put("intent",row.answer()==null?null:row.answer().get("intent"));
         value.put("usedRunRefs",row.answer()==null?List.of():row.answer().getOrDefault("usedRunRefs",List.of()));value.put("inputEvents",events(row.id()));

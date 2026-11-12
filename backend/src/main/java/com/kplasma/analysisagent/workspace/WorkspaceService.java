@@ -1,6 +1,7 @@
 package com.kplasma.analysisagent.workspace;
 
 import com.kplasma.analysisagent.agent.v2.V2StepOrigins;
+import com.kplasma.analysisagent.agent.v3.V3StepOrigins;
 
 import com.kplasma.analysisagent.contract.WorkspaceDto.*;
 import com.kplasma.analysisagent.contract.RunDto.RunRef;
@@ -73,7 +74,7 @@ public class WorkspaceService {
                     && seen.add(origin.ref()), INVALID, "Invalid or duplicated v2 reference source");
                 var turn = current.conversation().turns().stream()
                     .filter(item -> item.id().equals(origin.source().turnId())).findFirst().orElse(null);
-                validate.require(V2StepOrigins.contains(turn,origin.source(),origin.ref()),INVALID,
+                validate.require(V2StepOrigins.contains(turn,origin.source(),origin.ref())||V3StepOrigins.contains(turn,origin.source(),origin.ref()),INVALID,
                     "The exact Run must belong to its saved execution group");
             }
         }

@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
-  title: K-PLASMA Agent Graph v1
-  version: 3.0.0
+  title: K-PLASMA shared Agent request API
+  version: 3.1.0
   description: |
     Python LangGraph worker; Spring owns durable request acceptance and final turns.
     Existing fallback is preserved as source but is not invoked by v1.
@@ -42,6 +42,13 @@ info:
     with no unread events returns 204. The duration is accumulated server-observed
     RUNNING time, excluding queue and user-input waits; abandoned intervals stop at
     their previous lease. Historical requests without timing evidence omit summaries.
+    Graph v3 is an independent runtime using these shared durable server endpoints.
+    Every v3 request supplies explicit v3Options booleans; the server stores their
+    canonical SHA256 digest and returns the same switches throughout resume/recovery.
+    V3 plan and step writes reject disabled decision-record actions. Numeric checks
+    and plan Decisions remain enabled independently of these feature switches.
+    Graph-v3 answer schema 1 is agent-graph-v3.answer.schema.json. The older file
+    agent-answer-v3.schemas.yaml describes answer schema 3 of graph v1, not graph v3.
 paths:
   /api/run-versions/outputs:
     post:
@@ -335,6 +342,7 @@ paths:
               properties:
                 workerId: { type: string, maxLength: 200 }
                 leaseSeconds: { type: integer, minimum: 5, maximum: 300, default: 60 }
+                supportedGraphVersions: { type: array, minItems: 1, uniqueItems: true, items: { enum: [v1, v2, v3] }, description: Omission retains legacy v1-only claiming. }
       responses:
         '200':
           description: >-
@@ -552,7 +560,7 @@ components:
       required: [activityId, code, phase]
       properties:
         activityId: { type: string, maxLength: 200 }
-        code: { enum: [QUEUED, QUESTION_CHECK, PLAN, PLAN_VALIDATE, PLAN_REVIEW, FORWARD_LOOKUP, REVERSE_SEARCH, SEARCH_COMPLETE, SEARCH_EMPTY, COMPARE_RUNS, COMPARE_OUTPUTS, COMPARE_IEAD, DERIVE, RESULT_VALIDATE, REUSE_RESULT, NEEDS_RUNS, NEEDS_BASELINE, NEEDS_CONDITIONS, RESUMED, REPLAN, GENERAL_ANSWER, INTERPRET, REVIEW, REWRITE, COMMIT, RECOVERING] }
+        code: { enum: [QUEUED, QUESTION_CHECK, PLAN, PLAN_VALIDATE, PLAN_REVIEW, FORWARD_LOOKUP, REVERSE_SEARCH, SEARCH_COMPLETE, SEARCH_EMPTY, COMPARE_RUNS, COMPARE_OUTPUTS, COMPARE_IEAD, DERIVE, RESULT_VALIDATE, REUSE_RESULT, NEEDS_RUNS, NEEDS_BASELINE, NEEDS_CONDITIONS, RESUMED, REPLAN, GENERAL_ANSWER, INTERPRET, REVIEW, REWRITE, COMMIT, RECOVERING, DECISION_RECORDS] }
         phase: { enum: [started, completed, reused] }
         stepId: { type: string, maxLength: 200 }
         runCount: { type: integer, minimum: 0, maximum: 1000000 }
@@ -851,9 +859,12 @@ components:
     Submission:
       type: object
       required: [text, stateToken]
+      description: Graph identity is pinned by the first request in a conversation. V3 switches are pinned separately for each request, including follow-ups in an already-v3 conversation. They cannot change a pending request.
       properties:
         text: { type: string, minLength: 1, maxLength: 16000 }
         stateToken: { $ref: '#/components/schemas/StateToken' }
+        graphVersion: { enum: [v1, v2, v3], description: Omit to retain the conversation version, or v1 for an unpinned conversation. }
+        v3Options: { $ref: '#/components/schemas/V3OptionsInput' }
         baseline: { $ref: '#/components/schemas/RunRef' }
         selectedRunRef: { $ref: '#/components/schemas/RunRef' }
         attachedRunRefs: { type: array, uniqueItems: true, items: { $ref: '#/components/schemas/RunRef' }, description: Explicit UI tags or selected group only; exact versions. }
@@ -871,6 +882,26 @@ components:
               executionId: { type: string }
               stepId: { type: string }
         candidateReferences: { type: array, items: { $ref: '#/components/schemas/RunRef' } }
+      allOf:
+        - if: { required: [graphVersion], properties: { graphVersion: { const: v3 } } }
+          then: { required: [v3Options] }
+        - if: { required: [graphVersion], properties: { graphVersion: { enum: [v1, v2] } } }
+          then: { not: { required: [v3Options] } }
+    V3OptionsInput:
+      type: object
+      additionalProperties: false
+      required: [rulesEnabled, ragEnabled]
+      properties:
+        rulesEnabled: { type: boolean, description: Enables the explicit cost-regex-2 decision-record exclusion action for new V3 execution; historical cost-regex-1 answers remain readable. Does not disable mandatory numerical validation. }
+        ragEnabled: { type: boolean, description: Enables local semantic retrieval of saved decision evidence. }
+    V3OptionsSnapshot:
+      type: object
+      additionalProperties: false
+      required: [rulesEnabled, ragEnabled, configDigest]
+      properties:
+        rulesEnabled: { type: boolean }
+        ragEnabled: { type: boolean }
+        configDigest: { type: string, pattern: '^[0-9a-f]{64}$', readOnly: true, description: SHA256 of UTF8 compact sorted-key JSON containing the two booleans only. }
     RequestView:
       type: object
       required: [requestId, requestRevision, status, stage, graphVersion, inputEvents]
@@ -883,7 +914,8 @@ components:
         executionSummary: { $ref: '#/components/schemas/ExecutionSummary' }
         status: { enum: [QUEUED, RUNNING, NEEDS_INPUT, COMPLETED, FAILED, CANCELLED] }
         stage: { type: string }
-        graphVersion: { enum: [v1, v2] }
+        graphVersion: { enum: [v1, v2, v3] }
+        v3Options: { $ref: '#/components/schemas/V3OptionsSnapshot' }
         question: { type: [string, 'null'] }
         pendingInput:
           type: [object, 'null']
@@ -900,6 +932,8 @@ components:
           oneOf:
             - { $ref: './agent-answer-v2.schemas.yaml#/components/schemas/AnswerSnapshotV2' }
             - { $ref: './agent-answer-v3.schemas.yaml' }
+            - { $ref: './agent-v2.answer.schema.json' }
+            - { $ref: './agent-graph-v3.answer.schema.json' }
             - { type: object, properties: { schemaVersion: { const: 1 } }, description: Immutable historical schema-1 snapshot. }
             - { type: 'null' }
         intent: { type: [string, 'null'] }
@@ -937,7 +971,7 @@ components:
             pressure: { type: number, description: Canonical mTorr }
             sourcePower: { type: number, description: Canonical W }
             biasPower: { type: number, description: Canonical W including zero }
-        answer: { type: object, description: Existing AgentResponse with v1 answerSnapshot. }
+        answer: { type: object, description: AgentResponse with an exact matching v1/v2/v3 answerSnapshot. Graph-v3 executionMode must equal the request v3Options and decisionEvidence must equal the saved decision step snapshots. }
         limit: { type: integer, minimum: 1, maximum: 4 }
 
 # Reverse scoped-context contract (search result schema is defined in agent-answer-v2.schemas.yaml):

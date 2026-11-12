@@ -1,0 +1,252 @@
+{
+  "schemaVersion": 1,
+  "synthetic": true,
+  "notes": "Artificial policy contract cases; no source records or physical Run data.",
+  "cases": [
+    {
+      "id": "cost-v2-01",
+      "note": null,
+      "expected": "MISSING"
+    },
+    {
+      "id": "cost-v2-02",
+      "note": " \t\n",
+      "expected": "MISSING"
+    },
+    {
+      "id": "cost-v2-03",
+      "note": "﻿",
+      "expected": "MISSING"
+    },
+    {
+      "id": "cost-v2-04",
+      "note": "비용이 높아 예산 초과",
+      "expected": "COST"
+    },
+    {
+      "id": "cost-v2-05",
+      "note": "예산 초과",
+      "expected": "COST"
+    },
+    {
+      "id": "cost-v2-06",
+      "note": "원가 부담이 큼",
+      "expected": "COST"
+    },
+    {
+      "id": "cost-v2-07",
+      "note": "비용 초과를 두 번 적었지만 하나의 심사에서 반려했다.",
+      "expected": "COST"
+    },
+    {
+      "id": "cost-v2-08",
+      "note": "가격이 비싸서 반려했지만 문서 작성은 한 번만 했다.",
+      "expected": "COST"
+    },
+    {
+      "id": "cost-v2-09",
+      "note": "원가 부담 때문에 반려했다. 다만 회의 세 번은 판단 기록 세 건을 뜻하지 않는다.",
+      "expected": "COST"
+    },
+    {
+      "id": "cost-v2-10",
+      "note": "예산 초과로 반려하였다. 그러나 같은 사유가 두 줄에 나뉘어 적혀 있다.",
+      "expected": "COST"
+    },
+    {
+      "id": "cost-v2-11",
+      "note": "비용이 높음을 확인하여 반려했다.",
+      "expected": "COST"
+    },
+    {
+      "id": "cost-v2-12",
+      "note": "가격이 비싸서 반려했다. 담당자 이름은 확인이 필요하다.",
+      "expected": "COST"
+    },
+    {
+      "id": "cost-v2-13",
+      "note": "비용이 높아 반려했지만 성능 확인은 아직 필요하다.",
+      "expected": "COST"
+    },
+    {
+      "id": "cost-v2-14",
+      "note": "비용 때문에 반려했지만 성능 자체는 우수하다.",
+      "expected": "COST"
+    },
+    {
+      "id": "cost-v2-15",
+      "note": "원가 문제는 해결되지 않아 반려했다.",
+      "expected": "COST"
+    },
+    {
+      "id": "cost-v2-16",
+      "note": "비용이 높지만 해결되지 않았다.",
+      "expected": "COST"
+    },
+    {
+      "id": "cost-v2-17",
+      "note": "비용 문제는 해결됐지만 성능 부족 때문에 반려했다.",
+      "expected": "NO_COST"
+    },
+    {
+      "id": "cost-v2-18",
+      "note": "가격이 높았으나 현재는 적정하다.",
+      "expected": "NO_COST"
+    },
+    {
+      "id": "cost-v2-19",
+      "note": "가격은 적정했지만 이번 검토에서는 원가 초과로 반려했다.",
+      "expected": "COST"
+    },
+    {
+      "id": "cost-v2-20",
+      "note": "가격은 적정했다. 이번 검토에서는 원가가 너무 높아 반려했다.",
+      "expected": "COST"
+    },
+    {
+      "id": "cost-v2-21",
+      "note": "비용 문제가 없음. 성능 때문에 반려",
+      "expected": "NO_COST"
+    },
+    {
+      "id": "cost-v2-22",
+      "note": "가격 적정",
+      "expected": "NO_COST"
+    },
+    {
+      "id": "cost-v2-23",
+      "note": "비용과는 무관",
+      "expected": "NO_COST"
+    },
+    {
+      "id": "cost-v2-24",
+      "note": "비용이 높지 않다.",
+      "expected": "NO_COST"
+    },
+    {
+      "id": "cost-v2-25",
+      "note": "비용 때문에 반려한 것은 아니다. 성능이 미달했다.",
+      "expected": "NO_COST"
+    },
+    {
+      "id": "cost-v2-26",
+      "note": "가격은 문제가 없고 플럭스 부족으로 반려했다.",
+      "expected": "NO_COST"
+    },
+    {
+      "id": "cost-v2-27",
+      "note": "비용은 적정하다. 가격은 과다하다.",
+      "expected": "UNCLEAR"
+    },
+    {
+      "id": "cost-v2-28",
+      "note": "비용이 높지만 성능이 우수하다.",
+      "expected": "UNCLEAR"
+    },
+    {
+      "id": "cost-v2-29",
+      "note": "비용이 높지만 성능은 충분하여 채택했다.",
+      "expected": "UNCLEAR"
+    },
+    {
+      "id": "cost-v2-30",
+      "note": "비용이 높은 것으로 추정돼 추가 확인이 필요하다.",
+      "expected": "UNCLEAR"
+    },
+    {
+      "id": "cost-v2-31",
+      "note": "가격이 비싼지 확인 중이다.",
+      "expected": "UNCLEAR"
+    },
+    {
+      "id": "cost-v2-32",
+      "note": "원가 문제? 답변을 기다리는 중이다.",
+      "expected": "UNCLEAR"
+    },
+    {
+      "id": "cost-v2-33",
+      "note": "비용은 해결됐는지 확인이 필요하다.",
+      "expected": "UNCLEAR"
+    },
+    {
+      "id": "cost-v2-34",
+      "note": "비용이 높지만 해결 가능하다.",
+      "expected": "UNCLEAR"
+    },
+    {
+      "id": "cost-v2-35",
+      "note": "비용이 높지만 그 때문에 반려한 것인지는 확인이 필요하다.",
+      "expected": "UNCLEAR"
+    },
+    {
+      "id": "cost-v2-36",
+      "note": "비용 때문인지 확인 필요",
+      "expected": "UNCLEAR"
+    },
+    {
+      "id": "cost-v2-37",
+      "note": "비용 부담?",
+      "expected": "UNCLEAR"
+    },
+    {
+      "id": "cost-v2-38",
+      "note": "균일도 미달",
+      "expected": "OTHER"
+    },
+    {
+      "id": "cost-v2-39",
+      "note": "성능 때문에 반려",
+      "expected": "OTHER"
+    },
+    {
+      "id": "cost-v2-40",
+      "note": "검토 완료",
+      "expected": "UNCLEAR"
+    },
+    {
+      "id": "cost-v2-41",
+      "note": "비용\n높음",
+      "expected": "UNCLEAR"
+    },
+    {
+      "id": "cost-v2-42",
+      "note": "비용 높음",
+      "expected": "UNCLEAR"
+    },
+    {
+      "id": "cost-v2-43",
+      "note": "비용높음",
+      "expected": "COST"
+    },
+    {
+      "id": "cost-v2-44",
+      "note": "비용이 높아 반려했다. 장비 문제는 해결됐다.",
+      "expected": "COST"
+    },
+    {
+      "id": "cost-v2-45",
+      "note": "비용이 높아 반려했다. 현재 장비 온도는 적정하다.",
+      "expected": "COST"
+    },
+    {
+      "id": "cost-v2-46",
+      "note": "비용이 높지만 반려한 것은 아니다.",
+      "expected": "UNCLEAR"
+    },
+    {
+      "id": "cost-v2-47",
+      "note": "가격은 적정했으나 이번에는 높다.",
+      "expected": "COST"
+    },
+    {
+      "id": "cost-v2-48",
+      "note": "원가가 높다. 반려 사유는 성능 부족이다.",
+      "expected": "UNCLEAR"
+    },
+    {
+      "id": "cost-v2-49",
+      "note": "비용이 높아 반려했다. 작성자 확인은 필요하다.",
+      "expected": "COST"
+    }
+  ]
+}

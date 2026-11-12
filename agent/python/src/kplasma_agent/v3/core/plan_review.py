@@ -11,8 +11,9 @@ from ..contracts import MetricId
 from ..metric_registry import UNITS, normalize_value
 from .contracts import ClosedModel, Operation, PlanDraft
 from .plan_checks import build_check_specs, choices_for, rejection_evidence
+from ..runtime import allowed_record_actions
 
-PROMPT_VERSION = "plan-semantics-conditions-4-contracts"
+PROMPT_VERSION = "plan-semantics-conditions-6-named-runs"
 LEGACY_NAMES = {"request_coverage", "condition_preservation", "target_operation_alignment"}
 Choice = Literal["match", "mismatch", "unclear", "missing", "unexpected", "value_changed", "unit_changed",
                  "boundary_changed", "direction_changed", "target_changed"]
@@ -85,8 +86,8 @@ def plan_digest(plan) -> str:
     return digest(plan.model_dump(mode="json") if isinstance(plan, PlanDraft) else plan)
 
 
-def tool_contracts() -> dict:
-    return {
+def tool_contracts(execution_mode=None) -> dict:
+    contracts = {
         "forward_lookup": {"description": "압력·소스·바이어스 조건으로 저장된 실제 Run 조회. 한 Run의 기본 ionFlux·meanIonEnergy·iedWidth를 표와 설명 근거로 제공한다. 기본 지표 조회에 별도 비교 단계는 필요 없다. 후보 참조의 출력 필드는 candidates다.",
                            "inputs": ["pressure", "source_power", "bias_power"], "outputs": ["candidates"]},
         "reverse_search": {"description": "constraints와 target_range로 후보를 필터링한 뒤 maximize/minimize 순서로 정렬",
@@ -114,10 +115,11 @@ def tool_contracts() -> dict:
                    "output": "value: 단위가 있는 단일 quantity"},
         "await_input": {"confirmations": ["run_selection", "condition", "baseline", "trend_axis", "calculation_direction"],
                         "description": "미확정 입력을 사용자에게 묻고 정해진 입력으로 재개. selection_count는 검색 제한이 아닌 정확한 선택 개수.",
+                        "candidate_source": "run_selection candidates:null은 원문이 요청한 전체 등록 목록. 범위가 정해졌으면 선행 candidates/candidate_group을 사용하고 null로 넓히지 않는다. comparison_entries는 전체 등록 목록이 아니다.",
                         "outputs": {"run_selection": "selection: 고정 Run 참조 목록", "others": "value: 확인된 입력. baseline/trend_axis 확인은 target_step_id 비교에 코드가 연결한다."}},
         "bindings": {
             "literal": "원문 수치·단위·source.quote. 단위 생략은 null이며 코드 기본 단위 적용.",
-            "context_ref": "확인된 selected_runs 또는 R1 등 Run 별칭·고정 버전 참조. 측정값이 아님.",
+            "context_ref": "확인된 selected_runs 또는 R1 등 Run 별칭·고정 버전 참조. named_run_bindings의 name/context_key/ref/source는 서버가 원문 이름을 정확히 조회한 증빙이며 named:<Run이름>은 해당 한 Run, named_runs는 원문에 명시한 Run 전체다. 첨부나 selected_runs가 비어 있어도 유효하며 새 선택을 요구할 필요가 없다. 측정값이 아님.",
             "result_ref": "step_id의 등록 field를 scope로 읽음. JSON 경로를 만드는 기능이 아님.",
             "quantity_units": "result_ref의 수치와 단위는 출처 결과에서 실행 시 함께 읽는다. max/min/mean은 입력 단위를 보존한다. 참조 객체에 미래 수치·리터럴 단위를 중복 기재하지 않아도 된다.",
             "scopes": {"scalar": "단일 값 또는 확인 단계의 selection", "candidate_group": "저장된 검색 후보 전체",
@@ -126,10 +128,22 @@ def tool_contracts() -> dict:
                        "confirmed_selection": "지정 확인 단계에서 사용자가 고른 Run들의 field 값"},
         },
     }
+    actions = allowed_record_actions(execution_mode)
+    if actions:
+        record_contract = {
+            "description": "서버가 고정한 판단 기록만 읽는다. 원문 메모는 물리 인과나 비용 측정이 아니다.",
+            "actions": actions, "runs": "확인된 정확한 버전 또는 선행 검색 candidates 전체",
+            "query": "원문 source 메시지 전체, 변경·요약하지 않음",
+            "search": "관련 메모를 최대5개 검색. 후보 Run을 확정 제외하지 않음" if "search" in actions else None,
+            "cost_exclusion": "cost-regex-2 전수 집계, 원문 양의 정수 N건 이상만 제외" if "cost_exclusion" in actions else None,
+            "outputs": ["candidates", "decisionEvidence"],
+        }
+        contracts["decision_records"] = {key: value for key, value in record_contract.items() if value is not None}
+    return contracts
 
 
 def build_plan_review_context(plan: PlanDraft, revision: int, question: str, input_history: list[dict],
-                              confirmed_context: dict, completed_steps: dict) -> PlanReviewContext:
+                              confirmed_context: dict, completed_steps: dict, *, execution_mode=None) -> PlanReviewContext:
     if not question or revision < 1:
         raise ValueError("PLAN_REVIEW_INPUT_INVALID")
     meaning = {"question": question, "input_history": input_history, "confirmed_context": confirmed_context}
@@ -138,7 +152,7 @@ def build_plan_review_context(plan: PlanDraft, revision: int, question: str, inp
         "check_specs": build_check_specs(plan.model_dump(mode="json")),
         "execution_view": execution_view(plan),
         "program_effects": program_effects(plan),
-        "tool_contracts": tool_contracts(),
+        "tool_contracts": tool_contracts(execution_mode),
         "policy_context": {
             "default_units": UNITS,
             "numeric_ranges": "명시한 범위는 가깝게라고 해도 양끝 포함 between. 범위 밖 허용을 명시하면 그 지시를 따른다.",
@@ -227,6 +241,10 @@ def program_effects(plan: PlanDraft) -> list[str]:
             text += f"; baseline={_binding_text(inputs['baseline'])}; trend_axis={_binding_text(inputs['trend_axis'])}"
             if inputs["plot_ids"]:
                 text += "; supplementary plots=" + ",".join(inputs["plot_ids"])
+        elif item.get("tool") == "decision_records":
+            text = f"decision_records {inputs['action']} for {_binding_text(inputs['runs'])}; query={inputs['query']}"
+            if inputs["action"] == "cost_exclusion":
+                text += f"; whole-history cost rejection count >= {_binding_text(inputs['threshold'])}"
         elif item.get("tool") == "explain_answer":
             text = f"final explanation mode={inputs['mode']}; requirements={step.requirement_ids}"
         elif item["kind"] == "derive":

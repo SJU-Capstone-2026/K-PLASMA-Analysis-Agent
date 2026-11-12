@@ -14,17 +14,22 @@ from ..domain.validation import validate_result
 from ..metric_registry import UNITS
 from ..progress import ProgressReporter
 from .bindings import BlockedInput, resolve_inputs, should_run
-from .contracts import CompareStep, DeriveStep, ForwardStep, Quantity, StepResult
+from .contracts import CompareStep, DecisionRecordStep, DeriveStep, ForwardStep, Quantity, StepResult
 from .derivations import compute_derived
+from ..runtime import normalize_mode, require_action
 
 
 class SequentialExecutor:
-    def __init__(self, executions):
+    def __init__(self, executions, execution_mode=None, record_engine=None):
         self.executions = executions
         self.progress = getattr(executions, "progress", None) or ProgressReporter(None)
+        self.execution_mode = normalize_mode(execution_mode)
+        self.record_engine = record_engine
 
     def execute(self, revision, step, context, results):
         try:
+            if isinstance(step, DecisionRecordStep):
+                require_action(self.execution_mode, step.inputs.action)
             if not should_run(step, results):
                 return StepResult(executionId=f"skipped:{step.id}", stepId=step.id, status="skipped", outputs={})
             inputs = resolve_inputs(step, context, results)
@@ -45,7 +50,7 @@ class SequentialExecutor:
             return StepResult(executionId=execution, stepId=step.id, status="failed", outputs={},
                               reason="EXECUTION_OUTCOME_UNKNOWN")
         code = {"forward_lookup": "FORWARD_LOOKUP", "reverse_search": "REVERSE_SEARCH",
-                "compare_runs": "COMPARE_RUNS"}.get(getattr(step, "tool", ""), "DERIVE")
+                "compare_runs": "COMPARE_RUNS", "decision_records": "DECISION_RECORDS"}.get(getattr(step, "tool", ""), "DERIVE")
         fields = {"stepId": step.id}
         if isinstance(step, CompareStep):
             fields.update(runCount=len(inputs["runs"]), metricIds=step.inputs.fields)
@@ -76,6 +81,22 @@ class SequentialExecutor:
                                        direction=inputs["direction"])
             return StepResult(executionId=execution, stepId=step.id, status="verified",
                               outputs={"value": quantity.model_dump(mode="json")})
+
+        if isinstance(step, DecisionRecordStep):
+            require_action(self.execution_mode, inputs["action"])
+            records = self.executions.decision_records(execution)
+            if self.record_engine is None:
+                from ..decision_rag.runtime import DecisionRecordEngine
+                self.record_engine = DecisionRecordEngine(self.execution_mode)
+            try:
+                outputs = self.record_engine.execute(inputs["action"], inputs["query"], inputs["runs"], records,
+                                                     inputs["threshold"])
+            except ValueError as error:
+                raise DomainError(getattr(error, "code", "DECISION_RETRIEVAL_FAILED")) from error
+            evidence = outputs["decisionEvidence"]
+            return StepResult(executionId=execution, stepId=step.id,
+                              status="empty" if evidence["status"] == "NO_EVIDENCE" else "verified",
+                              outputs=outputs, runRefs=inputs["runs"], groupId="decision_records")
 
         source = self.executions.load_context(execution)
         if isinstance(step, CompareStep):
