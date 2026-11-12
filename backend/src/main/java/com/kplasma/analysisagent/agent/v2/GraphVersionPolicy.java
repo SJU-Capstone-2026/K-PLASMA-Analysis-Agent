@@ -6,7 +6,7 @@ import java.util.List;
 import java.util.Set;
 
 public final class GraphVersionPolicy {
-    private static final Set<String> SUPPORTED = Set.of("v1", "v2");
+    private static final Set<String> SUPPORTED = Set.of("v1", "v2", "v3");
     private GraphVersionPolicy() {}
 
     public static String resolve(String pinned, String requested) {

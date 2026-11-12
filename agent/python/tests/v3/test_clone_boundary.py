@@ -14,6 +14,9 @@ import pytest
 SOURCE = Path(__file__).resolve().parents[2] / "src/kplasma_agent"
 CLONE = SOURCE / "v3"
 BASELINE = "51d077c9878b635c96da709eb7eb2aefd36699e1"
+# The initial manifest is immutable evidence. These V3-only modules are now intentionally extended.
+EXTENDED = {"graph.py", "core/contracts.py", "core/bindings.py", "core/plan_validation.py", "core/backend.py",
+            "core/executor.py", "core/composition.py", "core/model_gateway.py", "core/plan_review.py", "core/plan_checks.py"}
 
 
 @pytest.fixture
@@ -32,15 +35,17 @@ def test_frozen_v2_source_and_physical_clone_files_match_the_manifest(manifest):
         assert original.is_file() and copied.is_file()
         assert not copied.is_symlink()
         assert original.resolve() != copied.resolve()
-        assert hashlib.sha256(original.read_bytes()).hexdigest() == item["sourceSha256"], original
-        assert hashlib.sha256(copied.read_bytes()).hexdigest() == item["cloneSha256"], copied
+        # Git's Windows checkout converts LF to CRLF; compare the committed-content form.
+        assert hashlib.sha256(original.read_bytes().replace(b"\r\n", b"\n")).hexdigest() == item["sourceSha256"], original
+        if item["targetPath"] not in EXTENDED:
+            assert hashlib.sha256(copied.read_bytes().replace(b"\r\n", b"\n")).hexdigest() == item["cloneSha256"], copied
 
 
 def test_v3_production_imports_never_use_original_agent_modules(manifest):
     modules = {item["targetModule"] for item in manifest["modules"]}
-    for item in manifest["modules"]:
-        path = CLONE / item["targetPath"]
-        package = item["targetModule"] if path.name == "__init__.py" else item["targetModule"].rpartition(".")[0]
+    for path in CLONE.rglob("*.py"):
+        module = "kplasma_agent.v3." + ".".join(path.relative_to(CLONE).with_suffix("").parts)
+        package = module.removesuffix(".__init__") if path.name == "__init__.py" else module.rpartition(".")[0]
         for node in ast.walk(ast.parse(path.read_text())):
             names = []
             if isinstance(node, ast.ImportFrom):
@@ -85,6 +90,8 @@ def test_initial_copy_has_no_logic_changes_beyond_imports_and_identity(manifest)
         return ast.dump(tree, include_attributes=False)
 
     for item in manifest["modules"]:
+        if item["targetPath"] in EXTENDED:
+            continue
         original, copied = SOURCE / item["sourcePath"], CLONE / item["targetPath"]
         assert canonical(original.read_text(), item["sourceModule"], original) == canonical(
             copied.read_text(), item["targetModule"], copied, copied=True, source_module=item["sourceModule"]), copied

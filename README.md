@@ -47,6 +47,27 @@ npm run verify:public-files
 
 [수용 검증](docs/verification/acceptance.md)과 [원본 102개 대응표](docs/verification/prototype-test-map.md)는 통과·실패·유예·미검증 범위를 구분합니다. D1–D5와 남은 차이가 있으므로 전체 100% 동등성으로 표현하지 않습니다. 새 대화와 데모 초기화는 업로드한 Run·그래프·원본을 유지합니다. 종료 절차는 DB volume과 원본을 보존합니다.
 
+## 독립 V3와 판단 기록 RAG
+
+V3는 V2를 보존한 별도 구현이다. 새 대화의 **Agent 버전 → v3**에서 **판단 기록 규칙**과 **RAG**를 각각 선택한다. 선택한 기능은 요청 시작 때 저장되며 진행 중 선택·재계획·재시작에도 유지된다. 신규 V3 실행은 `cost-regex-2`로 비용 반려 전체 이력을 집계하며, 과거 `cost-regex-1` 저장 결과는 기존 정책으로 읽는다. 필수 수치 검증과 계획 Decisions는 두 스위치와 별개로 유지한다.
+
+V3 검색 의존성은 `agent/python/requirements-v3-rag.lock`에 버전과 해시를 고정했다. 아래 설치 명령은 **V3 전용 clone**에서 실행한다. 기존 V1/V2 작업 폴더의 환경을 덮어쓰지 않는다. 기존 `.env`를 예시로 덮어쓰지 말고 `.env.example`의 `AGENT_V3_` 설정을 자기 환경에 추가한다.
+
+```sh
+uv venv agent/python/.venv --python 3.12.15
+uv pip sync --python agent/python/.venv/bin/python --require-hashes agent/python/requirements-v3-rag.lock
+```
+
+Windows의 Python 실행 파일은 `agent/python/.venv/Scripts/python.exe`다. `npm run dev:agent`는 저장소의 Python 소스를 경로에 추가하고 해당 환경을 사용한다. 모델 파일은 자기 로컬 폴더에 준비하고 `AGENT_V3_RAG_MODEL_DIR`, 인덱스는 `AGENT_V3_RAG_CACHE_DIR`로 지정한다. 공개 모델 파일만 내려받는 준비 명령은 다음과 같으며 프로젝트 기록을 전송하지 않는다.
+
+```sh
+PYTHONPATH=agent/python/src agent/python/.venv/bin/python -c "from pathlib import Path; from kplasma_agent.v3.decision_rag.embedding import download; download(Path('.local/models/multilingual-e5-small'))"
+```
+
+V3에서 판단 이력을 조회할 때는 등록된 `RUN-…` 이름을 질문에 그대로 쓰거나 Run을 명시적으로 첨부한다. 서버는 이름을 등록 ID와 정확히 대조하여 버전을 고정하며, 명시적으로 첨부한 과거 버전은 유지한다. 이름이나 버전을 확정하지 못하면 구체적인 확인·첨부 안내를 표시한다. 검색은 해당 Run·버전·귀속 범위와 원문 출처를 보존하며, RAG 유사도로 확정 제외 규칙을 완화하지 않는다. 모의 기록을 사용하는 환경만 `AGENT_V3_RAG_SYNTHETIC=true`로 표시한다. clone이나 모델 준비가 실제 Run·판단 기록을 생성하지는 않는다.
+
+[V3 판단 기록 RAG 구현과 실행 방법](docs/development/agent-v3-decision-rag.md)에서 그래프 연결, 요청별 스위치, 이름 입력과 근거 저장 계약을 설명한다. 성능 평가 결과·회차별 원인 분석은 구현과 분리해 제출하며, 웹/API의 유료 비교는 CI에서 실행하지 않는다.
+
 ## 코드와 실제 데이터의 공유
 
 GitHub에는 코드·설계 문서·DB 스키마·마이그레이션·설정 예시를 관리합니다. 실제 결과 원본, 실제 결과·그래프 JSON, DB 데이터·백업, 사용자 대화·판단 기록은 올리지 않습니다. 해당 로컬 보관 경로는 `.gitignore`에서 제외합니다.

@@ -127,6 +127,14 @@ public class V2ExecutionRepository {
         return values.getFirst();
     }
 
+    /** Read a saved reservation during an idempotent V3 result validation. Caller fences the request. */
+    public JsonNode savedStepInputs(UUID request, UUID id) {
+        var values=jdbc.query("select inputs::text from agent_step_execution where request_id=? and id=?",
+            (rs,n)->read(rs.getString(1)),request,id);
+        check(values.size()==1,"unknown step reservation");
+        return values.getFirst();
+    }
+
     /**
      * A comparison or decision-record step may take a whole candidate group from a verified
      * search, or the remaining Runs of an earlier decision-record step.
@@ -143,8 +151,12 @@ public class V2ExecutionRepository {
               and step#>>'{inputs,runs,step_id}'=source.step_id
               and step#>>'{inputs,runs,field}'='candidates'
               and step#>>'{inputs,runs,scope,kind}'='candidate_group'
-              and source.result->>'status'='verified'
-              and source.result#>>'{outputs,toolResult,kind}' in ('reverse_search','decision_records')
+              and (source.result->>'status'='verified'
+                   or (source.result->>'status'='empty' and source.result#>'{outputs,decisionEvidence}' is not null
+                       and exists(select 1 from agent_request r where r.id=source.request_id and r.graph_version='v3')))
+              and (source.result#>>'{outputs,toolResult,kind}' in ('reverse_search','decision_records')
+                   or (source.result#>'{outputs,decisionEvidence}' is not null
+                       and exists(select 1 from agent_request r where r.id=source.request_id and r.graph_version='v3')))
               and source.result#>'{outputs,candidates}'=?::jsonb
             """, request, target, sourceExecutionId, json(refs)) == 1;
     }

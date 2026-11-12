@@ -16,6 +16,11 @@ import com.kplasma.analysisagent.agent.v2.GraphVersionPolicy;
 import com.kplasma.analysisagent.agent.v2.V2StepOrigins;
 import com.kplasma.analysisagent.agent.v2.V2ExecutionRepository;
 import tools.jackson.databind.JsonNode;
+import com.kplasma.analysisagent.agent.v3.V3Options;
+import com.kplasma.analysisagent.agent.v3.V3Contracts;
+import com.kplasma.analysisagent.agent.v3.V3StepOrigins;
+import com.kplasma.analysisagent.agent.v3.V3CostPolicy;
+import com.kplasma.analysisagent.agent.v3.V3NamedRunResolver;
 
 @Service
 public class AgentRequestService {
@@ -37,7 +42,8 @@ public class AgentRequestService {
         @JsonInclude(JsonInclude.Include.NON_NULL) String executionId,
         @JsonInclude(JsonInclude.Include.NON_NULL) String stepId) {}
     public record Submission(String text,StateToken stateToken,RunRef selectedRunRef,RunRef baseline,List<RunRef> candidateReferences,List<RunRef> attachedRunRefs,List<ReferenceOrigin> referenceOrigins,
-        @JsonInclude(JsonInclude.Include.NON_NULL) String graphVersion) {}
+        @JsonInclude(JsonInclude.Include.NON_NULL) String graphVersion,
+        @JsonInclude(JsonInclude.Include.NON_NULL) Map<String,Object> v3Options) {}
     public record Resume(long expectedRequestRevision,String pendingInputId,Map<String,Object> input) {}
     public record Claim(String workerId,int leaseSeconds,List<String> supportedGraphVersions) {}
     public record Mutation(long claimGeneration,long requestRevision,Integer leaseSeconds,String stage,String operationKind,Boolean dependsOnContext,
@@ -64,12 +70,24 @@ public class AgentRequestService {
         if(pinned==null&&!turns.isEmpty())pinned="v1";
         String graphVersion=GraphVersionPolicy.resolve(pinned,body.graphVersion());
         context.put("graphVersion",graphVersion);
+        if("v3".equals(graphVersion))bindNamedRuns(body.text(),attached,context);
+        var v3Options=V3Options.freeze(graphVersion,body.v3Options());
+        if(v3Options!=null)context.put("v3Options",v3Options);
         context.put("lastAnswer",turns.isEmpty()?null:turns.getLast().answerSnapshot());
         context.put("comparisonContext",turns.reversed().stream().filter(t->"compare_runs".equals(t.answerSnapshot().get("kind"))||"explain_change".equals(t.answerSnapshot().get("kind"))).map(TurnSnapshot::answerSnapshot).findFirst().orElse(null));
-        UUID id=UUID.randomUUID();jdbc.update("insert into agent_request(id,workspace_epoch,conversation_epoch,status,question,submission,context_snapshot,graph_version) values (?,?,?,'QUEUED',?,?::jsonb,?::jsonb,?)",id,current.stateToken().workspaceEpoch(),current.stateToken().conversationEpoch(),body.text(),requests.json(body),requests.json(context),graphVersion);
+        UUID id=UUID.randomUUID();jdbc.update("insert into agent_request(id,workspace_epoch,conversation_epoch,status,question,submission,context_snapshot,graph_version,v3_options) values (?,?,?,'QUEUED',?,?::jsonb,?::jsonb,?,?::jsonb)",id,current.stateToken().workspaceEpoch(),current.stateToken().conversationEpoch(),body.text(),requests.json(body),requests.json(context),graphVersion,v3Options==null?null:requests.json(v3Options));
         publicEvents.activity(id,"QUEUED","started");publicEvents.state(id);
         jdbc.update("update workspace set agent_graph_version=? where id=1",graphVersion);
         workspace.remember(current.stateToken().workspaceEpoch(),current.stateToken().conversationEpoch(),"AGENT",key,body,id.toString());workspace.advance();return requests.view(requests.get(id,false));
+    }
+    private void bindNamedRuns(String question,List<RunRef> attached,Map<String,Object> context) {
+        var names=V3NamedRunResolver.mentions(question);
+        List<RunRef> catalog=names.isEmpty()?List.of():jdbc.query("""
+            select r.run_id,v.id::text from run r join run_version v on v.id=r.current_version_id
+            where lower(r.run_id)=any(?::text[]) order by r.run_id
+            """,(rs,n)->new RunRef(rs.getString(1),rs.getString(2)),
+            (Object)names.stream().map(name->name.toLowerCase(Locale.ROOT)).toArray(String[]::new));
+        V3NamedRunResolver.resolve(names,catalog,attached).putInto(context);
     }
     private boolean visible(RunRef ref,WorkspaceView current){return Objects.equals(ref,current.conversation().activeRun())||(current.candidateReference()!=null&&current.candidateReference().runs().contains(ref))||current.conversation().turns().stream().anyMatch(t->t.answerRunRefs().contains(ref));}
     private Map<String,Object> explicitReferences(List<RunRef> refs,List<ReferenceOrigin> origins,WorkspaceView current,RunRef baseline){
@@ -86,9 +104,10 @@ public class AgentRequestService {
             } else {
                 var turn=current.conversation().turns().stream().filter(t->t.id().equals(origin.turnId())).findFirst().orElse(null);
                 require(turn!=null&&turn.answerRunRefs().contains(ref),"Reference must originate in an actual saved answer");
-                if ("v2".equals(turn.answerSnapshot().get("implementationId"))) {
-                    require(V2StepOrigins.contains(turn,new V2RecordSource(origin.turnId(),origin.executionId(),
-                        origin.stepId(),origin.groupId()),ref),"V2 reference must belong to its saved execution group");
+                if (Set.of("v2","v3").contains(String.valueOf(turn.answerSnapshot().get("implementationId")))) {
+                    require((V2StepOrigins.contains(turn,new V2RecordSource(origin.turnId(),origin.executionId(),
+                        origin.stepId(),origin.groupId()),ref) || V3StepOrigins.contains(turn,new V2RecordSource(origin.turnId(),origin.executionId(),
+                        origin.stepId(),origin.groupId()),ref)),"V2 reference must belong to its saved execution group");
                 } else {
                     require(origin.executionId()==null&&origin.stepId()==null,"V1 references cannot carry v2 execution IDs");
                     require(!"candidate_group".equals(origin.kind())||groupContains(turn,origin.groupId(),ref),"Candidate group must contain the exact saved Run");
@@ -169,7 +188,7 @@ public class AgentRequestService {
         if("run_selection".equals(row.pending().get("type"))){
             require("run_selection".equals(body.input().get("type")),"Run selection input is required");
             Map<String,Object> snapshot;
-            if("v2".equals(row.graphVersion())){
+            if(composite(row.graphVersion())){
                 require(body.input().keySet().stream().allMatch(Set.of("type","runKeys","baselineKey")::contains),"Unexpected selection field");
                 var options=options(row,body.pendingInputId());Object raw=body.input().get("runKeys");require(raw instanceof List<?>,"runKeys are required");var keys=(List<?>)raw;
                 int minimum=selectionLimit(row.pending().get("minSelections"),2);
@@ -192,7 +211,14 @@ public class AgentRequestService {
             validate.bulkRefs(entryRefs(snapshot),INVALID);
             Map<String,Object> context=new LinkedHashMap<>(row.context());context.put("comparisonReference",snapshot);
             if("v1".equals(row.graphVersion()))context.remove("comparisonOptions");
-            jdbc.update("update agent_request set context_snapshot=?::jsonb,manifest=null where id=?",requests.json(context),id);event.put("comparisonReference",snapshot);
+            if("v3".equals(row.graphVersion()) && row.manifest()!=null && row.manifest().get("decisionRecords") instanceof List<?>) {
+                var pinned=new LinkedHashMap<String,Object>();
+                pinned.put("runs",List.of());pinned.put("referencedRuns",List.of());pinned.put("context",context);
+                pinned.put("createdAt",row.manifest().get("createdAt"));pinned.put("decisionRecords",row.manifest().get("decisionRecords"));
+                if(row.manifest().containsKey("selectedRunRefs"))pinned.put("selectedRunRefs",row.manifest().get("selectedRunRefs"));
+                jdbc.update("update agent_request set context_snapshot=?::jsonb,manifest=?::jsonb where id=?",requests.json(context),requests.json(pinned),id);
+            } else jdbc.update("update agent_request set context_snapshot=?::jsonb,manifest=null where id=?",requests.json(context),id);
+            event.put("comparisonReference",snapshot);
             if("v1".equals(row.graphVersion()))selections.finish(id);
         }else if("comparison_options".equals(row.pending().get("type"))){
             require("comparison_options".equals(body.input().get("type")),"Comparison options input is required");
@@ -243,43 +269,59 @@ public class AgentRequestService {
         var replay=publicEvents.replay(id,body.eventKey(),body.type(),payload);
         if(replay!=null)return replay;
         if("results.ready".equals(body.type())) {
-            require("v2".equals(row.graphVersion()),"Public saved results require graph v2");
+            require(composite(row.graphVersion()),"Public saved results require graph v2");
             @SuppressWarnings("unchecked") var ids=(List<String>)payload.get("executionIds");
             publicResults.project(v2.publicResults(id,ids,true));
         }
         return publicEvents.worker(id,body,payload);
     }
 
+    private static boolean composite(String version) { return Set.of("v2","v3").contains(version); }
+
     private void v2Fence(UUID id, V2Write body) {
         var current = workspace.lock();
         var row = fence(id, body.claimGeneration(), body.requestRevision());
         epochs(row, current);
-        require("v2".equals(row.graphVersion()), "This endpoint requires graph v2");
+        require(composite(row.graphVersion()), "This endpoint requires graph v2");
     }
 
     @Transactional public Map<String,Object> acceptV2Plan(UUID id, V2Write body) {
         v2Fence(id, body);
+        var row=requests.get(id,false);
+        if("v3".equals(row.graphVersion()))validateV3Plan(body.payload(),row.v3Options());
         return v2.acceptPlan(id, body.requestRevision(), body.payload());
+    }
+
+    private void validateV3Plan(JsonNode draft,Map<String,Object> options) {
+        require(draft!=null && draft.path("steps").isArray(),"V3 plan steps are required");
+        for(var step:draft.path("steps"))if("decision_records".equals(step.path("tool").asString()))
+            V3Options.allowAction(options,step.path("inputs").path("action").asString());
     }
 
     @Transactional public Map<String,Object> reserveV2Step(UUID id, V2Write body) {
         v2Fence(id, body);
         require(body.planRevision() != null, "planRevision is required");
-        return v2.reserveStep(id, body.claimGeneration(), body.requestRevision(),
+        var permit=v2.reserveStep(id, body.claimGeneration(), body.requestRevision(),
             body.planRevision(), body.stepId(), body.payload());
+        var row=requests.get(id,false);
+        UUID execution=UUID.fromString(String.valueOf(permit.get("executionId")));
+        if("v3".equals(row.graphVersion()) && v2.isToolStep(id,execution,"decision_records"))
+            V3Options.allowAction(row.v3Options(),body.payload().path("action").asString());
+        return permit;
     }
 
     @Transactional public Map<String,Object> v2StepContext(UUID id, UUID executionId, V2Write body) {
         v2Fence(id, body);
         JsonNode inputs = v2.activeStepInputs(id, body.claimGeneration(), body.requestRevision(), executionId);
         var row = requests.get(id, false);
+        requireResolvedNames(row);
         if (inputs.path("runs").isArray()) {
             List<RunRef> refs = new ArrayList<>();
             for (var node : inputs.path("runs")) refs.add(mapper.treeToValue(node, RunRef.class));
             JsonNode source = inputs.path("candidateExecutionId");
             boolean authorized = source.isString()
                 ? v2.matchesSearchCandidates(id, executionId, source.asString(), inputs.path("runs"))
-                : entryRefs(row.context().get("comparisonReference")).containsAll(refs);
+                : ("v3".equals(row.graphVersion())?directContextRefs(row):entryRefs(row.context().get("comparisonReference"))).containsAll(refs);
             require(refs.size() >= 2 && new HashSet<>(refs).size() == refs.size() && authorized,
                 "Comparison must use confirmed Run versions or the full saved search result");
             validate.bulkRefs(refs, INVALID);
@@ -305,12 +347,49 @@ public class AgentRequestService {
         var refs = new ArrayList<RunRef>();
         for (var ref : body.payload().path("runRefs")) refs.add(mapper.treeToValue(ref, RunRef.class));
         validate.bulkRefs(refs, INVALID);
+        var row=requests.get(id,false);
+        if("v3".equals(row.graphVersion()))validateV3Step(row,executionId,body,refs);
         return v2.saveStep(id, body.claimGeneration(), body.requestRevision(), executionId, body.payload());
     }
 
     @Transactional public Map<String,Object> reserveV2Model(UUID id, V2Write body) {
         v2Fence(id, body);
         return v2.reserveModel(id, body.claimGeneration(), body.requestRevision(), body.kind(), body.key());
+    }
+
+    private void validateV3Step(AgentRequestRepository.Row row,UUID execution,V2Write body,List<RunRef> refs) {
+        var output=body.payload().path("outputs");
+        boolean recordStep=v2.isToolStep(row.id(),execution,"decision_records");
+        require(recordStep || !output.has("decisionEvidence"),"Only a V3 decision step may return decision evidence");
+        if(!recordStep)return;
+        var inputs=v2.savedStepInputs(row.id(),execution);
+        String action=inputs.path("action").asString();
+        V3Options.allowAction(row.v3Options(),action);
+        if(!Set.of("verified","empty","partial").contains(body.payload().path("status").asString())) {
+            require(!output.has("decisionEvidence"),"Failed record steps must not provide successful evidence");
+            return;
+        }
+        var counts=output.path("callCounts");
+        require(counts.isObject() && counts.size()==2 && counts.path("rules").isIntegralNumber()
+            && counts.path("rag").isIntegralNumber()
+            && counts.path("rules").asInt()==("cost_exclusion".equals(action)?1:0)
+            && counts.path("rag").asInt()==("search".equals(action)?1:0),"V3 decision call counts do not match its action");
+        require(output.path("decisionEvidence").isObject(),"V3 decision evidence is required");
+        var evidence=output.path("decisionEvidence");
+        require(evidence.path("rules").equals(output.path("rules"))
+            && evidence.path("retrieval").equals(output.path("retrieval")),"V3 decision diagnostics differ from their evidence");
+        if("search".equals(action))require("disabled".equals(evidence.path("rules").path("policy").asString()),
+            "Semantic retrieval must not apply exclusion rules");
+        else require(V3CostPolicy.VERSION.equals(evidence.path("rules").path("policy").asString()),"Unknown exclusion policy");
+        var decision=Map.<String,Object>of("decisionEvidence",requests.read(mapper.writeValueAsString(evidence)));
+        new V3DecisionEvidenceValidator(mapper).validate(new AgentResponse(null,null,List.of(),null,decision,refs),row.manifest());
+        var expected=inputs.path("runs");
+        if("cost_exclusion".equals(action)) {
+            Set<String> excluded=new HashSet<>();
+            for(var id:evidence.path("rules").path("excludedRunIds"))excluded.add(id.asString());
+            var remaining=new ArrayList<JsonNode>();for(var ref:expected)if(!excluded.contains(ref.path("runId").asString()))remaining.add(ref);
+            require(mapper.valueToTree(remaining).equals(output.path("candidates")),"V3 exclusion candidate set differs from verified rules");
+        } else require(expected.equals(output.path("candidates")),"RAG must not exclude candidate Runs");
     }
 
     @Transactional public Map<String,Object> completeV2Model(UUID id, UUID attemptId, V2Write body) {
@@ -369,7 +448,7 @@ public class AgentRequestService {
         Set<String> refs=new LinkedHashSet<>();
         // Stored answers can outlive deleted Runs. They are interpretation context,
         // not mandatory dependencies of an unrelated new lookup.
-        if(row.context()!=null)for(String key:List.of("activeRun","selectedRunRef","candidateReferences","comparisonContext"))collectVersions(row.context().get(key),refs);
+        if(row.context()!=null)for(String key:List.of("activeRun","selectedRunRef","candidateReferences","comparisonContext","namedRunReferences"))collectVersions(row.context().get(key),refs);
         required.forEach(ref->refs.add(ref.runVersionId()));
         Set<String> fetched=new HashSet<>();collectVersions(manifest.get("referencedRuns"),fetched);refs.removeAll(fetched);
         if(!refs.isEmpty()){
@@ -471,25 +550,54 @@ public class AgentRequestService {
         List<RunRef> refs = new ArrayList<>();
         for (var node : inputs.path("runs")) refs.add(mapper.treeToValue(node, RunRef.class));
         var row = requests.get(id, false);
+        if("v3".equals(row.graphVersion()))V3Options.allowAction(row.v3Options(),inputs.path("action").asString());
+        requireResolvedNames(row);
         JsonNode source = inputs.path("candidateExecutionId");
         boolean authorized = source.isString()
             ? v2.matchesSearchCandidates(id, executionId, source.asString(), inputs.path("runs"))
-            : confirmedContextRefs(row.context()).containsAll(refs);
+            : directContextRefs(row).containsAll(refs);
         require(!refs.isEmpty() && new HashSet<>(refs).size() == refs.size() && authorized,
             "Decision records must use confirmed Run versions or a whole saved candidate group");
         validate.bulkRefs(refs, INVALID);
         v2.pinStepSources(id, executionId, refs);
-        return Map.of("records", pinnedDecisionRecords(id, row));
+        Object records=pinnedDecisionRecords(id,row);
+        if("v3".equals(row.graphVersion())) {
+            var manifest=new LinkedHashMap<>(requests.get(id,false).manifest());
+            var scopes=new LinkedHashSet<>(confirmedContextRefs(row.context()));
+            if(manifest.get("selectedRunRefs") instanceof List<?> previous)
+                for(Object ref:previous)scopes.add(mapper.convertValue(ref,RunRef.class));
+            scopes.addAll(refs);
+            manifest.put("selectedRunRefs",new ArrayList<>(scopes));
+            jdbc.update("update agent_request set manifest=?::jsonb,updated_at=now() where id=?",requests.json(manifest),id);
+        }
+        return Map.of("records",records);
     }
     /** Runs the user confirmed for this request: attached references, the current candidate group and the active Run. */
     private Set<RunRef> confirmedContextRefs(Map<String,Object> context) {
         Set<RunRef> refs = new HashSet<>();
         if (context == null) return refs;
         refs.addAll(entryRefs(context.get("comparisonReference")));
+        if (context.get("namedRunReferences") instanceof List<?> named)
+            for (Object value : named) if (value instanceof Map<?,?> || value instanceof RunRef) refs.add(mapper.convertValue(value, RunRef.class));
         if (context.get("candidateReferences") instanceof List<?> candidates)
             for (Object value : candidates) if (value instanceof Map<?,?>) refs.add(mapper.convertValue(value, RunRef.class));
         if (context.get("activeRun") instanceof Map<?,?> active) refs.add(mapper.convertValue(active, RunRef.class));
         return refs;
+    }
+    /** An explicit name must not silently fall back to an unrelated stale selection. */
+    private Set<RunRef> directContextRefs(AgentRequestRepository.Row row) {
+        var context=row.context();
+        if(!"v3".equals(row.graphVersion())||context==null)return confirmedContextRefs(context);
+        requireResolvedNames(row);
+        if(!(context.get("namedRunReferences") instanceof List<?> named)||named.isEmpty())return confirmedContextRefs(context);
+        Set<RunRef> refs=new HashSet<>(entryRefs(context.get("comparisonReference")));
+        for(Object value:named)refs.add(mapper.convertValue(value,RunRef.class));
+        return refs;
+    }
+    private void requireResolvedNames(AgentRequestRepository.Row row) {
+        if("v3".equals(row.graphVersion())&&row.context()!=null)
+            require(!(row.context().get("unresolvedRunNames") instanceof List<?> missing)||missing.isEmpty(),
+                "Named Runs could not be resolved. Confirm the registered Run name and version.");
     }
     /** Pin the first read so a resumed, retried or replanned worker classifies the same records. */
     private Object pinnedDecisionRecords(UUID id, AgentRequestRepository.Row row) {
@@ -500,7 +608,8 @@ public class AgentRequestService {
             manifest.put("runs",List.of());manifest.put("referencedRuns",List.of());manifest.put("context",row.context());manifest.put("createdAt",Instant.now().toString());
         } else manifest = new LinkedHashMap<>(row.manifest());
         if(!(manifest.get("decisionRecords") instanceof List<?>)){
-            manifest.put("decisionRecords",decisions.recordsInSaveOrder().stream().map(requests::read).map(this::reuseEvidence).toList());
+            manifest.put("decisionRecords",decisions.recordsInSaveOrder().stream().map(requests::read)
+                .map(record->"v3".equals(row.graphVersion())?reuseEvidenceV3(record):reuseEvidence(record)).toList());
             jdbc.update("update agent_request set manifest=?::jsonb,updated_at=now() where id=?",requests.json(manifest),id);
         }
         return manifest.get("decisionRecords");
@@ -511,6 +620,11 @@ public class AgentRequestService {
         for(String key:List.of("candidates","runSnapshots"))if(record.get(key) instanceof List<?> rows)
             result.put(key,rows.stream().map(value->pick((Map<?,?>)value,key.equals("candidates")?List.of("runId","runVersionId","decision","note","conditions"):List.of("runId","runVersionId","conditions"))).toList());
         return result;
+    }
+    private Map<String,Object> reuseEvidenceV3(Map<String,Object> record) {
+        var projected=reuseEvidence(record);
+        for(String field:List.of("comparedRunRefs","comparedRunIds"))if(record.containsKey(field))projected.put(field,record.get(field));
+        return projected;
     }
     private static Map<String,Object> pick(Map<?,?> source,List<String> keys){Map<String,Object> result=new LinkedHashMap<>();for(String key:keys)if(source.containsKey(key))result.put(key,source.get(key));return result;}
     private List<Map<String,Object>> scalarVersions(String[] versions){return jdbc.query("select summary::text,source_file_count from run_version where id=any(?::uuid[]) order by run_id,registration_sequence",(rs,n)->scalarRow(rs.getString(1),rs.getObject(2)),(Object)versions);}
@@ -532,7 +646,7 @@ public class AgentRequestService {
         result.put("value",available?value:null);result.put("unit",unit);result.put("status",available?"AVAILABLE":"UNAVAILABLE");result.put("reason",available?null:"MISSING_VALUE");result.put("sourceValue",null);return result;
     }
     private JsonNode v2SelectionSource(UUID id, AgentRequestRepository.Row row, Object sourceExecutionId) {
-        require("v2".equals(row.graphVersion()) && sourceExecutionId instanceof String,
+        require(composite(row.graphVersion()) && sourceExecutionId instanceof String,
             "Candidate source requires graph v2");
         var saved = v2.savedResults(id).stream()
             .filter(r -> Objects.equals(r.path("executionId").asString(), sourceExecutionId))
@@ -621,7 +735,7 @@ public class AgentRequestService {
         var current=workspace.lock();
         var row=requests.get(id,true);
         epochs(row,current);
-        if (!"v2".equals(row.graphVersion()))conflict("CLIENT_REFRESH_REQUIRED","실험 선택 화면이 업데이트되었습니다. 화면을 새로고침해 주세요.");
+        if (!composite(row.graphVersion()))conflict("CLIENT_REFRESH_REQUIRED","실험 선택 화면이 업데이트되었습니다. 화면을 새로고침해 주세요.");
         if (!"NEEDS_INPUT".equals(row.status()) || row.pending()==null
             || !"run_selection".equals(row.pending().get("type")) || !Objects.equals(row.pending().get("id"),pendingId)) {
             conflict("STALE_REQUEST","Run selection changed");
@@ -655,7 +769,7 @@ public class AgentRequestService {
         var pending=new LinkedHashMap<>(body.pendingInput());
         if("run_selection".equals(pending.get("type"))){
             require(((String)pending.get("id")).length()<=200,"pendingInput.id is too long");
-            if("v2".equals(row.graphVersion())){
+            if(composite(row.graphVersion())){
                 int minimum=selectionLimit(pending.get("minSelections"),2);
                 int maximum=selectionLimit(pending.get("maxSelections"),Integer.MAX_VALUE);
                 require(maximum>=minimum,"Selection maximum must be at least the minimum");
@@ -680,7 +794,7 @@ public class AgentRequestService {
     @Transactional public Map<String,Object> finalizeRequest(UUID id,Mutation body){
         var current=workspace.lock();var row=requests.get(id,true);epochs(row,current);require(body.answer()!=null,"answer is required");
         if("COMPLETED".equals(row.status())){
-            boolean same = "v2".equals(row.graphVersion())
+            boolean same = composite(row.graphVersion())
                 ? Boolean.TRUE.equals(jdbc.queryForObject("select final_answer=?::jsonb from agent_request where id=?",
                     Boolean.class,requests.json(body.answer()),id))
                 : mapper.readTree(requests.json(row.answer())).equals(mapper.valueToTree(body.answer()));
@@ -688,7 +802,7 @@ public class AgentRequestService {
             return requests.view(row);
         }
         row=fence(id,body.claimGeneration(),body.requestRevision());var answer=body.answer();
-        if ("v2".equals(row.graphVersion())) return finalizeV2(row, answer);
+        if (composite(row.graphVersion())) return finalizeV2(row, answer);
         require(INTENTS.contains(answer.intent()==null?"":answer.intent()),"Invalid answer intent");require(answer.answerSnapshot()!=null,"Answer snapshot is required");require("v1".equals(answer.answerSnapshot().get("implementationId")),"Answer must identify v1");
         if(answer.answerSnapshot().get("schemaVersion") instanceof Number n&&(n.intValue()==2||n.intValue()==3)){
             validate.bulkRefs(answer.usedRunRefs(),INVALID);validate.compactValidated(answer.answerSnapshot(),INVALID,new HashSet<>(answer.usedRunRefs()));new AnswerV2Validator(validate,((Number)answer.answerSnapshot().get("schemaVersion")).intValue()==3).answer(answer,row.question());
@@ -700,7 +814,9 @@ public class AgentRequestService {
     }
     private Map<String,Object> finalizeV2(AgentRequestRepository.Row row, AgentResponse answer) {
         JsonNode snapshot = mapper.valueToTree(answer.answerSnapshot());
-        require(com.kplasma.analysisagent.agent.v2.V2Contracts.isSnapshot(snapshot), "Invalid v2 answer");
+        boolean isV3="v3".equals(row.graphVersion());
+        require(isV3?V3Contracts.isSnapshot(snapshot):com.kplasma.analysisagent.agent.v2.V2Contracts.isSnapshot(snapshot), "Invalid composite answer");
+        if(isV3)require(mapper.valueToTree(row.v3Options()).equals(snapshot.path("executionMode")),"V3 answer switches differ from the saved request");
         require(Objects.equals(row.question(), snapshot.path("question").asString())
             && Objects.equals(answer.intent(), snapshot.path("intent").asString()), "Answer does not match this request");
         var runRefs = new LinkedHashSet<RunRef>();
@@ -714,6 +830,14 @@ public class AgentRequestService {
             require(executions.contains(evidence.path("executionId").asString()), "Evidence must identify a saved execution");
             if (evidence.path("runRef").isObject()) require(runRefs.contains(mapper.treeToValue(
                 evidence.path("runRef"), RunRef.class)), "Evidence Run is outside the answer scope");
+        }
+        if(isV3) {
+            var expected=new ArrayList<JsonNode>();
+            for(var result:snapshot.path("stepResults"))if(result.path("outputs").path("decisionEvidence").isObject())
+                expected.add(result.path("outputs").path("decisionEvidence"));
+            require(expected.isEmpty()?(!snapshot.has("decisionEvidence") || snapshot.path("decisionEvidence").isArray() && snapshot.path("decisionEvidence").isEmpty())
+                : mapper.valueToTree(expected).equals(snapshot.path("decisionEvidence")),"Final V3 citations differ from their saved executions");
+            validate.compactValidated(answer.answerSnapshot(),INVALID,runRefs);
         }
         require(answer.usedRunRefs() != null && runRefs.equals(new LinkedHashSet<>(answer.usedRunRefs())),
             "Answer Run inventory does not match executed steps");

@@ -1,6 +1,6 @@
 import type { RunRef } from './index.js';
 
-export type GraphVersion = 'v1' | 'v2';
+export type GraphVersion = 'v1' | 'v2' | 'v3';
 type Json = null | string | number | boolean | Json[] | { [key: string]: Json };
 type ExecutionStatus = 'COMPLETE' | 'PARTIAL' | 'FAILED';
 type ReviewStatus = 'PASS' | 'ISSUE' | 'UNAVAILABLE' | 'SKIPPED';

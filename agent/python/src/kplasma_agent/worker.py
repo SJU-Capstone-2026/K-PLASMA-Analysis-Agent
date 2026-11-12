@@ -24,6 +24,10 @@ LOG = logging.getLogger("kplasma.worker")
 
 def run_claim(claim, backend, model, settings, *, v2_models=None):
     request = claim.get("request") or {}
+    if request.get("graphVersion") == "v3":
+        from .v3.runtime_worker import run_v3_claim
+
+        return run_v3_claim(claim)
     with tracing.span(
         "agent.request",
         kind="AGENT",
@@ -169,15 +173,22 @@ def serve(settings, once=False):
 
     signal.signal(signal.SIGTERM, stop)
     signal.signal(signal.SIGINT, stop)
-    LOG.info("worker ready: graphs=v1,v2 v1_model=%s v2_planner=%s/%s",
+    LOG.info("worker ready: graphs=v1,v2,v3 v1_model=%s v2_planner=%s/%s",
              settings.model, v2_models.settings.planner.model, v2_models.settings.planner.reasoning_effort)
     while not stopping.is_set():
         try:
-            claim = client.claim(worker_id, ["v1", "v2"])
+            claim = client.claim(worker_id, ["v1", "v2", "v3"])
             if claim.get("request") is None:
                 if once:
                     return
                 stopping.wait(settings.poll_seconds)
+                continue
+            if claim["request"].get("graphVersion") == "v3":
+                from .v3.runtime_worker import run_v3_claim
+
+                run_v3_claim(claim)
+                if once:
+                    return
                 continue
             backend = client.bind(claim)
             heartbeat_stop = Event()

@@ -18,7 +18,7 @@ from .core.composition import (
     interpretation_review_payload,
 )
 from .core.contracts import (
-    AwaitInputStep, BudgetState, CandidateScope, CompareStep, DataAnswerDraft, GeneralAnswerDraft,
+    AwaitInputStep, BudgetState, CandidateScope, CompareStep, DataAnswerDraft, DecisionRecordStep, GeneralAnswerDraft,
     ExplainStep, GraphV3AnswerSnapshotV1, PlanDraft, ResultRef, ReviewDecision, StepResult,
 )
 from .core.executor import SequentialExecutor
@@ -27,6 +27,8 @@ from .core.plan_review import (
     PROMPT_VERSION, PlanReviewResult, build_plan_review_context, digest, plan_digest,
     matches_review_context, plan_review_feedback, review_result,
 )
+from .runtime import normalize_mode, require_action
+from .named_runs import named_run_context
 
 
 class State(TypedDict, total=False):
@@ -66,9 +68,10 @@ class State(TypedDict, total=False):
     elapsed: float
     partial_composes: int
     answer: dict
+    execution_mode: dict
 
 
-def _binding_context(context):
+def _binding_context(context, question=None):
     selection = context.get("comparisonReference") or {}
     entries = selection.get("entries", [])
     values = {entry["key"]: entry["ref"] for entry in entries}
@@ -76,9 +79,20 @@ def _binding_context(context):
     for key in ("activeRun", "selectedRunRef"):
         if context.get(key):
             values[key] = context[key]
+    if context.get("candidateReferences"):
+        values["candidateReferences"] = context["candidateReferences"]
     if selection.get("baselineKey"):
         values["baseline"] = selection["baselineKey"]
     values.update(context.get("v2ConfirmedInputs", {}))
+    named = named_run_context(context, question)
+    if named:
+        # Named references augment what can be addressed; they never replace prior selections.
+        values.update(named)
+        known_entries = list(entries)
+        for item in named["named_run_bindings"]:
+            if not any(entry["ref"] == item["ref"] for entry in known_entries):
+                known_entries.append({"key": item["context_key"], "ref": item["ref"]})
+        values["comparison_entries"] = known_entries
     return values
 
 
@@ -97,6 +111,11 @@ def _budget(state, **extra):
 def _issue(reason):
     if not reason:
         return None
+    if reason.startswith("UNRESOLVED_RUN_NAMES:"):
+        return (f"질문에 적은 Run을 등록된 실험과 버전으로 확정하지 못했습니다: {reason.split(':', 1)[1]}. "
+                "Run 이름을 확인하거나 조회할 Run과 버전을 직접 첨부해 주세요.")
+    if reason == "INVALID_NAMED_RUN_CONTEXT":
+        return "질문에 적은 Run과 저장된 버전의 연결 정보를 확인하지 못했습니다. 조회할 Run을 다시 첨부해 주세요."
     if reason in {"PLAN_SEMANTIC_MISMATCH", "PLAN_SEMANTIC_UNCLEAR"}:
         return "질문의 조건에 맞는 처리 계획을 확정하지 못해 더 진행하지 않았습니다."
     if reason == "PLAN_REVIEW_UNAVAILABLE":
@@ -136,7 +155,7 @@ def _generation_failure(outcome):
 
 
 def build_v3_graph(models, executions, checkpointer):
-    executor = SequentialExecutor(executions)
+    executor = SequentialExecutor(executions, getattr(models, "execution_mode", None))
     progress = getattr(executions, "progress", None) or ProgressReporter(None)
 
     def publish_results(values):
@@ -193,11 +212,23 @@ def build_v3_graph(models, executions, checkpointer):
         return saved.get("data"), saved.get("error"), updates
 
     def request_plan(state, replan=False):
+        incoming_mode = state.get("execution_mode", getattr(models, "execution_mode", None))
+        frozen_mode = normalize_mode(incoming_mode) if incoming_mode is not None else None
+        configured_mode = getattr(models, "execution_mode", None)
+        if configured_mode is not None and frozen_mode != normalize_mode(configured_mode):
+            return {"plan_draft": None, "feedback": "V3_MODE_MISMATCH", "failure": "V3_MODE_MISMATCH"}
+        unresolved = state.get("context", {}).get("unresolvedRunNames", [])
+        if unresolved:
+            reason = "UNRESOLVED_RUN_NAMES:" + ", ".join(str(name)[:160] for name in unresolved[:10])
+            return {"plan_draft": None, "feedback": reason, "failure": reason}
         history = state.get("input_history", [])
         messages = {"question": state["question"]}
         messages.update({f"input_{index}": item.get("text") or str(item)
                          for index, item in enumerate(history)})
-        context = _binding_context(state.get("context", {}))
+        try:
+            context = _binding_context(state.get("context", {}), state["question"])
+        except ValueError:
+            return {"plan_draft": None, "feedback": "INVALID_NAMED_RUN_CONTEXT", "failure": "INVALID_NAMED_RUN_CONTEXT"}
         payload = {
             "messages": messages, "context_keys": list(context),
             "confirmed_run_keys": [entry["key"] for entry in context["comparison_entries"]],
@@ -211,13 +242,18 @@ def build_v3_graph(models, executions, checkpointer):
             "verified_results": {step: value.get("status")
                                  for step, value in state.get("step_results", {}).items()},
         }
+        if context.get("named_run_bindings"):
+            payload["named_run_bindings"] = context["named_run_bindings"]
+        if frozen_mode is not None:
+            payload["execution_mode"] = frozen_mode
         replan_number = state.get("replans", 0) + int(replan)
         data, error, counters = model_call(
             state, "REPLAN" if replan else "PLAN_INITIAL",
             f"plan:{replan_number}:{len(history)}", models.submit_plan, payload,
         )
         enabled = state.get("plan_review_enabled", getattr(getattr(models, "settings", None), "plan_review_enabled", True))
-        return {**counters, "plan_draft": data, "feedback": error, "replans": replan_number,
+        mode_update = {"execution_mode": frozen_mode} if frozen_mode is not None else {}
+        return {**counters, **mode_update, "plan_draft": data, "feedback": error, "replans": replan_number,
                 "plan_review_enabled": enabled, "validation_error": None}
 
     def plan(state):
@@ -236,7 +272,7 @@ def build_v3_graph(models, executions, checkpointer):
         messages = {"question": state["question"]}
         messages.update({f"input_{i}": item.get("text") or str(item)
                          for i, item in enumerate(state.get("input_history", []))})
-        context = _binding_context(state.get("context", {}))
+        context = _binding_context(state.get("context", {}), state["question"])
         # Explicit selected Run requests must stay on the data path.
         question = state["question"].lower()
         data_required = any(term in question for term in ("run", "후보", "선택한 실험", "기준 실험")) and any(
@@ -247,6 +283,12 @@ def build_v3_graph(models, executions, checkpointer):
                                      context_keys=set(context), base_revision=state.get("plan_revision"),
                                      data_required=data_required,
                                      selected_run_keys={entry["key"] for entry in context["comparison_entries"]})
+            for step in accepted.steps:
+                if isinstance(step, DecisionRecordStep):
+                    try:
+                        require_action(state.get("execution_mode"), step.inputs.action)
+                    except ValueError as disabled:
+                        raise InvalidPlan("V3_FEATURE_DISABLED") from disabled
         except (ValidationError, InvalidPlan) as error:
             return {"route": "replan" if state.get("replans", 0) < 2 else "compose",
                     "failure": "INVALID_PLAN", "feedback": str(error)[:1600],
@@ -278,13 +320,14 @@ def build_v3_graph(models, executions, checkpointer):
     def binding_digest(state, *, history=None, context=None):
         return digest({"question": state["question"],
                        "input_history": state.get("input_history", []) if history is None else history,
-                       "confirmed_context": _binding_context(state.get("context", {}) if context is None else context)})
+                       "confirmed_context": _binding_context(state.get("context", {}) if context is None else context, state["question"]),
+                       **({"execution_mode": state["execution_mode"]} if "execution_mode" in state else {})})
 
     def review_plan(state):
         try:
             payload = build_plan_review_context(PlanDraft.model_validate(state["plan"]), state["plan_revision"],
-                state["question"], state.get("input_history", []), _binding_context(state.get("context", {})),
-                state.get("step_results", {}))
+                state["question"], state.get("input_history", []), _binding_context(state.get("context", {}), state["question"]),
+                state.get("step_results", {}), execution_mode=state.get("execution_mode"))
         except (ValueError, TypeError):
             return {"route": "compose", "failure": "PLAN_REVIEW_INPUT_INVALID"}
         if not state.get("plan_review_enabled", True):
@@ -336,7 +379,7 @@ def build_v3_graph(models, executions, checkpointer):
             return {"route": "compose"}
         if state.get("elapsed", 0) >= 600:
             return {"route": "compose", "failure": "TIME_BUDGET_EXHAUSTED"}
-        context = _binding_context(state.get("context", {}))
+        context = _binding_context(state.get("context", {}), state["question"])
         if isinstance(current, AwaitInputStep) and should_run(current, previous):
             return {"route": "await", "waiting_step": current.id}
         start = time.monotonic()
@@ -380,7 +423,7 @@ def build_v3_graph(models, executions, checkpointer):
         if not replacement and selection and isinstance(step, AwaitInputStep) and step.inputs.candidates is not None:
             previous = {key: StepResult.model_validate(val) for key, val in state.get("step_results", {}).items()}
             try:
-                resolved = resolve_inputs(step, _binding_context(state.get("context", {})), previous)
+                resolved = resolve_inputs(step, _binding_context(state.get("context", {}), state["question"]), previous)
             except BlockedInput:
                 return {"route": "compose", "failure": "INSUFFICIENT_CANDIDATES"}
             candidates = resolved.get("candidates")
@@ -397,7 +440,7 @@ def build_v3_graph(models, executions, checkpointer):
         if not selection and isinstance(step, AwaitInputStep):
             option_field = {"baseline": "baselineKey", "trend_axis": "trendAxis"}.get(step.confirmation)
         if option_field and isinstance(step, AwaitInputStep):
-            context = _binding_context(state.get("context", {}))
+            context = _binding_context(state.get("context", {}), state["question"])
             entries = context["comparison_entries"]
             if step.confirmation == "baseline":
                 target = next((item for item in accepted.steps if item.id == step.inputs.target_step_id), None)
@@ -462,7 +505,7 @@ def build_v3_graph(models, executions, checkpointer):
         if isinstance(step, AwaitInputStep):
             results[step.id] = StepResult(
                 executionId=f"selection:{step.id}", stepId=step.id, status="verified",
-                outputs={"selection": _binding_context(context)["selected_runs"]},
+                outputs={"selection": _binding_context(context, state["question"])["selected_runs"]},
             ).model_dump(mode="json")
         if replacement or not isinstance(step, AwaitInputStep):
             return {"pending": pending, "input_history": history, "context": context,
@@ -632,9 +675,16 @@ def build_v3_graph(models, executions, checkpointer):
             draft=parsed_draft, answer=state.get("rendered") or "확인된 결과가 없습니다.",
             executionStatus=status, hasIncompleteWork=incomplete_work,
             review=ReviewDecision.model_validate(outcome), budget=_budget(state),
+            executionMode=state.get("execution_mode"),
+            decisionEvidence=[result.outputs["decisionEvidence"] for result in results
+                              if isinstance(result.outputs.get("decisionEvidence"), dict)] or None,
         )
+        saved_snapshot = snapshot.model_dump(mode="json")
+        for optional in ("executionMode", "decisionEvidence"):
+            if saved_snapshot[optional] is None:
+                saved_snapshot.pop(optional)
         return {"answer": {"intent": intent, "status": status, "usedRunRefs": refs,
-                           "answerSnapshot": snapshot.model_dump(mode="json")}}
+                           "answerSnapshot": saved_snapshot}}
 
     builder = StateGraph(State)
     for name, node in {

@@ -17,7 +17,7 @@ public class AgentPublicEvents {
         "FORWARD_LOOKUP", "REVERSE_SEARCH", "SEARCH_COMPLETE", "SEARCH_EMPTY", "COMPARE_RUNS",
         "COMPARE_OUTPUTS", "COMPARE_IEAD", "DERIVE", "RESULT_VALIDATE", "REUSE_RESULT", "NEEDS_RUNS",
         "NEEDS_BASELINE", "NEEDS_CONDITIONS", "RESUMED", "REPLAN", "GENERAL_ANSWER", "INTERPRET",
-        "REVIEW", "REWRITE", "COMMIT", "RECOVERING");
+        "REVIEW", "REWRITE", "COMMIT", "RECOVERING", "DECISION_RECORDS");
     private final JdbcTemplate jdbc;
     private final ObjectMapper mapper;
 

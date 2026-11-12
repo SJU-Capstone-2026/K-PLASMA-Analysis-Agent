@@ -1,5 +1,5 @@
 import {useEffect,useRef,useState} from 'react';
-import {isV1AnswerSnapshot,type GraphVersion,type AgentMessage,type AgentPublicEvent,type AgentRequestView,type AgentResultProjection,type AgentSubmission,type WorkspaceView,type ReferenceState,type RunRef,type TurnUiSnapshot,type Snapshot,type StateToken} from 'agent';
+import {isV1AnswerSnapshot,type GraphVersion,type V3Options,type StoredV3Options,type AgentMessage,type AgentPublicEvent,type AgentRequestView,type AgentResultProjection,type AgentSubmission,type WorkspaceView,type ReferenceState,type RunRef,type TurnUiSnapshot,type Snapshot,type StateToken} from 'agent';
 import {cancelAgentRequest,fetchAgentEvents,fetchAgentRequest,fetchAgentResults,openAgentEvents,resumeAgentRequest,submitAgentRequest} from '../../api/agent';
 import {applyProgressEvent,mergeRequestSnapshot} from './progress-events';
 import {ApiClientError} from '../../api/client';
@@ -25,6 +25,22 @@ export function useConversation(){
  const [state,setState]=useState(emptyWorkspace);const current=useRef(state);const [ready,setReady]=useState(false);const [error,setError]=useState('');
  const [draftGraphVersion,setDraftGraphVersion]=useState<GraphVersion>('v1');
  const draftGraph=useRef<GraphVersion>('v1');
+ const defaultV3Options:V3Options={rulesEnabled:true,ragEnabled:true};
+ const [draftV3Options,setDraftV3Options]=useState<V3Options>(defaultV3Options);
+ const draftV3=useRef<V3Options>(defaultV3Options);
+ const modeScope=useRef<string|null>(null);
+ function restoreV3Options(next:WorkspaceView){
+  const scope=`${next.stateToken.workspaceEpoch}.${next.stateToken.conversationEpoch}`;
+  if(modeScope.current===scope)return;
+  modeScope.current=scope;
+  const request=next.activeAgentRequest??next.failedAgentRequest;
+  const saved=request?.graphVersion==='v3'?request.v3Options:null;
+  const last=next.conversation.turns.at(-1)?.answerSnapshot;
+  const stored=saved??(last?.graphVersion==='v3'?last.executionMode:null);
+  const mode=stored&&typeof stored==='object'&&!Array.isArray(stored)&&typeof stored.rulesEnabled==='boolean'&&typeof stored.ragEnabled==='boolean'
+   ?{rulesEnabled:stored.rulesEnabled,ragEnabled:stored.ragEnabled}:defaultV3Options;
+  draftV3.current=mode;setDraftV3Options(mode);
+ }
  const [activeRequest,setActiveRequest]=useState<AgentRequestView|null>(null);const active=useRef<AgentRequestView|null>(null);const [sending,setSending]=useState(false);const busy=useRef(false);
  const [resultPreview,setResultPreview]=useState<AgentResultProjection|null>(null);
  const initialization=useRef<Promise<void>>(Promise.resolve());const generation=useRef(0);const controllers=useRef(new Set<AbortController>());const queue=useRef<Promise<unknown>>(Promise.resolve());const mounted=useRef(true);
@@ -54,7 +70,7 @@ export function useConversation(){
  function showWorkspace(){if(mounted.current)setState(displayedWorkspace());}
  function apply(next:WorkspaceView){if(sameEpoch(next.stateToken,current.current.stateToken)&&next.stateToken.revision<current.current.stateToken.revision){showWorkspace();return;}current.current=next;
   for(const [id,pending] of pendingUi.current){const valid=pending.filter(item=>sameEpoch(item.token,next.stateToken));if(!valid.length||!next.conversation.turns.some(turn=>turn.id===id))pendingUi.current.delete(id);else pendingUi.current.set(id,valid);}
-  showWorkspace();showRequest(next.activeAgentRequest??next.failedAgentRequest??null);
+  restoreV3Options(next);showWorkspace();showRequest(next.activeAgentRequest??next.failedAgentRequest??null);
   const message=provisionalRef.current;
   if(message&&(next.agentMessages?.some(item=>item.clientMessageId===message.clientMessageId||item.requestId===message.requestId)||next.conversation.turns.some(turn=>turn.id===message.requestId))){showMessage(null);submission.current=null;saveOutbox();}
  }
@@ -127,7 +143,7 @@ export function useConversation(){
   if(!text.trim()||!ready)return;if(reservation.current||busy.current||inProgress(active.current))throw new Error('진행 중인 요청을 완료하거나 취소해 주세요.');
   reservation.current=true;setSending(true);
   const token={...current.current.stateToken};const intendedSelection=selectedCandidate(displayedWorkspace());
-  try{if(!submission.current){const explicit=explicitReferences(displayedWorkspace(),requestContext);const key=crypto.randomUUID();submission.current={key,posted:false,body:{text,stateToken:token,...(current.current.conversation.agentGraphVersion===null&&draftGraph.current==='v2'?{graphVersion:'v2' as const}:{}),attachedRunRefs:explicit.refs.map(asRef),referenceOrigins:explicit.origins,...(intendedSelection?{selectedRunRef:asRef(intendedSelection)}:{}),...(requestContext?.activeRun?{baseline:asRef(requestContext.activeRun)}:{}),...(requestContext?.candidateReference?{candidateReferences:requestContext.candidateReference.runs.map(asRef)}:{})}};showMessage({requestId:key,clientMessageId:key,createdAt:new Date().toISOString(),question:text,submittedRunRefs:explicit.refs.map(asRef),status:'SENDING',turnId:null});saveOutbox();}}catch(e){reservation.current=false;setSending(false);throw e;}
+  try{if(!submission.current){const explicit=explicitReferences(displayedWorkspace(),requestContext);const key=crypto.randomUUID();submission.current={key,posted:false,body:{text,stateToken:token,...(current.current.conversation.agentGraphVersion==null&&draftGraph.current!=='v1'?{graphVersion:draftGraph.current}:{}),...((current.current.conversation.agentGraphVersion??draftGraph.current)==='v3'?{v3Options:{...draftV3.current}}:{}),attachedRunRefs:explicit.refs.map(asRef),referenceOrigins:explicit.origins,...(intendedSelection?{selectedRunRef:asRef(intendedSelection)}:{}),...(requestContext?.activeRun?{baseline:asRef(requestContext.activeRun)}:{}),...(requestContext?.candidateReference?{candidateReferences:requestContext.candidateReference.runs.map(asRef)}:{})}};showMessage({requestId:key,clientMessageId:key,createdAt:new Date().toISOString(),question:text,submittedRunRefs:explicit.refs.map(asRef),status:'SENDING',turnId:null});saveOutbox();}}catch(e){reservation.current=false;setSending(false);throw e;}
   const newSubmission=submission.current;const recoveringDifferentText=newSubmission.body.text!==text;
   // The reservation precedes every await; clicks and Enter cannot allocate a second key.
   try{
@@ -199,8 +215,16 @@ export function useConversation(){
     ||current.current.conversation.agentGraphVersion||current.current.conversation.turns.length)return;
   draftGraph.current=version;setDraftGraphVersion(version);
  }
- return {state,ready,error,provisionalMessage,selectGraphVersion,selectConversation,
+ function setV3Options(mode:V3Options){
+  if(!ready||reservation.current||busy.current||submission.current||inProgress(active.current)
+    ||(current.current.conversation.agentGraphVersion??draftGraph.current)!=='v3')return;
+  draftV3.current={rulesEnabled:mode.rulesEnabled,ragEnabled:mode.ragEnabled};setDraftV3Options(draftV3.current);
+ }
+ const fixedV3Mode=activeRequest?.graphVersion==='v3'&&inProgress(activeRequest)?activeRequest.v3Options:null;
+ return {state,ready,error,provisionalMessage,selectGraphVersion,selectConversation,setV3Options,
+  v3Options:fixedV3Mode??submission.current?.body.v3Options??draftV3Options,
+  v3ModeLocked:sending||inProgress(activeRequest)||!!provisionalMessage,
   graphVersion:state.conversation.agentGraphVersion??draftGraphVersion,
 pending:sending||polling(activeRequest)||activeRequest?.status==='NEEDS_INPUT',activeRequest,resultPreview,sending,submit,resume,cancel,updateTurnUi,setReference,refresh,newConversation:()=>replace(false),reset:()=>replace(true)};
 }
-export type ConversationController=Omit<ReturnType<typeof useConversation>,'resultPreview'>&{resultPreview?:AgentResultProjection|null};
+export type ConversationController=Omit<ReturnType<typeof useConversation>,'resultPreview'|'v3Options'|'v3ModeLocked'|'setV3Options'>&{resultPreview?:AgentResultProjection|null;v3Options?:V3Options|StoredV3Options;v3ModeLocked?:boolean;setV3Options?:(mode:V3Options)=>void};

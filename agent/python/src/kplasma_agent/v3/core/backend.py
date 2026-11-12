@@ -20,6 +20,9 @@ class V3ExecutionPort:
     def comparison_outputs(self, execution_id, refs, plots):
         return self.backend.post(f"steps/{execution_id}/comparison-outputs", runRefs=refs, plotIds=plots)["outputs"]
 
+    def decision_records(self, execution_id):
+        return self.backend.post(f"steps/{execution_id}/decision-records")["records"]
+
     def save_result(self, result: StepResult):
         return self.backend.post(f"steps/{result.executionId}/result", payload=result.model_dump(mode="json"))
 

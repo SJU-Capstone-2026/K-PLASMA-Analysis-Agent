@@ -7,7 +7,7 @@ import {RunPicker} from './RunPicker';
 type RunSelectionProps={request:AgentRequestView;sending:boolean;onResume:(input:Snapshot)=>Promise<void>;onError:(error:unknown)=>void;onCancel?:()=>Promise<void>};
 export function RunSelectionPanel(props:RunSelectionProps){
  const key=`${props.request.requestId}:${props.request.requestRevision}:${props.request.pendingInput!.id}`;
- return props.request.graphVersion==='v2'?<LegacyRunPicker key={key} {...props}/>:<RunPicker key={key} {...props}/>;
+ return ['v2','v3'].includes(props.request.graphVersion)?<LegacyRunPicker key={key} {...props}/>:<RunPicker key={key} {...props}/>;
 }
 
 function LegacyRunPicker({request,sending,onResume,onError,onCancel}:RunSelectionProps){
