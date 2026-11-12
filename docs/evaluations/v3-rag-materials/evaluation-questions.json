@@ -1,0 +1,122 @@
+{
+  "schemaVersion": "v3-rag-evaluation-questions.v1",
+  "source": "Same 12 original questions used for V3 A/B and subsequent known-case regression.",
+  "includesExpectedAnswers": false,
+  "cases": [
+    {
+      "id": "v3-frozen-01",
+      "category": "forward",
+      "question": "압력은 6 mTorr, Source는 400 W, Bias는 600 W로 맞춘 등록 실험 하나를 조회해서 이온 플럭스, 평균 이온 에너지, IED 폭을 표로 보여줘. 새 값을 예측하지는 말아줘.",
+      "attachedRunIds": [],
+      "userActions": []
+    },
+    {
+      "id": "v3-frozen-02",
+      "category": "reverse",
+      "question": "등록된 실험에서 압력 6 mTorr이고 Bias가 400 W인 조건을 빠짐없이 찾아줘. Source는 제한하지 말고, 결과는 이온 플럭스가 큰 것부터 보여줘.",
+      "attachedRunIds": [],
+      "userActions": []
+    },
+    {
+      "id": "v3-frozen-03",
+      "category": "attached_comparison",
+      "question": "첨부한 두 실험의 평균 이온 에너지와 이온 플럭스를 나란히 비교해줘. 기준 실험을 따로 정하지 말고 두 값 사이의 절대 차이도 보여줘.",
+      "attachedRunIds": [
+        "RUN-P06-S400-B0600",
+        "RUN-P06-S400-B0800"
+      ],
+      "userActions": []
+    },
+    {
+      "id": "v3-frozen-04",
+      "category": "hitl_comparison",
+      "question": "실험 선택 목록을 열어줘. 내가 거기서 두 개를 고르면 선택한 두 실험의 평균 이온 에너지와 이온 플럭스를 비교해줘. 아직 비교 대상을 임의로 고르지 말아줘.",
+      "attachedRunIds": [],
+      "userActions": [
+        {
+          "kind": "run_selection",
+          "selectedRunIds": [
+            "RUN-P04-S200-B0200",
+            "RUN-P08-S500-B0600"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "v3-frozen-05",
+      "category": "rule_full_aggregation",
+      "question": "첨부한 두 후보에 대해 전체 판단 이력을 확인하고, 비용 사유로 반려된 별도 기록이 2건 이상인 후보를 제외해줘. 후보별 건수와 해당 반려 원문도 보여줘. 한 메모에 반복해서 적힌 표현이나 회의 횟수는 별도 반려 건으로 늘리지 말아줘.",
+      "attachedRunIds": [
+        "RUN-P10-S200-B0200",
+        "RUN-P08-S200-B1000"
+      ],
+      "userActions": []
+    },
+    {
+      "id": "v3-frozen-06",
+      "category": "rule_exclude_then_compare",
+      "question": "첨부한 세 후보의 전체 이력에서 비용 사유 반려 건수를 각각 집계해줘. 3건 이상인 후보는 빼고, 남은 두 후보의 평균 이온 에너지와 이온 플럭스를 비교해줘. 집계에 사용한 비용 반려 기록의 원문도 함께 보여줘.",
+      "attachedRunIds": [
+        "RUN-P10-S500-B0400",
+        "RUN-P08-S200-B1000",
+        "RUN-P08-S300-B1000"
+      ],
+      "userActions": []
+    },
+    {
+      "id": "v3-frozen-07",
+      "category": "rag_negated_cost",
+      "question": "첨부한 Run의 반려 판단 중에서, 지출이나 견적은 문제가 없었고 균일성 또는 공정 성능이 탈락 이유였다고 적힌 메모들을 찾아줘. 검토 시간이 필요해서 보류한 기록은 이번 답변에서 빼고 각 원문을 보여줘.",
+      "attachedRunIds": [
+        "RUN-P08-S200-B1000"
+      ],
+      "userActions": []
+    },
+    {
+      "id": "v3-frozen-08",
+      "category": "rag_temporal_history",
+      "question": "붙인 Run의 메모에서 이전 검토의 비용 반려, 후속 검토의 가격 적정 채택, 현재 검토의 성능 부족 보류가 어떻게 이어지는지 찾아줘. 세 시점의 판단을 각각 원문과 연결해서 보여주고 한 가지 최종 사유로 합치지 말아줘.",
+      "attachedRunIds": [
+        "RUN-P08-S300-B1000"
+      ],
+      "userActions": []
+    },
+    {
+      "id": "v3-frozen-09",
+      "category": "rag_shared_attribution",
+      "question": "첨부한 두 후보를 함께 검토하면서 비용 문제로 후보 묶음의 일부를 반려했다고 쓴 공동 메모만 찾아줘. 개별 후보의 메모와 구분해서 원문을 보여주고, 어느 후보가 그 비용 사유의 주인인지 추측하지 말아줘.",
+      "attachedRunIds": [
+        "RUN-P04-S400-B0200",
+        "RUN-P04-S300-B0800"
+      ],
+      "userActions": []
+    },
+    {
+      "id": "v3-frozen-10",
+      "category": "rag_multiple_evidence",
+      "question": "첨부한 실험의 판단 이력을 세 갈래로 정리해줘. 비용이 높아 반려한 기록, 성능 미달로 반려한 기록, 원인 분석 자료를 더 확인하려고 보류한 기록을 각각 찾아서 원문을 연결해줘. 이를 공정의 물리 원인이 검증됐다는 뜻으로 해석하지 말아줘.",
+      "attachedRunIds": [
+        "RUN-P10-S400-B0800"
+      ],
+      "userActions": []
+    },
+    {
+      "id": "v3-frozen-11",
+      "category": "no_evidence_exact_money",
+      "question": "이 Run의 최종 견적이 정확히 몇 원으로 승인됐는지, 그 금액 숫자와 통화가 적힌 판단 원문을 찾아줘. 예산을 넘었다는 말만 있고 실제 금액이 없으면 현재 기록으로 금액을 확인할 수 없다고 답해줘.",
+      "attachedRunIds": [
+        "RUN-P08-S100-B0600"
+      ],
+      "userActions": []
+    },
+    {
+      "id": "v3-frozen-12",
+      "category": "no_evidence_verified_physics",
+      "question": "붙인 Run에서 압력 상승 때문에 IED 폭이 늘었다는 인과관계를 검증 완료했다고 명시한 판단 기록만 찾아줘. 단순 비용·성능 반려나 원인 자료를 기다린다는 메모는 그 검증 근거로 쓰지 말아줘.",
+      "attachedRunIds": [
+        "RUN-P10-S400-B1000"
+      ],
+      "userActions": []
+    }
+  ]
+}
