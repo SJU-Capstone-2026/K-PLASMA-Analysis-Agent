@@ -1,0 +1,48 @@
+{
+  "schemaVersion": "v3-rag-materials-manifest.v1",
+  "publishedAt": "2026-11-12",
+  "syntheticJudgments": true,
+  "questionCount": 12,
+  "recordCount": 360,
+  "noteDocumentCount": 556,
+  "noteDocumentRoles": {
+    "PER_RUN": 444,
+    "SHARED_UNASSIGNED": 112
+  },
+  "textFieldCounts": {
+    "comment": 360,
+    "overallComment": 136,
+    "question": 136,
+    "queryText": 360,
+    "candidateNotes": 248,
+    "nonemptyCandidateNotes": 208
+  },
+  "originalSourceSha256": {
+    "frozenCasesWithPrivateGold": "9bcaf2973c545d0c444045f26cce7de195451bef2de70d045b1af644beeb052a",
+    "frozenDecisionsWithPrivatePayload": "6dca0efbcc220154487661ecbe65df10b95cea5f39ed8999cf394c2f5ff93445"
+  },
+  "originalQuestionTextSha256": "1689dbaedc1ecf680495f71b5a9855b1d4c6961373c39713ca568e0c59ae490a",
+  "originalMemoTextsSha256": "9280a085f0cd7fe7cb92e0ccf90bbd827dec6500fd51b795fa364bfedfefac6e",
+  "originalNoteDocumentsSha256": "6ed04ca82cb28e685c9eb3981a485cf51ecad14c1e91adb57146c7c22b3e98c0",
+  "excludedFields": [
+    "expected",
+    "conditions",
+    "metrics",
+    "supportingMetrics",
+    "objectiveEvaluations",
+    "objectives",
+    "constraints",
+    "goals",
+    "authorName",
+    "analysisType",
+    "processMode",
+    "evidenceKinds",
+    "limitations"
+  ],
+  "fullOriginalRecordHashPreserved": false,
+  "modelApiCallsForExport": 0,
+  "fileSha256": {
+    "evaluation-questions.json": "f4b84e02ea86e1a68e13d07115745223988ae3df939a4f00dabee4a9b2514c92",
+    "synthetic-judgment-history.json": "4231875319cd29b52ddaffc98eb1dfe0565577f60b16c1b4a7d5373eaa84d21e"
+  }
+}
