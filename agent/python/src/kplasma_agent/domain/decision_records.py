@@ -162,6 +162,7 @@ def parse_request(text):
         return None
     exclude = bool(_EXCLUDE.search(text))
     number = _THRESHOLD.search(text)
+    threshold: int | float | None
     if number:
         value = float(number.group(1))
         threshold = int(value) if value.is_integer() else value

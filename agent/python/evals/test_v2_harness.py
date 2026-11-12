@@ -23,6 +23,58 @@ def test_evaluation_matrix_has_24_cases_and_eight_repeated_three_times():
     assert Counter(counts.values()) == {1: 64, 3: 32}
 
 
+def test_live_cli_rejects_plan_review_off_before_loading_models(monkeypatch, tmp_path, capsys):
+    from . import run_v2
+
+    output = tmp_path / "disabled-cli"
+    monkeypatch.setattr("sys.argv", ["run_v2", "--live", "--plan-review", "off", "--output", str(output)])
+    monkeypatch.setattr(run_v2.Settings, "from_env", lambda _: pytest.fail("disabled live evaluation loaded models"))
+
+    with pytest.raises(SystemExit) as failure:
+        run_v2.main()
+
+    assert failure.value.code == 2
+    assert "plan review" in capsys.readouterr().err
+    assert not output.exists()
+
+
+def test_live_cli_rejects_disabled_environment_before_provider_calls(monkeypatch, tmp_path, capsys):
+    from . import run_v2
+
+    monkeypatch.setattr("sys.argv", ["run_v2", "--live", "--output", str(tmp_path / "disabled-env")])
+    monkeypatch.setattr(run_v2.Settings, "from_env", lambda _: run_v2.Settings(api_key="unit-test"))
+    monkeypatch.setenv("AGENT_V2_PLAN_REVIEW_ENABLED", "false")
+    monkeypatch.setattr(run_v2, "check_payload", lambda *_: pytest.fail("disabled live evaluation reached providers"))
+
+    with pytest.raises(SystemExit) as failure:
+        run_v2.main()
+
+    assert failure.value.code == 2
+    assert "AGENT_V2_PLAN_REVIEW_ENABLED" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("arguments", [[], ["--plan-review", "on"]])
+def test_live_cli_keeps_plan_review_enabled_and_configured_timeout(monkeypatch, tmp_path, arguments):
+    from . import run_v2
+
+    output = tmp_path / "enabled"
+    monkeypatch.setattr("sys.argv", ["run_v2", "--live", "--case", "flux-over-20", "--repeat", "1",
+                                    "--output", str(output), *arguments])
+    monkeypatch.setattr(run_v2.Settings, "from_env", lambda _: run_v2.Settings(api_key="unit-test", timeout=90))
+    monkeypatch.setenv("AGENT_V2_PLAN_REVIEW_ENABLED", "true")
+    monkeypatch.setattr(run_v2, "check_payload", lambda *_: None)
+
+    def evaluate(case, models, *, plan_review_enabled):
+        assert models.settings.plan_review_enabled is True
+        assert plan_review_enabled is True
+        assert models.decisions.timeout.read == 90
+        return {"case": case.id, "pass": True}
+
+    monkeypatch.setattr(run_v2, "evaluate_case", evaluate)
+    run_v2.main()
+    assert len((output / "results.jsonl").read_text().splitlines()) == 4
+
+
 def test_final_review_does_not_make_a_wrong_search_pass():
     case = next(c for c in CASES if c.id == "flux-over-20")
     plan = {"request_mode": "data_request", "steps": [{"kind": "tool", "tool": "reverse_search"}]}
@@ -51,8 +103,7 @@ def test_completed_search_preserves_measurements_and_skips_writer_without_interp
         def submit_plan(self, payload):
             assert payload["base_revision"] is None
             source = {"message_key": "question", "quote": case.question}
-            return {"schema_version": 1, "request_mode": "data_request", "base_revision": None,
-                    "interpretation_requested": False,
+            return {"schema_version": 2, "request_mode": "data_request", "base_revision": None,
                     "requirements": [{"id": "r", "text": case.question, "sources": [source],
                                       "handled_by": ["search"]}],
                     "steps": [{"id": "search", "kind": "tool", "tool": "reverse_search", "requirement_ids": ["r"],
@@ -93,13 +144,14 @@ def test_overclaim_review_uses_only_visible_interpretations_and_rewrites_without
 
     class Model(MatchingPlanReview):
         def submit_plan(self, payload):
-            return {"schema_version": 1, "request_mode": "data_request", "base_revision": None,
-                    "interpretation_requested": True,
+            plan = {"schema_version": 2, "request_mode": "data_request", "base_revision": None,
                     "requirements": [{"id": "r", "text": case.question, "handled_by": ["compare"],
                                       "sources": [{"message_key": "question", "quote": case.question}]}],
                     "steps": [{"id": "compare", "kind": "tool", "tool": "compare_runs",
                                "requirement_ids": ["r"], "inputs": {"fields": ["ionFlux"],
-                               "runs": {"kind": "context_ref", "key": "selected_runs"}}}]}, {}
+                               "runs": {"kind": "context_ref", "key": "selected_runs"}}}]}
+            from runtime_v2_worker import add_explanation
+            return add_explanation(plan, case.question, "results"), {}
 
         def compose(self, payload):
             evidence = [row["id"] for row in payload["evidence"] if row["field"] == "ionFlux"]
@@ -148,7 +200,7 @@ def test_search_candidates_are_saved_before_requesting_comparison_selection(sele
             question = payload["messages"]["question"]
             source = {"message_key": "question", "quote": question}
             return {
-                "schema_version": 1, "request_mode": "data_request", "base_revision": None,
+                "schema_version": 2, "request_mode": "data_request", "base_revision": None,
                 "requirements": [{"id": "r", "text": question, "sources": [source],
                                   "handled_by": ["search", "choose", "compare"]}],
                 "steps": [
@@ -190,7 +242,7 @@ def test_search_candidates_are_saved_before_requesting_comparison_selection(sele
     }
 
 
-@pytest.mark.parametrize("output_field, search_first", [("baseline", False), ("selection", False), (None, True)])
+@pytest.mark.parametrize("output_field, search_first", [("value", False), (None, False), (None, True)])
 def test_baseline_picker_waits_then_compares_against_the_chosen_run(output_field, search_first):
     from langgraph.checkpoint.memory import InMemorySaver
     from langgraph.types import Command
@@ -221,7 +273,7 @@ def test_baseline_picker_waits_then_compares_against_the_chosen_run(output_field
                              "scope": {"kind": "scalar"}} if output_field else None,
             }}
             steps = [search, choose, compare] if search_first else [choose, {**compare, "depends_on": ["choose"]}]
-            return {"schema_version": 1, "request_mode": "data_request", "base_revision": None,
+            return {"schema_version": 2, "request_mode": "data_request", "base_revision": None,
                     "requirements": [{"id": "r", "text": question, "sources": [source],
                                       "handled_by": [step["id"] for step in steps]}],
                     "steps": [{**step, "requirement_ids": ["r"]} for step in steps]}, {}

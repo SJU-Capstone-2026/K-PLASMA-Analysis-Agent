@@ -3,15 +3,28 @@
 import copy
 import json
 import httpx
-from openai import OpenAI, APIError, APIConnectionError, APITimeoutError, RateLimitError
+from openai import OpenAI, APIError, APIConnectionError, APIStatusError, APITimeoutError
 from . import tracing
 
 
 class ModelError(RuntimeError):
-    def __init__(self, code, retryable=False):
+    def __init__(self, code, retryable=False, *, usage=None, response=None):
         super().__init__(code)
         self.code = code
         self.retryable = retryable
+        self.usage = usage
+        self.response = response_payload(response) if response is not None else None
+
+
+def response_payload(response):
+    """Keep generated output and usage, excluding arbitrary provider error messages."""
+    raw = response.model_dump(mode="json") if hasattr(response, "model_dump") else dict(response)
+    if raw.get("error"):
+        raw["error"] = {"code": raw["error"].get("code")}
+    if raw.get("incomplete_details"):
+        reason = raw["incomplete_details"].get("reason")
+        raw["incomplete_details"] = {"reason": reason if reason in {"max_output_tokens", "content_filter"} else "unknown"}
+    return tracing._scrub(raw)
 
 
 def strict_schema(model):
@@ -94,7 +107,18 @@ class ModelClient:
         }
         observation.json_attribute("llm.invocation_parameters", params)
         observation.json_attribute("llm.responses_input", input_value)
+        observation.attribute("llm.input_messages.0.message.role", "system")
+        observation.attribute("llm.input_messages.0.message.content", instructions)
         observation.attribute("llm.output_messages.0.message.role", "assistant")
+        fragments: list[str] = []
+
+        def failure(code, retryable=False):
+            partial = {"status": "stream_interrupted", "output_text": "".join(fragments),
+                       "usage": None, "max_output_tokens": params["max_output_tokens"]} if fragments else None
+            if partial is not None:
+                observation.output(partial)
+            return ModelError(code, retryable, response=partial)
+
         try:
             if on_text_delta is None:
                 response = self.client.responses.create(**params, instructions=instructions, input=input_value)
@@ -103,45 +127,64 @@ class ModelClient:
                 with self.client.responses.stream(**params, instructions=instructions, input=input_value) as stream:
                     for event in stream:
                         if event.type == "response.output_text.delta":
+                            fragments.append(event.delta)
                             on_text_delta(event.delta)
                         elif event.type == "error":
-                            raise ModelError("MODEL_UNAVAILABLE")
-                        elif event.type in {"response.completed", "response.incomplete", "response.failed"}:
+                            raise failure("MODEL_STREAM_ERROR")
+                        elif (event.type == "response.completed" or event.type == "response.incomplete"
+                              or event.type == "response.failed"):
                             response = event.response
                 if response is None:
-                    raise ModelError("MODEL_OUTPUT_TRUNCATED")
-        except (APIConnectionError, APITimeoutError, RateLimitError, httpx.HTTPError):
-            raise ModelError("MODEL_UNAVAILABLE", retryable=True) from None
-        except APIError as error:
-            raise ModelError(
-                "MODEL_UNAVAILABLE", retryable=(getattr(error, "status_code", 0) or 0) >= 500
-            ) from None
-        observation.output(
-            lambda: {
-                "status": response.status,
-                "output_text": response.output_text,
-                "response": response.model_dump(mode="json"),
-            }
-        )
+                    raise failure("MODEL_STREAM_INTERRUPTED")
+        except (APITimeoutError, httpx.TimeoutException):
+            raise failure("MODEL_TIMEOUT", retryable=True) from None
+        except (APIStatusError, httpx.HTTPStatusError) as error:
+            status = error.response.status_code
+            code = "MODEL_RATE_LIMITED" if status == 429 else f"MODEL_HTTP_{status}"
+            raise failure(code, retryable=status == 429 or status >= 500) from None
+        except (APIConnectionError, httpx.HTTPError):
+            raise failure("MODEL_CONNECTION", retryable=True) from None
+        except APIError:
+            raise failure("MODEL_STREAM_ERROR" if on_text_delta is not None else "MODEL_API_ERROR") from None
+        raw_usage = response.usage.model_dump(mode="json") if response.usage else None
+        metadata = {
+            "model": response.model,
+            "reasoningEffort": self.settings.reasoning_effort,
+            "inputTokens": response.usage.input_tokens if response.usage else None,
+            "outputTokens": response.usage.output_tokens if response.usage else None,
+            "usageAvailable": response.usage is not None,
+            "rawUsage": raw_usage,
+            "maxOutputTokens": params["max_output_tokens"],
+            "responseId": response.id,
+            "status": response.status,
+        }
+        observation.attribute("llm.model_name", response.model)
+        observation.attribute("llm.response.status", response.status)
+        observation.output(lambda: {"status": response.status, "output_text": response.output_text,
+                                    "response": response_payload(response)})
         if response.usage:
             observation.attribute("llm.token_count.prompt", response.usage.input_tokens)
             observation.attribute("llm.token_count.completion", response.usage.output_tokens)
             observation.attribute("llm.token_count.total", response.usage.total_tokens)
+            details = response.usage.output_tokens_details
+            if details is not None:
+                observation.attribute("llm.token_count.completion_details.reasoning", details.reasoning_tokens)
         if response.status != "completed":
-            raise ModelError("MODEL_OUTPUT_TRUNCATED")
+            if response.status == "failed":
+                raise ModelError("MODEL_RESPONSE_FAILED", usage=metadata, response=response)
+            reason = getattr(getattr(response, "incomplete_details", None), "reason", None)
+            if reason == "max_output_tokens":
+                raise ModelError("MODEL_OUTPUT_TRUNCATED", usage=metadata, response=response)
+            if reason == "content_filter":
+                raise ModelError("MODEL_CONTENT_FILTERED", usage=metadata, response=response)
+            raise ModelError("MODEL_RESPONSE_INCOMPLETE", usage=metadata, response=response)
         if any(
             part.type == "refusal"
             for item in response.output
             if item.type == "message"
             for part in item.content
         ):
-            raise ModelError("MODEL_REFUSED")
-        metadata = {
-            "model": response.model,
-            "reasoningEffort": self.settings.reasoning_effort,
-            "inputTokens": response.usage.input_tokens if response.usage else 0,
-            "outputTokens": response.usage.output_tokens if response.usage else 0,
-        }
+            raise ModelError("MODEL_REFUSED", usage=metadata, response=response)
         return response, metadata
 
     def select_tool(self, instructions, payload):
@@ -163,14 +206,14 @@ class ModelClient:
             )
             calls = [item for item in response.output if item.type == "function_call"]
             if len(calls) != 1 or calls[0].name not in TOOL_MODELS or not calls[0].call_id:
-                raise ModelError("MODEL_OUTPUT_INVALID")
+                raise ModelError("MODEL_OUTPUT_INVALID", usage=metadata, response=response)
             call = calls[0]
             try:
                 arguments = (
                     TOOL_MODELS[call.name].model_validate(omit_nulls(json.loads(call.arguments))).model_dump()
                 )
             except (ValueError, TypeError):
-                raise ModelError("MODEL_OUTPUT_INVALID") from None
+                raise ModelError("MODEL_OUTPUT_INVALID", usage=metadata, response=response) from None
             selected = {"call_id": call.call_id, "name": call.name, "arguments": arguments}
             observation.json_attribute("kplasma.tool_selection", selected)
             # Private checkpoint only; the graph removes native items from public model metadata.
@@ -188,7 +231,7 @@ class ModelClient:
                 instructions, self._input(payload, tool_context), observation, on_text_delta=on_text_delta
             )
             if not response.output_text.strip():
-                raise ModelError("MODEL_OUTPUT_INVALID")
+                raise ModelError("MODEL_OUTPUT_INVALID", usage=metadata, response=response)
             return response.output_text, metadata
 
     def stream_answer(self, instructions, payload, *, on_text_delta, tool_context=None):
@@ -228,7 +271,7 @@ class ModelClient:
                         json.loads(response.output_text)
                     ).model_dump(), metadata
                 except (ValueError, TypeError):
-                    raise ModelError("MODEL_OUTPUT_INVALID") from None
+                    raise ModelError("MODEL_OUTPUT_INVALID", usage=metadata, response=response) from None
             return self._generate(instructions, payload, output_model, observation, on_text_delta=on_text_delta)
 
     def _generate(self, instructions, payload, output_model, observation, *, on_text_delta=None):
@@ -254,6 +297,6 @@ class ModelClient:
             data = omit_nulls(json.loads(response.output_text))
             validated = output_model.model_validate(data).model_dump(exclude_none=True)
         except (ValueError, TypeError):
-            raise ModelError("MODEL_OUTPUT_INVALID") from None
+            raise ModelError("MODEL_OUTPUT_INVALID", usage=metadata, response=response) from None
         observation.json_attribute("kplasma.validated_output", validated)
         return validated, metadata

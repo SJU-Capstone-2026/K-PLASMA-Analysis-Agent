@@ -26,6 +26,9 @@ jobs:
       - run: uv sync --project agent/python --frozen --extra tracing
       - name: v2 agent and shared domain regression
         run: npm run test:agent
+      - name: Independent v3 clone and scripted parity
+        working-directory: agent/python
+        run: uv run --frozen --extra tracing pytest -c pytest-v3.ini
       - run: uv run --project agent/python --frozen pytest scripts/performance/forward-lookup/tests
       - run: uv run --project agent/python --frozen pytest scripts/performance/run-selection/tests
       - run: uv run --project agent/python --frozen ruff check --select E4,E7,E9,F scripts/performance/forward-lookup

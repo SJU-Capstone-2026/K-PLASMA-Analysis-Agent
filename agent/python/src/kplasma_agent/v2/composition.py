@@ -13,7 +13,24 @@ from .contracts import DataAnswerDraft, Evidence, GeneralAnswerDraft, Quantity, 
 VALUE_REFERENCE = re.compile(r"\{\{value:([^{}|]+)(?:\|([^{}|]+))?\}\}")
 
 
-def collect_evidence(results: list[StepResult]) -> list[Evidence]:
+class InvalidAnswer(ValueError):
+    def __init__(self, message, *, path="/", actual=None, allowed=None):
+        super().__init__(message)
+        self.details = {"code": "INVALID_ANSWER", "message": message, "path": path,
+                        "actual": actual, "allowed": allowed}
+
+
+def _search_runs(raw):
+    if raw.get("kind") == "forward_lookup":
+        return [({key: run[key] for key in ("runId", "runVersionId")}, run)
+                for run in raw.get("candidates", [])]
+    if raw.get("kind") == "reverse_search":
+        return [(ref, raw.get("runsByVersion", {}).get(ref["runVersionId"]))
+                for ref in raw.get("commonRunRefs", [])]
+    return []
+
+
+def collect_evidence(results: list[StepResult], *, search_measurements=False) -> list[Evidence]:
     entries = []
     for result in results:
         for field, values in result.outputs.items():
@@ -34,6 +51,15 @@ def collect_evidence(results: list[StepResult]) -> list[Evidence]:
                 entries.append(Evidence(id=f"{result.executionId}:{observation['id']}",
                                         executionId=result.executionId, field="observation",
                                         value=observation["text"], unit=None))
+            if search_measurements and result.status == "verified":
+                for ref, run in _search_runs(raw):
+                    for metric in (*CONDITION_KEYS, *OUTPUT_METRICS):
+                        value, reason = scalar(run, metric) if run else (None, "MISSING_RUN")
+                        if reason is None and is_finite(value):
+                            entries.append(Evidence(
+                                id=f"{result.executionId}:{ref['runVersionId']}:{metric}",
+                                executionId=result.executionId, field=metric, value=value,
+                                unit=UNITS[metric], runRef=ref))
         candidates = result.outputs.get("candidates")
         if isinstance(candidates, list):
             names = [ref["runId"] for ref in candidates if isinstance(ref, dict) and isinstance(ref.get("runId"), str)]
@@ -52,13 +78,12 @@ def collect_search_evidence(results: list[StepResult]) -> list[dict[str, Any]]:
             continue
         if raw.get("kind") == "forward_lookup":
             candidates = []
-            for run in raw["candidates"]:
+            for ref, run in _search_runs(raw):
                 measurements = []
                 for metric in (*CONDITION_KEYS, *OUTPUT_METRICS):
                     value, reason = scalar(run, metric)
                     measurements.append({"metric": metric, "value": value, "unit": UNITS[metric], "reason": reason})
-                candidates.append({"runRef": {"runId": run["runId"], "runVersionId": run["runVersionId"]},
-                                   "measurements": measurements})
+                candidates.append({"runRef": ref, "measurements": measurements})
             searches.append({
                 "stepId": result.stepId, "executionId": result.executionId, "status": result.status,
                 "resultStatus": raw["resultStatus"],
@@ -74,8 +99,7 @@ def collect_search_evidence(results: list[StepResult]) -> list[dict[str, Any]]:
         constraints = raw["constraints"]
         goals = raw["goals"]
         candidates = []
-        for ref in raw["commonRunRefs"]:
-            run = raw["runsByVersion"].get(ref["runVersionId"])
+        for ref, run in _search_runs(raw):
             measurements = []
             for rule in constraints:
                 value, reason = scalar(run, rule["metric"]) if run else (None, "MISSING_RUN")
@@ -189,22 +213,25 @@ def _render_fact(evidence: Evidence) -> str:
     return f"{prefix}{label}: {evidence.value}{unit}"
 
 
-def fill_value_references(text, cited_ids, numeric_values=None, *, evidence_ids=None):
+def fill_value_references(text, cited_ids, numeric_values=None, *, evidence_ids=None, path="/text"):
     """Resolve only complete, cited references using the code-formatted saved values."""
     def substitute(match):
         identifier, part = match[1], match[2] or "value"
         if evidence_ids is not None and identifier not in evidence_ids:
-            raise ValueError("answer references unknown evidence")
+            raise InvalidAnswer("answer references unknown evidence", path=path, actual=identifier,
+                                allowed=sorted(evidence_ids))
         if identifier not in cited_ids:
-            raise ValueError(f"value reference not cited in evidence_ids: {identifier}")
+            raise InvalidAnswer(f"value reference not cited in evidence_ids: {identifier}",
+                                path=path, actual=identifier, allowed=list(cited_ids))
         value = (numeric_values or {}).get(identifier, {}).get(part)
         if value is None:
-            raise ValueError(f"value reference unavailable: {identifier}|{part}")
+            raise InvalidAnswer(f"value reference unavailable: {identifier}|{part}", path=path,
+                                actual=part, allowed=list((numeric_values or {}).get(identifier, {})))
         return value
 
     text = VALUE_REFERENCE.sub(substitute, text)
     if "{{value:" in text:
-        raise ValueError("invalid value reference format")
+        raise InvalidAnswer("invalid value reference format", path=path, actual=text)
     return text
 
 
@@ -214,18 +241,25 @@ def assemble_answer(draft, mode, evidence, issue=None, *, numeric_values=None):
         return "\n\n".join(general.paragraphs), general.model_dump(mode="json")
     data = DataAnswerDraft.model_validate(draft)
     by_id = {item.id: item for item in evidence}
-    references = [*data.fact_ids,
-                  *(identifier for item in data.interpretations for identifier in item.evidence_ids),
-                  *(identifier for item in data.limitations for identifier in item.evidence_ids)]
-    if any(identifier not in by_id for identifier in references):
-        raise ValueError("answer references unknown evidence")
+    citations = [("/fact_ids", data.fact_ids)]
+    citations.extend((f"/{group}/{index}/evidence_ids", item.evidence_ids)
+                     for group in ("interpretations", "limitations")
+                     for index, item in enumerate(getattr(data, group)))
+    for path, identifiers in citations:
+        for index, identifier in enumerate(identifiers):
+            if identifier not in by_id:
+                raise InvalidAnswer("answer references unknown evidence", path=f"{path}/{index}",
+                                    actual=identifier, allowed=list(by_id))
     if evidence and not data.fact_ids:
-        raise ValueError("data answer must show selected facts")
-    for item in [*data.interpretations, *data.limitations]:
-        item.text = fill_value_references(item.text, item.evidence_ids, numeric_values, evidence_ids=by_id)
-    for item in data.interpretations:
-        item.assumptions = [fill_value_references(text, item.evidence_ids, numeric_values, evidence_ids=by_id)
-                            for text in item.assumptions]
+        raise InvalidAnswer("data answer must show selected facts", path="/fact_ids", actual=[], allowed=list(by_id))
+    for group in ("interpretations", "limitations"):
+        for index, item in enumerate(getattr(data, group)):
+            item.text = fill_value_references(item.text, item.evidence_ids, numeric_values,
+                                              evidence_ids=by_id, path=f"/{group}/{index}/text")
+    for index, item in enumerate(data.interpretations):
+        item.assumptions = [fill_value_references(text, item.evidence_ids, numeric_values,
+                            evidence_ids=by_id, path=f"/interpretations/{index}/assumptions/{position}")
+                            for position, text in enumerate(item.assumptions)]
     free_text = [text for item in data.interpretations for text in [item.text, *item.assumptions]]
     free_text.extend(item.text for item in data.limitations)
     rendered = [_render_fact(by_id[identifier]) for identifier in dict.fromkeys(data.fact_ids)]

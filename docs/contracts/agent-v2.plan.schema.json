@@ -74,18 +74,6 @@
     "AwaitInputs": {
       "additionalProperties": false,
       "properties": {
-        "target_step_id": {
-          "maxLength": 96,
-          "minLength": 1,
-          "title": "Target Step Id",
-          "type": "string"
-        },
-        "field": {
-          "maxLength": 96,
-          "minLength": 1,
-          "title": "Field",
-          "type": "string"
-        },
         "selection_count": {
           "anyOf": [
             {
@@ -98,6 +86,18 @@
           ],
           "default": null,
           "title": "Selection Count"
+        },
+        "target_step_id": {
+          "maxLength": 96,
+          "minLength": 1,
+          "title": "Target Step Id",
+          "type": "string"
+        },
+        "field": {
+          "maxLength": 96,
+          "minLength": 1,
+          "title": "Field",
+          "type": "string"
         },
         "candidates": {
           "anyOf": [
@@ -150,6 +150,38 @@
         "kind"
       ],
       "title": "CandidateScope",
+      "type": "object"
+    },
+    "ChoiceResultRef": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "result_ref",
+          "title": "Kind",
+          "type": "string"
+        },
+        "step_id": {
+          "maxLength": 96,
+          "minLength": 1,
+          "title": "Step Id",
+          "type": "string"
+        },
+        "field": {
+          "const": "value",
+          "title": "Field",
+          "type": "string"
+        },
+        "scope": {
+          "$ref": "#/$defs/ScalarScope"
+        }
+      },
+      "required": [
+        "kind",
+        "step_id",
+        "field",
+        "scope"
+      ],
+      "title": "ChoiceResultRef",
       "type": "object"
     },
     "CompareInputs": {
@@ -256,7 +288,7 @@
                 "mapping": {
                   "context_ref": "#/$defs/ContextRef",
                   "literal": "#/$defs/LiteralInput",
-                  "result_ref": "#/$defs/ResultRef"
+                  "result_ref": "#/$defs/ChoiceResultRef"
                 },
                 "propertyName": "kind"
               },
@@ -268,7 +300,7 @@
                   "$ref": "#/$defs/ContextRef"
                 },
                 {
-                  "$ref": "#/$defs/ResultRef"
+                  "$ref": "#/$defs/ChoiceResultRef"
                 }
               ]
             },
@@ -682,6 +714,88 @@
         "inputs"
       ],
       "title": "DeriveStep",
+      "type": "object"
+    },
+    "ExplainInputs": {
+      "additionalProperties": false,
+      "properties": {
+        "mode": {
+          "enum": [
+            "concept",
+            "results"
+          ],
+          "title": "Mode",
+          "type": "string"
+        }
+      },
+      "required": [
+        "mode"
+      ],
+      "title": "ExplainInputs",
+      "type": "object"
+    },
+    "ExplainStep": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "maxLength": 96,
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "requirement_ids": {
+          "items": {
+            "maxLength": 96,
+            "minLength": 1,
+            "type": "string"
+          },
+          "title": "Requirement Ids",
+          "type": "array"
+        },
+        "depends_on": {
+          "items": {
+            "maxLength": 96,
+            "minLength": 1,
+            "type": "string"
+          },
+          "title": "Depends On",
+          "type": "array"
+        },
+        "requires": {
+          "items": {
+            "$ref": "#/$defs/OutputRequirement"
+          },
+          "title": "Requires",
+          "type": "array"
+        },
+        "run_if": {
+          "items": {
+            "$ref": "#/$defs/RunCondition"
+          },
+          "title": "Run If",
+          "type": "array"
+        },
+        "kind": {
+          "const": "tool",
+          "title": "Kind",
+          "type": "string"
+        },
+        "tool": {
+          "const": "explain_answer",
+          "title": "Tool",
+          "type": "string"
+        },
+        "inputs": {
+          "$ref": "#/$defs/ExplainInputs"
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "tool",
+        "inputs"
+      ],
+      "title": "ExplainStep",
       "type": "object"
     },
     "ForwardInputs": {
@@ -1101,10 +1215,54 @@
           "type": "string"
         },
         "field": {
-          "maxLength": 96,
-          "minLength": 1,
-          "title": "Field",
-          "type": "string"
+          "anyOf": [
+            {
+              "enum": [
+                "candidates",
+                "selection",
+                "value"
+              ],
+              "type": "string"
+            },
+            {
+              "enum": [
+                "ionFlux",
+                "meanIonEnergy",
+                "iedWidth",
+                "pressure",
+                "sourcePower",
+                "biasPower",
+                "current.maximum",
+                "current.minimum",
+                "current.peakToPeak",
+                "current.halfPeakToPeak",
+                "current.maximumPhase",
+                "current.minimumPhase",
+                "potential.maximum",
+                "potential.minimum",
+                "potential.peakToPeak",
+                "potential.halfPeakToPeak",
+                "potential.maximumPhase",
+                "potential.minimumPhase",
+                "ied.maximum",
+                "ied.peakEnergy",
+                "iad.maximum",
+                "iad.peakAngle",
+                "iead.maximum",
+                "iead.peakEnergy",
+                "iead.peakAngle",
+                "density.maximum",
+                "density.maximumPhase",
+                "density.maximumDistance",
+                "residual.maximum",
+                "residual.maximumIteration",
+                "residual.final",
+                "residual.finalIteration"
+              ],
+              "type": "string"
+            }
+          ],
+          "title": "Field"
         },
         "scope": {
           "discriminator": {
@@ -1369,7 +1527,7 @@
   "additionalProperties": false,
   "properties": {
     "schema_version": {
-      "const": 1,
+      "const": 2,
       "title": "Schema Version",
       "type": "integer"
     },
@@ -1380,11 +1538,6 @@
       ],
       "title": "Request Mode",
       "type": "string"
-    },
-    "interpretation_requested": {
-      "default": false,
-      "title": "Interpretation Requested",
-      "type": "boolean"
     },
     "base_revision": {
       "anyOf": [
@@ -1422,6 +1575,9 @@
           },
           {
             "$ref": "#/$defs/AwaitInputStep"
+          },
+          {
+            "$ref": "#/$defs/ExplainStep"
           }
         ]
       },

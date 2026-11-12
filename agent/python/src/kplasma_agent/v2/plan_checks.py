@@ -12,18 +12,18 @@ COMMON = (
 )
 
 RULES = {
-    'tasks': '조회·비교할 지표/그래프·해석 요청이 실제 단계와 답변 경로에 반영됐는가? 수치 필터·정렬·대상 선택의 세부 정확성은 다른 항목에서 검사하므로 여기서는 작업 종류의 누락만 판단한다.',
+    'tasks': '정확한 압력·소스·바이어스의 단일 Run 기본 지표 조회는 forward_lookup만으로 충족된다. 이 조회를 위해 compare_runs를 추가할 필요가 없다. request_mode가 원문의 실제 Run 요구를 보존하고, 조회·비교할 지표/그래프·개념 설명·결과 해석 요청이 실제 단계와 마지막 explain_answer에 반영됐는가? 설명 요구는 explain_answer에 연결되어야 하며 concept/results 모드가 원문에 맞아야 한다. 수치 필터·정렬·대상 선택의 세부 정확성은 다른 항목에서 검사하므로 여기서는 작업 종류의 누락만 판단한다.',
     'filter_coverage': '원문이 후보를 수치 조건으로 조회/검색하라고 요구하면 그 필터 지표가 입력에 있고 독립 범위는 별개 검색으로 계획했는가? 필터 전체 삭제와 독립 그룹을 AND로 합친 오류를 검사한다. 수치 조건 검색 요구가 없으면 match다. 압력을 비교하라는 요청은 압력 필터 요구가 아니며 기준 Run 선택은 필터가 아니다. 실제 수치·단위·경계 정확성과 정렬은 다른 항목이다.',
     'confirmation_coverage': '원문이 직접 고르겠다고 한 비교 대상·기준 Run은 해당 await_input을 계획했는가? 새 선택 요청은 이전 선택보다 우선한다. 미리 선택 값이 없다는 이유로 반려하지 않는다. 개수·출처의 정확성은 다른 항목에서 검사한다.',
-    'filter': '지정 검색 단계의 이 지표 필터만 원문과 대조한다. 리터럴 수치·단위 배율·하한/상한·포함/초과 경계를 보존했는가? between과 gte/ lte, target_range는 같은 양끝 포함 범위다. result_ref는 미래 값이며 현재 수치를 요구하지 않는다. derive 연산 종류·대상과 정렬은 다른 항목에서 검사한다.',
-    'ordering': '이 검색 단계의 정렬 목표만 원문과 대조한다. 높게/낮게 최적화 또는 높은/낮은 순 요청은 maximize/minimize다. 다른 Run보다 높음/낮음은 필터이며 정렬 요청이 아니다. target_range는 범위 필터이므로 정렬로 세지 않는다. 요청 없는 목표 추가와 요청한 방향 누락/반전을 검사한다.',
+    'filter': '원문의 범위는 양쪽 경계가 모두 필요하다. 범위를 한 값 eq나 한쪽 경계만으로 바꾸면 value_changed 또는 boundary_changed다. 지정 검색 단계의 이 지표 필터만 원문과 대조한다. 리터럴 수치·단위 배율·하한/상한·포함/초과 경계를 보존했는가? between과 gte/ lte, target_range는 같은 양끝 포함 범위다. result_ref는 미래 값이며 현재 수치를 요구하지 않는다. derive 연산 종류·대상과 정렬은 다른 항목에서 검사한다.',
+    'ordering': 'compare_runs의 fields나 기본 표 순서는 검색 정렬 목표를 대신하지 못한다. 내림차순은 검색의 maximize, 오름차순은 minimize에 실제로 있어야 한다. 이 검색 단계의 정렬 목표만 원문과 대조한다. 높게/낮게 최적화 또는 높은/낮은 순 요청은 maximize/minimize다. 다른 Run보다 높음/낮음은 필터이며 정렬 요청이 아니다. target_range는 범위 필터이므로 정렬로 세지 않는다. 요청 없는 목표 추가와 요청한 방향 누락/반전을 검사한다.',
     'targets': '이 비교 단계 runs가 원문이 지정한 검색 결과 전체 또는 선택 Run 또는 사용자 확인 결과를 정확히 가리키는가? result_ref selection은 scalar scope여도 선택한 Run 목록 전체다. 계획된 선택이 아직 끝나지 않았다는 이유로 반려하지 않는다. 기준 Run과 출력 지표는 다른 항목이다.',
     'outputs': '이 비교의 fields와 plot_ids가 요청한 수치 특징·분포를 제공하는가? 등록 field는 compare_runs 자체가 계산한다. 같은 Run의 보조 그래프는 필터 추가가 아니다. 대상과 기준 Run의 정확성은 다른 항목이다.',
-    'baseline': '이 비교의 기준 Run 출처만 검사한다. 직접 고르겠다고 하면 baseline 확인 결과를 사용해야 하며 과거 baseline을 강제로 쓰지 않는다. baseline await_input의 candidates:null은 대상 비교의 runs로 선택창을 만든다. 이 미래 확인 결과를 연결한 것은 올바르다. 임의 기준 추가/선택 생략/다른 대상 기준을 검사한다.',
-    'operation': '이 derive의 연산 종류·값 출처·방향이 원문의 새 계산에 맞는가? 모두보다 높음은 전체 대상 max 후 gt, 모두보다 낮음은 min 후 lt, 평균 기준은 mean이다. 미래 수치가 미리 없어도 된다. 후속 필터의 리터럴 범위·정렬은 다른 항목이다.',
+    'baseline': '기준 없이 두 값·절대 차이를 비교하는 요청의 baseline:null은 정상이다. 그런 요청에 기준 Run을 새로 고르게 요구하면 unexpected다. 이 비교의 기준 Run 출처만 검사한다. 직접 고르겠다고 하면 baseline 확인 결과를 사용해야 하며 과거 baseline을 강제로 쓰지 않는다. baseline await_input의 candidates:null은 대상 비교의 runs로 선택창을 만든다. 이 미래 확인 결과를 연결한 것은 올바르다. 임의 기준 추가/선택 생략/다른 대상 기준을 검사한다.',
+    'operation': '예: 두 값이150과160일 때 둘 모두보다 낮은 후보는 min=150 후 lt다. max=160 후 lt는 잘못된 연산 선택(direction_changed)이다. 이 derive의 연산 종류·값 출처·방향이 원문의 새 계산에 맞는가? 모두보다 높음은 전체 대상 max 후 gt, 모두보다 낮음은 min 후 lt, 평균 기준은 mean이다. 미래 수치가 미리 없어도 된다. 후속 필터의 리터럴 범위·정렬은 다른 항목이다.',
     'selection_count': '이 run_selection에서 고를 정확한 개수를 원문과 대조한다. selection_count는 검색 개수 제한이 아니다. 두 개는 2, 세 개는 3이며, 정확한 개수가 없으면 null이다. 아직 선택된 Run이 없다는 이유로 반려하지 않는다.',
     'selection_targets': '이 확인 단계의 후보 출처와 target_step_id/field 연결만 원문과 대조한다. 검색 후 그중 선택은 그 검색 candidates를 사용한다. baseline candidates:null은 대상 비교의 runs를 사용한다. 선택 값은 사용자가 나중에 확정하므로 미리 요구하지 않는다.',
-    'trend_axis': '이 비교의 trend_axis가 원문에서 요청한 경향의 독립 변수에 맞는가? 압력에 따른 경향은 pressure이며 sourcePower 등 다른 축으로 바꾸면 안 된다. 단순 압력 값 비교는 경향 축 지정이 아니다. 축 확인을 계획한 미래 참조는 허용한다.',
+    'trend_axis': '공정 조건 필터나 분포 그래프 자체는 공정 조건에 따른 경향 요청이 아니다. IAD/IED/IEAD 전체 비교에 압력 경향 축을 자동 요구하지 않는다. 이 비교의 trend_axis가 원문에서 요청한 경향의 독립 변수에 맞는가? 압력에 따른 경향은 pressure이며 sourcePower 등 다른 축으로 바꾸면 안 된다. 단순 압력 값 비교는 경향 축 지정이 아니다. 축 확인을 계획한 미래 참조는 허용한다.',
     'execution_guards': '이 단계의 run_if·requires가 원문 작업을 임의로 건너뛰거나 다른 경우에만 실행하게 만들지 않는가? 원문의 조건부 요청은 보존한다. 필요한 앞 결과의 자료형·단위·정확한 개수를 확인하는 requires는 허용하며 미래 값이 아직 없다는 이유로 반려하지 않는다. 원문에 없는 후보 수 제한 등으로 필수 작업을 생략하면 unexpected다.',
 }
 REASONS = {
@@ -67,7 +67,7 @@ def build_check_specs(plan):
         specs.append({'name': name, 'kind': kind, 'paths': paths,
                       'step_ids': list(step_ids), 'metric': metric})
 
-    add('request.tasks', 'tasks', [['steps'], ['interpretation_requested']])
+    add('request.tasks', 'tasks', [['request_mode'], ['requirements'], ['steps']])
     add('request.filter_coverage', 'filter_coverage', [['steps']])
     add('request.confirmation_coverage', 'confirmation_coverage', [['steps']])
     for index, step in enumerate(plan['steps']):
@@ -77,7 +77,7 @@ def build_check_specs(plan):
             add(f'execution_guards.{sid}', 'execution_guards',
                 [['steps', index, 'run_if'], ['steps', index, 'requires']], [sid])
         if step.get('tool') in {'reverse_search', 'forward_lookup'}:
-            groups = {}
+            groups: dict[str, list[list]] = {}
             if step['tool'] == 'reverse_search':
                 for key in ('constraints', 'goals'):
                     for n, row in enumerate(step['inputs'][key]):

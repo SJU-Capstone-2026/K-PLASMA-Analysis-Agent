@@ -4,7 +4,7 @@ from copy import deepcopy
 import math
 import re
 import time
-from typing import TypedDict
+from typing import Callable, TypedDict
 from pydantic import ValidationError
 from langgraph.graph import StateGraph, START, END
 from langgraph.types import interrupt
@@ -176,7 +176,7 @@ def _record_scope(context):
         ("candidates", context.get("candidateReferences") or []),
         ("activeRun", [context["activeRun"]] if context.get("activeRun") else []),
     ):
-        unique = {}
+        unique: dict[str, dict] = {}
         for ref in refs:
             if isinstance(ref, dict) and ref.get("runId") and ref.get("runVersionId"):
                 unique.setdefault(ref["runId"], {"runId": ref["runId"], "runVersionId": ref["runVersionId"]})
@@ -816,7 +816,7 @@ def build_graph(model, backend, settings, checkpointer):
         backend.stage("calculate")
         if kind == "decision_records":
             return {"result": _record_result(state["record_plan"], state["source"]), "verified": False}
-        fn = (
+        fn: Callable[..., dict] = (
             lookup_forward
             if kind == "forward_lookup"
             else search_reverse

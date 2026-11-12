@@ -1,4 +1,5 @@
 import pytest
+from pydantic import ValidationError
 
 from kplasma_agent.v2.bindings import BlockedInput, resolve_inputs
 from kplasma_agent.v2.contracts import PlanDraft, StepResult
@@ -7,7 +8,7 @@ from kplasma_agent.v2.plan_validation import InvalidPlan, validate_plan
 
 def draft(*steps):
     return PlanDraft.model_validate({
-        "schema_version": 1, "request_mode": "data_request", "base_revision": None,
+        "schema_version": 2, "request_mode": "data_request", "base_revision": None,
         "requirements": [{"id": "req", "text": "비교", "sources": [
             {"message_key": "question", "quote": "비교"}
         ], "handled_by": [step["id"] for step in steps]}],
@@ -167,5 +168,5 @@ def test_planned_candidate_group_uses_every_saved_candidate_without_phrase_match
     compare = {**compare, "depends_on": ["confirm"], "inputs": {"runs": confirmed, "fields": ["pressure"]}}
     validate_plan(draft(search, confirm, compare), messages={"question": "후보 중 두 Run 비교"}, context_keys=set())
     invalid = {**compare, "inputs": {**compare["inputs"], "runs": {**confirmed, "field": "runs"}}}
-    with pytest.raises(InvalidPlan, match="selection field"):
+    with pytest.raises(ValidationError, match="field"):
         validate_plan(draft(search, confirm, invalid), messages={"question": "후보 중 두 Run 비교"}, context_keys=set())

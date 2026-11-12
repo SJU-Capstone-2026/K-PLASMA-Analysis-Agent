@@ -52,7 +52,7 @@ def selected_context():
 
 
 def plan(question, steps):
-    return PlanDraft.model_validate({"schema_version": 1, "request_mode": "data_request", "base_revision": None,
+    return PlanDraft.model_validate({"schema_version": 2, "request_mode": "data_request", "base_revision": None,
         "requirements": [{"id": "r", "text": question, "handled_by": [s["id"] for s in steps],
                           "sources": [{"message_key": "question", "quote": question}]}],
         "steps": [{**s, "requirement_ids": ["r"]} for s in steps]})

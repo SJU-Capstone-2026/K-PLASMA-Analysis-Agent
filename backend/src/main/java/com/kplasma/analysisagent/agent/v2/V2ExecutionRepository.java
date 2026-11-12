@@ -1,6 +1,7 @@
 package com.kplasma.analysisagent.agent.v2;
 
 import com.kplasma.analysisagent.ingestion.IntakeException;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 import tools.jackson.databind.JsonNode;
@@ -24,10 +25,13 @@ public class V2ExecutionRepository {
     private static final Set<String> TOOLS = Set.of("forward_lookup", "reverse_search", "compare_runs", "decision_records");
     private final JdbcTemplate jdbc;
     private final ObjectMapper mapper;
+    private final double modelTimeoutSeconds;
 
-    public V2ExecutionRepository(JdbcTemplate jdbc, ObjectMapper mapper) {
+    public V2ExecutionRepository(JdbcTemplate jdbc, ObjectMapper mapper,
+                                 @Value("${kplasma.agent.model-timeout-seconds}") double modelTimeoutSeconds) {
         this.jdbc = jdbc;
         this.mapper = mapper;
+        this.modelTimeoutSeconds = modelTimeoutSeconds;
     }
 
     private void check(boolean condition, String message) {
@@ -49,7 +53,7 @@ public class V2ExecutionRepository {
     }
 
     public Map<String, Object> acceptPlan(UUID request, long inputRevision, JsonNode draft) {
-        check(draft != null && draft.isObject() && draft.path("schema_version").asInt() == 1
+        check(draft != null && draft.isObject() && Set.of(1, 2).contains(draft.path("schema_version").asInt())
             && draft.path("steps").isArray() && draft.path("steps").size() <= 16
             && !draft.path("base_revision").isMissingNode(), "invalid plan");
         var previous = jdbc.query(
@@ -216,8 +220,8 @@ public class V2ExecutionRepository {
         UUID id = UUID.randomUUID();
         String deadline = jdbc.queryForObject("""
             insert into agent_v2_model_attempt(id,request_id,attempt_key,kind,claim_generation,input_revision,deadline)
-            values (?,?,?,?,?,?,clock_timestamp()+interval '30 seconds') returning deadline::text
-            """, String.class, id, request, key, kind, generation, inputRevision);
+            values (?,?,?,?,?,?,clock_timestamp()+(? * interval '1 second')) returning deadline::text
+            """, String.class, id, request, key, kind, generation, inputRevision, modelTimeoutSeconds);
         var result = reservation("attemptId", id, true, "outcome", null);
         result.put("deadline", deadline);
         return result;
