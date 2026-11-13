@@ -15,7 +15,9 @@ public final class V2StepOrigins {
     public static boolean contains(TurnSnapshot turn, V2RecordSource source, RunRef ref) {
         if (turn == null || source == null || ref == null || !turn.id().equals(source.turnId())
             || source.executionId() == null || source.stepId() == null || source.groupId() == null
-            || !"v2".equals(turn.answerSnapshot().get("implementationId"))
+            || !(turn.answerSnapshot().get("implementationId") instanceof String version)
+            || !GraphVersionPolicy.isComposite(version)
+            || !version.equals(turn.answerSnapshot().get("graphVersion"))
             || !(turn.answerSnapshot().get("stepResults") instanceof List<?> steps)) return false;
         for (Object raw : steps) {
             if (!(raw instanceof Map<?,?> step) || !Objects.equals(source.executionId(), step.get("executionId"))

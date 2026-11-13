@@ -18,6 +18,14 @@ function demand(condition,message,kind='HITL_MISMATCH') {
   if (!condition) throw Object.assign(new Error(message),{kind});
 }
 
+export function browserLaunchOptions(command){
+  const version=command.graphVersion??'v2';
+  demand(['v2','v3','v2_localLLM'].includes(version),'Unsupported graph version','CONFIG');
+  if(version==='v2_localLLM')demand(/^KPLASMA_LOCAL_SESSION=[A-Za-z0-9_-]{32,128}$/.test(command.sessionCookie??''),
+    'LOCAL_SESSION_REQUIRED','CONFIG');
+  return {headless:command.headless===true};
+}
+
 export function planRunSelection(options,pending,expected,fallbackBaseline=null) {
   const ids=expected.runIds;
   demand(Array.isArray(ids)&&new Set(ids).size===ids.length,'Requested Run IDs must be a unique array');
@@ -77,11 +85,19 @@ function childPath(root,path) {
 class BrowserBridge {
   async init(command) {
     demand(!this.browser,'Bridge is already initialized','CONFIG');
+    const launchOptions=browserLaunchOptions(command);
+    this.graphVersion=command.graphVersion??'v2';
     this.api=localUrl(command.api);this.web=localUrl(command.web);this.output=resolve(command.output);
     await mkdir(this.output,{recursive:true});
-    this.browser=await chromium.launch({headless:command.headless===true});
+    this.browser=await chromium.launch(launchOptions);
     this.context=await this.browser.newContext({viewport:{width:1440,height:1000},locale:'ko-KR',
       timezoneId:'Asia/Seoul',colorScheme:'light',reducedMotion:'reduce'});
+    this.apiHeaders={};
+    if(this.graphVersion==='v2_localLLM'){
+      const value=command.sessionCookie.slice('KPLASMA_LOCAL_SESSION='.length);
+      await this.context.addCookies([{name:'KPLASMA_LOCAL_SESSION',value,url:this.web+'/api',httpOnly:true,sameSite:'Strict'}]);
+      this.apiHeaders={Cookie:command.sessionCookie,Origin:this.web,'Sec-Fetch-Site':'same-site'};
+    }
     this.page=await this.context.newPage();
     this.page.setDefaultTimeout(10000);
     this.page.on('pageerror',error=>this.current?.browserErrors.push({type:'pageerror',message:error.message}));
@@ -105,7 +121,7 @@ class BrowserBridge {
   }
 
   async apiCall(path,{method='GET',body,timeout=10000}={}) {
-    const response=await fetch(`${this.api}${path}`,{method,headers:{Accept:'application/json',
+    const response=await fetch(`${this.api}${path}`,{method,headers:{Accept:'application/json',...this.apiHeaders,
       ...(body!==undefined?{'Content-Type':'application/json'}:{})},
       ...(body!==undefined?{body:JSON.stringify(body)}:{}),signal:AbortSignal.timeout(Math.max(1,timeout))});
     demand(response.ok,`API ${method} ${path.split('?')[0]} returned ${response.status}`,'API_ERROR');
@@ -357,7 +373,7 @@ class BrowserBridge {
       const version=this.page.getByRole('combobox',{name:'Agent 버전'});
       await version.waitFor({state:'visible'});
       await this.page.waitForFunction(()=>{const select=document.querySelector('select[aria-label="Agent 버전"]');return select&&!select.disabled;},{},{timeout:15000});
-      await version.selectOption('v2');
+      await version.selectOption(this.graphVersion);
       await this.page.getByRole('textbox',{name:'공정 데이터에 질문하기',exact:true}).fill(item.question);
       const [acceptedResponse]=await Promise.all([
         this.page.waitForResponse(response=>new URL(response.url()).pathname==='/api/agent/requests'&&response.request().method()==='POST',{timeout:20000}),
@@ -370,17 +386,19 @@ class BrowserBridge {
       await writeFile(artifacts.accepted,JSON.stringify(accepted,null,2));
       await writeFile(join(directory,'submission.json'),JSON.stringify(state.submission,null,2));
       demand(acceptedResponse.ok()&&state.requestId,'Actual UI submission was not accepted','SUBMIT_ERROR');
-      this.check('v2-request',accepted.graphVersion==='v2',{graphVersion:accepted.graphVersion,requestId:state.requestId});
+      this.check('graph-version',accepted.graphVersion===this.graphVersion,{graphVersion:accepted.graphVersion,requestId:state.requestId});
       this.check('submitted-question',state.submission.text===item.question,{question:state.submission.text});
       this.check('submitted-run-tags',equal(state.submission.attachedRunRefs?.map(ref=>ref.runId)??[],item.selected),
         {expected:item.selected,actual:state.submission.attachedRunRefs??[]});
-      demand(accepted.graphVersion==='v2','UI submission did not use v2','WRONG_GRAPH_VERSION');
+      demand(accepted.graphVersion===this.graphVersion,'UI submission used a different graph version','WRONG_GRAPH_VERSION');
       let view=await this.poll(state.requestId,deadline);
       let interactionIndex=0;
       while(view.status==='NEEDS_INPUT') {
         view=await this.resume(view,item.hitl[interactionIndex],item,keyMap,deadline);interactionIndex++;
       }
       state.view=view;
+      if(view.status==='COMPLETED')demand(view.answerSnapshot?.graphVersion===this.graphVersion
+        &&view.answerSnapshot?.implementationId===this.graphVersion,'Answer identity differs','WRONG_GRAPH_VERSION');
       this.check('hitl-sequence',interactionIndex===item.hitl.length,{expected:item.hitl.length,actual:interactionIndex});
       this.check('completed',view.status==='COMPLETED',{status:view.status,error:view.error});
       if(view.status!=='COMPLETED')state.issues.push({kind:`REQUEST_${view.status}`,message:view.error?.code??view.status});

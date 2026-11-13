@@ -4,19 +4,28 @@ import com.kplasma.analysisagent.ingestion.IntakeException;
 import com.kplasma.analysisagent.workspace.*;
 import java.util.List;
 import com.kplasma.analysisagent.agent.v2.V2StepOrigins;
+import com.kplasma.analysisagent.agent.v2.GraphVersionPolicy;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 @Service
 public class DecisionService {
     private final WorkspaceRepository workspace;private final DecisionRepository repository;private final DecisionValidator validator;private final SnapshotValidator validate;
-    public DecisionService(WorkspaceRepository workspace,DecisionRepository repository,DecisionValidator validator,SnapshotValidator validate){this.workspace=workspace;this.repository=repository;this.validator=validator;this.validate=validate;}
+    private final GraphVersionPolicy graphVersions;
+    public DecisionService(WorkspaceRepository workspace,DecisionRepository repository,DecisionValidator validator,SnapshotValidator validate,GraphVersionPolicy graphVersions){this.workspace=workspace;this.repository=repository;this.validator=validator;this.validate=validate;this.graphVersions=graphVersions;}
     @Transactional public List<DecisionRecord> list(){workspace.lock();return repository.list();}
     @Transactional public DecisionRecord save(long workspaceEpoch,DecisionWrite write,String key) {
         var current=workspace.lock();if(workspaceEpoch!=current.stateToken().workspaceEpoch())throw new IntakeException("STALE_CONTEXT",409,"Workspace has been reset");
         validate.require(write!=null&&write.workspaceEpoch()==workspaceEpoch,"INVALID_DECISION","Decision workspaceEpoch must match");validate.key(key,"INVALID_DECISION");
         // Decisions survive new conversations, so only the workspace epoch scopes their retry keys.
         String replay=workspace.replay(workspaceEpoch,0,"DECISION",key,write);if(replay!=null)return repository.get(replay);
-        validator.validate(write);validateSource(current,write);repository.save(write.record());workspace.remember(workspaceEpoch,0,"DECISION",key,write,write.record().reviewId());return repository.get(write.record().reviewId());
+        validator.validate(write);validateSource(current,write);
+        String graph=current.conversation().agentGraphVersion();
+        if(write.record().source()!=null){
+            var turn=current.conversation().turns().stream().filter(t -> t.id().equals(write.record().source().turnId())).findFirst().orElseThrow();
+            graph=String.valueOf(turn.answerSnapshot().get("graphVersion"));
+        }
+        repository.save(write.record(),graph==null?graphVersions.resolve(null,null):graph);
+        workspace.remember(workspaceEpoch,0,"DECISION",key,write,write.record().reviewId());return repository.get(write.record().reviewId());
     }
     private void validateSource(WorkspaceView current, DecisionWrite write) {
         var source = write.record().source();

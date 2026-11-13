@@ -7,15 +7,18 @@ import {createWriteStream} from 'node:fs';
 import {mkdtemp, readFile, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {repo, sleep} from '../reference/runtime.mjs';
-import {startV1Environment} from './runtime.mjs';
+import {repo, sleep,freePort} from '../reference/runtime.mjs';
+import {startV1Environment,graphVersionArgument,runtimeWorkerSpec} from './runtime.mjs';
 
 const output = await mkdtemp(join(tmpdir(), 'kplasma-v2-restart-'));
-const summary = {data: 'artificial-only', model: 'test-v2-scripted', status: 'FAIL', passed: []};
+const graphVersion=graphVersionArgument();
+const summary = {data:'artificial-only',evaluationMode:'synthetic',graphVersion,
+  model:`test-${graphVersion}-scripted`,status:'FAIL',passed:[]};
 let environment, worker;
 async function request(path, body, key = randomUUID()) {
-  const response = await fetch(new URL(path, environment.url), body === undefined ? {} : {
-    method: 'POST', headers: {'Content-Type': 'application/json', 'Idempotency-Key': key}, body: JSON.stringify(body),
+  const response = await fetch(new URL(path, environment.url),{
+    headers:{...environment.headers,...(body===undefined?{}:{'Content-Type':'application/json','Idempotency-Key':key})},
+    ...(body===undefined?{}:{method:'POST',body:JSON.stringify(body)}),
   });
   assert.ok(response.ok, `Test API returned HTTP ${response.status}`);
   return response.json();
@@ -29,7 +32,7 @@ async function terminal(id) {
   throw new Error('Request did not reach a terminal/waiting state.');
 }
 async function submit(text) {
-  return request('/api/agent/requests', {text, graphVersion: 'v2', stateToken: (await request('/api/workspace')).stateToken});
+  return request('/api/agent/requests', {text, graphVersion, stateToken: (await request('/api/workspace')).stateToken});
 }
 async function startWorker() {
   const metadata = JSON.parse(await readFile(environment.connection, 'utf8'));
@@ -38,7 +41,7 @@ async function startWorker() {
     PYTHONPATH: join(repo, 'agent/python/src')};
   delete env.OPENAI_API_KEY;
   const python = process.env.KPLASMA_VERIFY_PYTHON ?? join(repo, 'agent/python/.venv', process.platform === 'win32' ? 'Scripts/python.exe' : 'bin/python');
-  worker = spawn(python, ['agent/python/tests/runtime_v2_worker.py', '--connection', environment.connection], {cwd: repo, env, stdio: ['ignore', 'pipe', 'pipe']});
+  worker = spawn(python, runtimeWorkerSpec(graphVersion).concat('--connection',environment.connection), {cwd: repo, env, stdio: ['ignore', 'pipe', 'pipe']});
   const log = createWriteStream(join(output, 'worker.log'), {flags: 'a'});
   worker.stdout.pipe(log, {end: false}); worker.stderr.pipe(log, {end: false}); worker.on('exit', () => log.end());
   await once(worker, 'spawn');
@@ -50,15 +53,17 @@ async function stopWorker(signal) {
   if (worker.exitCode === null && worker.signalCode === null) {worker.kill('SIGKILL'); await stopped;}
 }
 function searchIds(state) {
-  assert.equal(state.graphVersion, 'v2');
-  assert.equal(state.answerSnapshot.implementationId, 'v2');
+  assert.equal(state.graphVersion, graphVersion);
+  assert.equal(state.answerSnapshot.graphVersion, graphVersion);
+  assert.equal(state.answerSnapshot.implementationId, graphVersion);
   assert.equal(state.answerSnapshot.executionStatus, 'COMPLETE');
   assert.equal(state.answerSnapshot.hasIncompleteWork, false);
   const steps = state.answerSnapshot.stepResults;
   return steps.findLast(step => step.outputs.toolResult?.kind === 'reverse_search').outputs.toolResult.commonRunIds.toSorted();
 }
 try {
-  environment = await startV1Environment(output, 'none');
+  environment = await startV1Environment(output, 'none',
+    {graphVersion,uiOrigin:`http://127.0.0.1:${await freePort()}`});
   const runs = (await request('/api/runs')).filter(run => run.catalogStatus === 'READY').sort((a, b) => a.metrics.ionFlux - b.metrics.ionFlux);
   assert.deepEqual(runs.map(run => run.metrics.ionFlux), [1, 40, 60]);
   const queued = await submit('이온 플럭스가 40보다 높은 실제 Run을 모두 찾아줘.');
@@ -97,7 +102,7 @@ try {
   summary.passed.push('v2_compare_max_search_resumes_once_with_exact_selected_versions');
 
   const before = await request('/api/workspace');
-  assert.equal(before.conversation.agentGraphVersion, 'v2'); assert.equal(before.conversation.turns.length, 2);
+  assert.equal(before.conversation.agentGraphVersion, graphVersion); assert.equal(before.conversation.turns.length, 2);
   assert.equal(new Set(before.conversation.turns.map(turn => turn.id)).size, 2);
   await environment.restartBackend();
   assert.deepEqual(await request(`/api/agent/requests/${accepted.requestId}/resume`, body, resumeKey), completed);
@@ -110,6 +115,6 @@ try {
 } finally {
   await stopWorker('SIGTERM'); await environment?.close();
   await writeFile(join(output, 'summary.json'), JSON.stringify(summary, null, 2));
-  console.log(`Graph v2 restart: ${summary.status}, ${summary.passed.length}/4 scenarios. Local evidence: ${output}`);
+  console.log(`Graph ${graphVersion} synthetic restart: ${summary.status}, ${summary.passed.length}/4 scenarios. Local evidence: ${output}`);
   if (summary.error) console.error('Restart verification failed; inspect the local synthetic summary.');
 }

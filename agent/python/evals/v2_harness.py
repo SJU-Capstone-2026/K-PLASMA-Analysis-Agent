@@ -1,17 +1,105 @@
 """Score a real graph on artificial data with isolated in-memory journals."""
 
 from collections import Counter
+from contextlib import contextmanager, ExitStack
 from copy import deepcopy
 from dataclasses import asdict
+from importlib import import_module
+from pathlib import Path
 from time import monotonic
+from types import SimpleNamespace
 
+import httpx
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.types import Command
 
 from kplasma_agent.domain.common import run_ref
-from kplasma_agent.graphs.v2 import build_v2_graph
 
 from .v2_cases import Case, runs
+
+GRAPH_VERSIONS = ("v2", "v3", "v2_localLLM")
+
+
+def runtime_for_version(graph_version="v2"):
+    """Select an owned implementation; unknown versions never fall back."""
+    if graph_version not in GRAPH_VERSIONS:
+        raise ValueError("unsupported graph version")
+    namespace = {"v2": "kplasma_agent", "v3": "kplasma_agent.v3",
+                 "v2_localLLM": "kplasma_agent.v2_local_llm"}[graph_version]
+    core = namespace + (".v2" if graph_version == "v2" else ".core")
+    gateway = import_module(core + ".model_gateway")
+    graph = import_module("kplasma_agent.graphs.v2" if graph_version == "v2" else namespace + ".graph")
+    suffix = {"v2": "V2", "v3": "V3", "v2_localLLM": "V2LocalLLM"}[graph_version]
+    return SimpleNamespace(
+        config=import_module(namespace + ".config").Settings,
+        gateway=getattr(gateway, suffix + "ModelGateway"),
+        gateway_settings=getattr(gateway, suffix + "Settings"),
+        builder=getattr(graph, {"v2": "build_v2_graph", "v3": "build_v3_graph",
+                                "v2_localLLM": "build_v2_local_llm_graph"}[graph_version]),
+        budget=import_module(core + ".budget"), contracts=import_module(core + ".contracts"),
+        validation=import_module(core + ".plan_validation"),
+        review=import_module(core + ".plan_review"), tracing=import_module(namespace + ".tracing"),
+    )
+
+
+def live_configuration(graph_version, env_file):
+    runtime = runtime_for_version(graph_version)
+    if graph_version != "v2" and env_file is None:
+        raise ValueError("an explicit env file is required for this graph version")
+    if graph_version == "v3" and not Path(env_file).is_file():
+        raise ValueError("an existing env file is required for v3")
+    base = runtime.config.from_env(env_file)
+    if graph_version == "v2_localLLM":
+        status = base.readiness()
+        if status.get("ready") is not True or status.get("blockers"):
+            raise ValueError("LOCAL_RUNTIME_NOT_READY:" + ",".join(status.get("blockers", [])))
+    elif not base.api_key:
+        raise ValueError("live evaluation requires OPENAI_API_KEY")
+    configured = runtime.gateway_settings.from_env(base)
+    if not configured.plan_review_enabled:
+        flag = {"v2": "AGENT_V2_PLAN_REVIEW_ENABLED", "v3": "AGENT_V3_PLAN_REVIEW_ENABLED",
+                "v2_localLLM": "AGENT_V2_LOCAL_LLM_PLAN_REVIEW_ENABLED"}[graph_version]
+        raise ValueError(f"live evaluation requires {flag}=true")
+    if base.timeout != 90:
+        raise ValueError("live evaluation requires the fixed 90-second model timeout")
+    return base, configured
+
+
+@contextmanager
+def open_gateway(graph_version, base, configured):
+    runtime = runtime_for_version(graph_version)
+    if graph_version == "v2_localLLM":
+        # Recheck immediately before constructing clients; an earlier status is not a permit.
+        status = base.readiness()
+        if status.get("ready") is not True or status.get("blockers"):
+            raise ValueError("LOCAL_RUNTIME_NOT_READY:" + ",".join(status.get("blockers", [])))
+        from kplasma_agent.v2_local_llm.network import local_http_client
+
+        client = local_http_client(base.d1_url, timeout=base.timeout,
+                                   headers={"Authorization": "Bearer " + base.d1_token})
+        from kplasma_agent.v2_local_llm.runtime import ModelRuntime, model_lease
+        control = local_http_client(base.model_url, timeout=base.timeout,
+                                    headers={"Authorization": "Bearer " + base.api_key})
+        model_runtime = ModelRuntime(base, control, client)
+        guard = runtime.budget.make_input_guard(base, qwen_count=runtime.budget.make_qwen_counter(base, control),
+                                                d1_count=runtime.budget.make_d1_counter(base, client),
+                                                prepare=model_runtime.prepare)
+    else:
+        client = httpx.Client(timeout=base.timeout, transport=httpx.HTTPTransport(retries=0))
+        guard = runtime.budget.check_payload
+    with ExitStack() as stack:
+        stack.enter_context(client)
+        if graph_version == "v2_localLLM":
+            stack.enter_context(control)
+            stack.enter_context(model_lease())
+        models = runtime.gateway(configured, client, guard)
+        try:
+            yield models
+        finally:
+            for name in ("planner", "writer"):
+                client = getattr(getattr(models, name, None), "client", None)
+                if client is not None:
+                    client.close()
 
 
 class EvaluationJournal:
@@ -75,13 +163,16 @@ class TimedModels:
         return timed
 
 
-def evaluate_case(case: Case, models, *, plan_review_enabled=True) -> dict:
+def evaluate_case(case: Case, models, *, plan_review_enabled=True, graph_version="v2") -> dict:
+    runtime = runtime_for_version(graph_version)
+    if graph_version == "v2_localLLM" and not plan_review_enabled:
+        raise ValueError("local evaluation requires plan review")
     source = runs()
     journal = EvaluationJournal(source)
     entries = [{"ref": run_ref(run), "key": f"R{i}", "origin": {"kind": "run_tag"}}
                for i, run in enumerate(source[:2], start=1)] if case.selected else []
     timed = TimedModels(models)
-    graph = build_v2_graph(timed, journal, InMemorySaver())
+    graph = runtime.builder(timed, journal, InMemorySaver())
     config = {"configurable": {"thread_id": case.id}, "recursion_limit": 80}
     start = monotonic()
     try:
@@ -95,7 +186,13 @@ def evaluate_case(case: Case, models, *, plan_review_enabled=True) -> dict:
         first = next(iter(journal.models.values()), {}).get("outcome") or {}
         plan = first.get("data") or {}
         failures = score_case(case, plan, snapshot, journal.steps, interrupted)
+        actual_version = snapshot.get("graphVersion")
+        implementation = snapshot.get("implementationId")
+        if actual_version != graph_version or implementation != graph_version:
+            failures.setdefault("execution", []).append("graph identity differs")
         return {"case": case.id, "question": case.question, "expected": asdict(case), "pass": not failures,
+                "expectedGraphVersion": graph_version, "graphVersion": actual_version,
+                "implementationId": implementation,
                 "failures": failures, "plan": plan, "snapshot": snapshot,
                 "seconds": monotonic() - start, **evaluation_details(journal, timed, state, plan_review_enabled)}
     except Exception as exc:

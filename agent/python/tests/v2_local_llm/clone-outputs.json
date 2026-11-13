@@ -1,0 +1,1673 @@
+{
+  "sourceCommit": "51d077c9878b635c96da709eb7eb2aefd36699e1",
+  "concept": {
+    "answer": {
+      "intent": "GENERAL_ANSWER",
+      "status": "COMPLETE",
+      "usedRunRefs": [],
+      "answerSnapshot": {
+        "implementationId": "baseline",
+        "graphVersion": "baseline",
+        "schemaVersion": 1,
+        "intent": "GENERAL_ANSWER",
+        "question": "IED가 뭐야?",
+        "confirmedContext": {},
+        "planRevision": 1,
+        "stepResults": [],
+        "evidence": [],
+        "draft": {
+          "paragraphs": [
+            "이온 에너지 분포입니다."
+          ],
+          "sources": []
+        },
+        "answer": "이온 에너지 분포입니다.",
+        "executionStatus": "COMPLETE",
+        "hasIncompleteWork": false,
+        "review": {
+          "status": "SKIPPED",
+          "answers": [],
+          "reason": null
+        },
+        "budget": {
+          "replans_used": 0,
+          "answer_rewrites_used": 0,
+          "partial_finalizations_used": 0,
+          "model_requests_used": 3,
+          "tool_invocations_used": 0,
+          "active_elapsed_seconds": 0.0
+        }
+      }
+    },
+    "calls": [
+      "PLAN_INITIAL",
+      "PLAN_REVIEW",
+      "COMPOSE"
+    ]
+  },
+  "data": {
+    "answer": {
+      "intent": "COMPOSITE_ANSWER",
+      "status": "COMPLETE",
+      "usedRunRefs": [
+        {
+          "runId": "SYN-A",
+          "runVersionId": "9c96bd07-9b6d-5acf-a790-e1560f6df19e"
+        }
+      ],
+      "answerSnapshot": {
+        "implementationId": "baseline",
+        "graphVersion": "baseline",
+        "schemaVersion": 1,
+        "intent": "COMPOSITE_ANSWER",
+        "question": "평균 이온 에너지가 150–160 eV인 실제 Run을 찾아줘.",
+        "confirmedContext": {},
+        "planRevision": 1,
+        "stepResults": [
+          {
+            "executionId": "execution-1-search",
+            "stepId": "search",
+            "status": "verified",
+            "outputs": {
+              "toolResult": {
+                "kind": "reverse_search",
+                "resultStatus": "MATCH",
+                "status": "MATCH",
+                "processMode": "RUN_SEARCH",
+                "constraints": [
+                  {
+                    "metric": "meanIonEnergy",
+                    "operator": "between",
+                    "min": 150.0,
+                    "max": 160.0,
+                    "unit": "eV"
+                  }
+                ],
+                "goals": [],
+                "objectives": [
+                  {
+                    "metric": "meanIonEnergy",
+                    "operator": "RANGE",
+                    "min": 150.0,
+                    "max": 160.0,
+                    "unit": "eV",
+                    "id": "objective-1",
+                    "comparisonOperator": "between"
+                  }
+                ],
+                "totalCount": 1,
+                "searchResultVersion": 2,
+                "runsByVersion": {
+                  "9c96bd07-9b6d-5acf-a790-e1560f6df19e": {
+                    "runId": "SYN-A",
+                    "runVersionId": "9c96bd07-9b6d-5acf-a790-e1560f6df19e",
+                    "pressure": 4.0,
+                    "sourcePower": 300.0,
+                    "biasPower": 600.0,
+                    "units": {
+                      "pressure": "mTorr",
+                      "sourcePower": "W",
+                      "biasPower": "W",
+                      "meanIonEnergy": "eV",
+                      "ionFlux": "10¹⁸ m⁻²s⁻¹",
+                      "iedWidth": "eV"
+                    },
+                    "metrics": {
+                      "ionFlux": 10.0,
+                      "meanIonEnergy": 155.0,
+                      "iedWidth": 8.0
+                    },
+                    "qualityStatus": "VERIFIED",
+                    "convergenceStatus": "CONVERGED",
+                    "catalogStatus": "READY"
+                  }
+                },
+                "commonRunRefs": [
+                  {
+                    "runId": "SYN-A",
+                    "runVersionId": "9c96bd07-9b6d-5acf-a790-e1560f6df19e"
+                  }
+                ],
+                "commonRunIds": [
+                  "SYN-A"
+                ],
+                "commonRecommendation": {
+                  "runId": "SYN-A",
+                  "runVersionId": "9c96bd07-9b6d-5acf-a790-e1560f6df19e"
+                },
+                "objectiveResults": [
+                  {
+                    "objective": {
+                      "metric": "meanIonEnergy",
+                      "operator": "RANGE",
+                      "min": 150.0,
+                      "max": 160.0,
+                      "unit": "eV",
+                      "id": "objective-1",
+                      "comparisonOperator": "between"
+                    },
+                    "candidateRefs": [
+                      {
+                        "runId": "SYN-A",
+                        "runVersionId": "9c96bd07-9b6d-5acf-a790-e1560f6df19e"
+                      }
+                    ],
+                    "allConstraintsGuaranteed": false
+                  }
+                ],
+                "goalResults": [],
+                "candidateEvaluations": [
+                  {
+                    "runId": "SYN-A",
+                    "runVersionId": "9c96bd07-9b6d-5acf-a790-e1560f6df19e",
+                    "evaluations": [
+                      {
+                        "objectiveId": "objective-1",
+                        "metric": "meanIonEnergy",
+                        "operator": "RANGE",
+                        "comparisonOperator": "between",
+                        "unit": "eV",
+                        "actual": 155.0,
+                        "satisfied": true,
+                        "targetLabel": "150–160",
+                        "boundaryDelta": null,
+                        "percentDelta": null,
+                        "rangeStatus": "IN_RANGE",
+                        "baselineDelta": null,
+                        "baselinePercentDelta": null,
+                        "unavailableReason": null,
+                        "referenceValue": 155.0,
+                        "matchPercent": 100
+                      }
+                    ],
+                    "matchPercent": 100
+                  }
+                ],
+                "usedRunRefs": [
+                  {
+                    "runId": "SYN-A",
+                    "runVersionId": "9c96bd07-9b6d-5acf-a790-e1560f6df19e"
+                  }
+                ],
+                "excludedRuns": [],
+                "defaultedUnits": [],
+                "numericPolicyVersion": "v1"
+              },
+              "candidates": [
+                {
+                  "runId": "SYN-A",
+                  "runVersionId": "9c96bd07-9b6d-5acf-a790-e1560f6df19e"
+                }
+              ]
+            },
+            "runRefs": [
+              {
+                "runId": "SYN-A",
+                "runVersionId": "9c96bd07-9b6d-5acf-a790-e1560f6df19e"
+              }
+            ],
+            "groupId": "common",
+            "reason": "MATCH"
+          }
+        ],
+        "evidence": [
+          {
+            "id": "execution-1-search:candidates",
+            "executionId": "execution-1-search",
+            "field": "candidates",
+            "value": [
+              "SYN-A"
+            ],
+            "unit": null,
+            "runRef": null
+          }
+        ],
+        "draft": null,
+        "answer": "검색 결과 1개",
+        "executionStatus": "COMPLETE",
+        "hasIncompleteWork": false,
+        "review": {
+          "status": "SKIPPED",
+          "answers": [],
+          "reason": null
+        },
+        "budget": {
+          "replans_used": 0,
+          "answer_rewrites_used": 0,
+          "partial_finalizations_used": 0,
+          "model_requests_used": 2,
+          "tool_invocations_used": 1,
+          "active_elapsed_seconds": 0.0
+        }
+      }
+    },
+    "calls": [
+      "PLAN_INITIAL",
+      "PLAN_REVIEW"
+    ]
+  },
+  "semantic_replan": {
+    "answer": {
+      "intent": "COMPOSITE_ANSWER",
+      "status": "COMPLETE",
+      "usedRunRefs": [
+        {
+          "runId": "SYN-A",
+          "runVersionId": "9c96bd07-9b6d-5acf-a790-e1560f6df19e"
+        }
+      ],
+      "answerSnapshot": {
+        "implementationId": "baseline",
+        "graphVersion": "baseline",
+        "schemaVersion": 1,
+        "intent": "COMPOSITE_ANSWER",
+        "question": "평균 이온 에너지가 150–160 eV인 실제 Run을 찾아줘.",
+        "confirmedContext": {},
+        "planRevision": 2,
+        "stepResults": [
+          {
+            "executionId": "execution-2-search",
+            "stepId": "search",
+            "status": "verified",
+            "outputs": {
+              "toolResult": {
+                "kind": "reverse_search",
+                "resultStatus": "MATCH",
+                "status": "MATCH",
+                "processMode": "RUN_SEARCH",
+                "constraints": [
+                  {
+                    "metric": "meanIonEnergy",
+                    "operator": "between",
+                    "min": 150.0,
+                    "max": 160.0,
+                    "unit": "eV"
+                  }
+                ],
+                "goals": [],
+                "objectives": [
+                  {
+                    "metric": "meanIonEnergy",
+                    "operator": "RANGE",
+                    "min": 150.0,
+                    "max": 160.0,
+                    "unit": "eV",
+                    "id": "objective-1",
+                    "comparisonOperator": "between"
+                  }
+                ],
+                "totalCount": 1,
+                "searchResultVersion": 2,
+                "runsByVersion": {
+                  "9c96bd07-9b6d-5acf-a790-e1560f6df19e": {
+                    "runId": "SYN-A",
+                    "runVersionId": "9c96bd07-9b6d-5acf-a790-e1560f6df19e",
+                    "pressure": 4.0,
+                    "sourcePower": 300.0,
+                    "biasPower": 600.0,
+                    "units": {
+                      "pressure": "mTorr",
+                      "sourcePower": "W",
+                      "biasPower": "W",
+                      "meanIonEnergy": "eV",
+                      "ionFlux": "10¹⁸ m⁻²s⁻¹",
+                      "iedWidth": "eV"
+                    },
+                    "metrics": {
+                      "ionFlux": 10.0,
+                      "meanIonEnergy": 155.0,
+                      "iedWidth": 8.0
+                    },
+                    "qualityStatus": "VERIFIED",
+                    "convergenceStatus": "CONVERGED",
+                    "catalogStatus": "READY"
+                  }
+                },
+                "commonRunRefs": [
+                  {
+                    "runId": "SYN-A",
+                    "runVersionId": "9c96bd07-9b6d-5acf-a790-e1560f6df19e"
+                  }
+                ],
+                "commonRunIds": [
+                  "SYN-A"
+                ],
+                "commonRecommendation": {
+                  "runId": "SYN-A",
+                  "runVersionId": "9c96bd07-9b6d-5acf-a790-e1560f6df19e"
+                },
+                "objectiveResults": [
+                  {
+                    "objective": {
+                      "metric": "meanIonEnergy",
+                      "operator": "RANGE",
+                      "min": 150.0,
+                      "max": 160.0,
+                      "unit": "eV",
+                      "id": "objective-1",
+                      "comparisonOperator": "between"
+                    },
+                    "candidateRefs": [
+                      {
+                        "runId": "SYN-A",
+                        "runVersionId": "9c96bd07-9b6d-5acf-a790-e1560f6df19e"
+                      }
+                    ],
+                    "allConstraintsGuaranteed": false
+                  }
+                ],
+                "goalResults": [],
+                "candidateEvaluations": [
+                  {
+                    "runId": "SYN-A",
+                    "runVersionId": "9c96bd07-9b6d-5acf-a790-e1560f6df19e",
+                    "evaluations": [
+                      {
+                        "objectiveId": "objective-1",
+                        "metric": "meanIonEnergy",
+                        "operator": "RANGE",
+                        "comparisonOperator": "between",
+                        "unit": "eV",
+                        "actual": 155.0,
+                        "satisfied": true,
+                        "targetLabel": "150–160",
+                        "boundaryDelta": null,
+                        "percentDelta": null,
+                        "rangeStatus": "IN_RANGE",
+                        "baselineDelta": null,
+                        "baselinePercentDelta": null,
+                        "unavailableReason": null,
+                        "referenceValue": 155.0,
+                        "matchPercent": 100
+                      }
+                    ],
+                    "matchPercent": 100
+                  }
+                ],
+                "usedRunRefs": [
+                  {
+                    "runId": "SYN-A",
+                    "runVersionId": "9c96bd07-9b6d-5acf-a790-e1560f6df19e"
+                  }
+                ],
+                "excludedRuns": [],
+                "defaultedUnits": [],
+                "numericPolicyVersion": "v1"
+              },
+              "candidates": [
+                {
+                  "runId": "SYN-A",
+                  "runVersionId": "9c96bd07-9b6d-5acf-a790-e1560f6df19e"
+                }
+              ]
+            },
+            "runRefs": [
+              {
+                "runId": "SYN-A",
+                "runVersionId": "9c96bd07-9b6d-5acf-a790-e1560f6df19e"
+              }
+            ],
+            "groupId": "common",
+            "reason": "MATCH"
+          }
+        ],
+        "evidence": [
+          {
+            "id": "execution-2-search:candidates",
+            "executionId": "execution-2-search",
+            "field": "candidates",
+            "value": [
+              "SYN-A"
+            ],
+            "unit": null,
+            "runRef": null
+          }
+        ],
+        "draft": null,
+        "answer": "검색 결과 1개",
+        "executionStatus": "COMPLETE",
+        "hasIncompleteWork": false,
+        "review": {
+          "status": "SKIPPED",
+          "answers": [],
+          "reason": null
+        },
+        "budget": {
+          "replans_used": 1,
+          "answer_rewrites_used": 0,
+          "partial_finalizations_used": 0,
+          "model_requests_used": 4,
+          "tool_invocations_used": 1,
+          "active_elapsed_seconds": 0.0
+        }
+      }
+    },
+    "calls": [
+      "PLAN_INITIAL",
+      "PLAN_REVIEW",
+      "REPLAN",
+      "PLAN_REVIEW"
+    ]
+  },
+  "review_unavailable": {
+    "answer": {
+      "intent": "COMPOSITE_ANSWER",
+      "status": "FAILED",
+      "usedRunRefs": [],
+      "answerSnapshot": {
+        "implementationId": "baseline",
+        "graphVersion": "baseline",
+        "schemaVersion": 1,
+        "intent": "COMPOSITE_ANSWER",
+        "question": "평균 이온 에너지가 150–160 eV인 실제 Run을 찾아줘.",
+        "confirmedContext": {},
+        "planRevision": 1,
+        "stepResults": [],
+        "evidence": [],
+        "draft": null,
+        "answer": "작업 계획 검토를 완료하지 못해 실행을 중단했습니다.",
+        "executionStatus": "FAILED",
+        "hasIncompleteWork": true,
+        "review": {
+          "status": "SKIPPED",
+          "answers": [],
+          "reason": null
+        },
+        "budget": {
+          "replans_used": 0,
+          "answer_rewrites_used": 0,
+          "partial_finalizations_used": 0,
+          "model_requests_used": 2,
+          "tool_invocations_used": 0,
+          "active_elapsed_seconds": 0.0
+        }
+      }
+    },
+    "calls": [
+      "PLAN_INITIAL",
+      "PLAN_REVIEW"
+    ]
+  },
+  "hitl": {
+    "answer": {
+      "intent": "COMPOSITE_ANSWER",
+      "status": "COMPLETE",
+      "usedRunRefs": [
+        {
+          "runId": "SYN-A",
+          "runVersionId": "9c96bd07-9b6d-5acf-a790-e1560f6df19e"
+        },
+        {
+          "runId": "SYN-B",
+          "runVersionId": "728da6ce-f414-5460-bce8-5f2ce04d4989"
+        }
+      ],
+      "answerSnapshot": {
+        "implementationId": "baseline",
+        "graphVersion": "baseline",
+        "schemaVersion": 1,
+        "intent": "COMPOSITE_ANSWER",
+        "question": "평균 이온 에너지가 150–160 eV인 실제 Run을 찾아줘.",
+        "confirmedContext": {
+          "entries": [
+            {
+              "key": "R1",
+              "ref": {
+                "runId": "SYN-A",
+                "runVersionId": "9c96bd07-9b6d-5acf-a790-e1560f6df19e"
+              }
+            },
+            {
+              "key": "R2",
+              "ref": {
+                "runId": "SYN-B",
+                "runVersionId": "728da6ce-f414-5460-bce8-5f2ce04d4989"
+              }
+            }
+          ],
+          "baselineKey": null
+        },
+        "planRevision": 1,
+        "stepResults": [
+          {
+            "executionId": "execution-1-search",
+            "stepId": "search",
+            "status": "verified",
+            "outputs": {
+              "toolResult": {
+                "kind": "reverse_search",
+                "resultStatus": "MATCH",
+                "status": "MATCH",
+                "processMode": "RUN_SEARCH",
+                "constraints": [
+                  {
+                    "metric": "meanIonEnergy",
+                    "operator": "between",
+                    "min": 150.0,
+                    "max": 160.0,
+                    "unit": "eV"
+                  }
+                ],
+                "goals": [],
+                "objectives": [
+                  {
+                    "metric": "meanIonEnergy",
+                    "operator": "RANGE",
+                    "min": 150.0,
+                    "max": 160.0,
+                    "unit": "eV",
+                    "id": "objective-1",
+                    "comparisonOperator": "between"
+                  }
+                ],
+                "totalCount": 2,
+                "searchResultVersion": 2,
+                "runsByVersion": {
+                  "9c96bd07-9b6d-5acf-a790-e1560f6df19e": {
+                    "runId": "SYN-A",
+                    "runVersionId": "9c96bd07-9b6d-5acf-a790-e1560f6df19e",
+                    "pressure": 4.0,
+                    "sourcePower": 300.0,
+                    "biasPower": 600.0,
+                    "units": {
+                      "pressure": "mTorr",
+                      "sourcePower": "W",
+                      "biasPower": "W",
+                      "meanIonEnergy": "eV",
+                      "ionFlux": "10¹⁸ m⁻²s⁻¹",
+                      "iedWidth": "eV"
+                    },
+                    "metrics": {
+                      "ionFlux": 10.0,
+                      "meanIonEnergy": 155.0,
+                      "iedWidth": 8.0
+                    },
+                    "qualityStatus": "VERIFIED",
+                    "convergenceStatus": "CONVERGED",
+                    "catalogStatus": "READY"
+                  },
+                  "728da6ce-f414-5460-bce8-5f2ce04d4989": {
+                    "runId": "SYN-B",
+                    "runVersionId": "728da6ce-f414-5460-bce8-5f2ce04d4989",
+                    "pressure": 6.0,
+                    "sourcePower": 300.0,
+                    "biasPower": 600.0,
+                    "units": {
+                      "pressure": "mTorr",
+                      "sourcePower": "W",
+                      "biasPower": "W",
+                      "meanIonEnergy": "eV",
+                      "ionFlux": "10¹⁸ m⁻²s⁻¹",
+                      "iedWidth": "eV"
+                    },
+                    "metrics": {
+                      "ionFlux": 20.0,
+                      "meanIonEnergy": 156.0,
+                      "iedWidth": null
+                    },
+                    "qualityStatus": "VERIFIED",
+                    "convergenceStatus": "CONVERGED",
+                    "catalogStatus": "READY",
+                    "metricAvailability": {
+                      "iedWidth": "MISSING_VALUE"
+                    }
+                  }
+                },
+                "commonRunRefs": [
+                  {
+                    "runId": "SYN-A",
+                    "runVersionId": "9c96bd07-9b6d-5acf-a790-e1560f6df19e"
+                  },
+                  {
+                    "runId": "SYN-B",
+                    "runVersionId": "728da6ce-f414-5460-bce8-5f2ce04d4989"
+                  }
+                ],
+                "commonRunIds": [
+                  "SYN-A",
+                  "SYN-B"
+                ],
+                "commonRecommendation": {
+                  "runId": "SYN-A",
+                  "runVersionId": "9c96bd07-9b6d-5acf-a790-e1560f6df19e"
+                },
+                "objectiveResults": [
+                  {
+                    "objective": {
+                      "metric": "meanIonEnergy",
+                      "operator": "RANGE",
+                      "min": 150.0,
+                      "max": 160.0,
+                      "unit": "eV",
+                      "id": "objective-1",
+                      "comparisonOperator": "between"
+                    },
+                    "candidateRefs": [
+                      {
+                        "runId": "SYN-A",
+                        "runVersionId": "9c96bd07-9b6d-5acf-a790-e1560f6df19e"
+                      },
+                      {
+                        "runId": "SYN-B",
+                        "runVersionId": "728da6ce-f414-5460-bce8-5f2ce04d4989"
+                      }
+                    ],
+                    "allConstraintsGuaranteed": false
+                  }
+                ],
+                "goalResults": [],
+                "candidateEvaluations": [
+                  {
+                    "runId": "SYN-A",
+                    "runVersionId": "9c96bd07-9b6d-5acf-a790-e1560f6df19e",
+                    "evaluations": [
+                      {
+                        "objectiveId": "objective-1",
+                        "metric": "meanIonEnergy",
+                        "operator": "RANGE",
+                        "comparisonOperator": "between",
+                        "unit": "eV",
+                        "actual": 155.0,
+                        "satisfied": true,
+                        "targetLabel": "150–160",
+                        "boundaryDelta": null,
+                        "percentDelta": null,
+                        "rangeStatus": "IN_RANGE",
+                        "baselineDelta": null,
+                        "baselinePercentDelta": null,
+                        "unavailableReason": null,
+                        "referenceValue": 155.0,
+                        "matchPercent": 100
+                      }
+                    ],
+                    "matchPercent": 100
+                  },
+                  {
+                    "runId": "SYN-B",
+                    "runVersionId": "728da6ce-f414-5460-bce8-5f2ce04d4989",
+                    "evaluations": [
+                      {
+                        "objectiveId": "objective-1",
+                        "metric": "meanIonEnergy",
+                        "operator": "RANGE",
+                        "comparisonOperator": "between",
+                        "unit": "eV",
+                        "actual": 156.0,
+                        "satisfied": true,
+                        "targetLabel": "150–160",
+                        "boundaryDelta": null,
+                        "percentDelta": null,
+                        "rangeStatus": "IN_RANGE",
+                        "baselineDelta": null,
+                        "baselinePercentDelta": null,
+                        "unavailableReason": null,
+                        "referenceValue": 155.0,
+                        "matchPercent": 99
+                      }
+                    ],
+                    "matchPercent": 99
+                  }
+                ],
+                "usedRunRefs": [
+                  {
+                    "runId": "SYN-A",
+                    "runVersionId": "9c96bd07-9b6d-5acf-a790-e1560f6df19e"
+                  },
+                  {
+                    "runId": "SYN-B",
+                    "runVersionId": "728da6ce-f414-5460-bce8-5f2ce04d4989"
+                  }
+                ],
+                "excludedRuns": [],
+                "defaultedUnits": [],
+                "numericPolicyVersion": "v1"
+              },
+              "candidates": [
+                {
+                  "runId": "SYN-A",
+                  "runVersionId": "9c96bd07-9b6d-5acf-a790-e1560f6df19e"
+                },
+                {
+                  "runId": "SYN-B",
+                  "runVersionId": "728da6ce-f414-5460-bce8-5f2ce04d4989"
+                }
+              ]
+            },
+            "runRefs": [
+              {
+                "runId": "SYN-A",
+                "runVersionId": "9c96bd07-9b6d-5acf-a790-e1560f6df19e"
+              },
+              {
+                "runId": "SYN-B",
+                "runVersionId": "728da6ce-f414-5460-bce8-5f2ce04d4989"
+              }
+            ],
+            "groupId": "common",
+            "reason": "MATCH"
+          },
+          {
+            "executionId": "execution-1-compare",
+            "stepId": "compare",
+            "status": "verified",
+            "outputs": {
+              "toolResult": {
+                "kind": "compare_runs",
+                "resultStatus": "COMPARISON_READY",
+                "mode": "pair",
+                "metricIds": [
+                  "pressure"
+                ],
+                "baselineKey": null,
+                "trendAxis": null,
+                "runs": [
+                  {
+                    "key": "R1",
+                    "ref": {
+                      "runId": "SYN-A",
+                      "runVersionId": "9c96bd07-9b6d-5acf-a790-e1560f6df19e"
+                    },
+                    "conditions": {
+                      "pressure": {
+                        "value": 4.0,
+                        "unit": "mTorr",
+                        "status": "AVAILABLE",
+                        "reason": null,
+                        "sourceValue": {
+                          "value": 4.0,
+                          "unit": "mTorr"
+                        }
+                      },
+                      "sourcePower": {
+                        "value": 300.0,
+                        "unit": "W",
+                        "status": "AVAILABLE",
+                        "reason": null,
+                        "sourceValue": {
+                          "value": 300.0,
+                          "unit": "W"
+                        }
+                      },
+                      "biasPower": {
+                        "value": 600.0,
+                        "unit": "W",
+                        "status": "AVAILABLE",
+                        "reason": null,
+                        "sourceValue": {
+                          "value": 600.0,
+                          "unit": "W"
+                        }
+                      }
+                    },
+                    "metrics": {
+                      "pressure": {
+                        "value": 4.0,
+                        "unit": "mTorr",
+                        "status": "AVAILABLE",
+                        "reason": null,
+                        "sourceValue": {
+                          "value": 4.0,
+                          "unit": "mTorr"
+                        }
+                      }
+                    },
+                    "quality": {
+                      "convergenceStatus": "CONVERGED",
+                      "qualityStatus": "VERIFIED",
+                      "catalogStatus": "READY"
+                    }
+                  },
+                  {
+                    "key": "R2",
+                    "ref": {
+                      "runId": "SYN-B",
+                      "runVersionId": "728da6ce-f414-5460-bce8-5f2ce04d4989"
+                    },
+                    "conditions": {
+                      "pressure": {
+                        "value": 6.0,
+                        "unit": "mTorr",
+                        "status": "AVAILABLE",
+                        "reason": null,
+                        "sourceValue": {
+                          "value": 6.0,
+                          "unit": "mTorr"
+                        }
+                      },
+                      "sourcePower": {
+                        "value": 300.0,
+                        "unit": "W",
+                        "status": "AVAILABLE",
+                        "reason": null,
+                        "sourceValue": {
+                          "value": 300.0,
+                          "unit": "W"
+                        }
+                      },
+                      "biasPower": {
+                        "value": 600.0,
+                        "unit": "W",
+                        "status": "AVAILABLE",
+                        "reason": null,
+                        "sourceValue": {
+                          "value": 600.0,
+                          "unit": "W"
+                        }
+                      }
+                    },
+                    "metrics": {
+                      "pressure": {
+                        "value": 6.0,
+                        "unit": "mTorr",
+                        "status": "AVAILABLE",
+                        "reason": null,
+                        "sourceValue": {
+                          "value": 6.0,
+                          "unit": "mTorr"
+                        }
+                      }
+                    },
+                    "quality": {
+                      "convergenceStatus": "CONVERGED",
+                      "qualityStatus": "VERIFIED",
+                      "catalogStatus": "READY"
+                    }
+                  }
+                ],
+                "comparisons": [
+                  {
+                    "id": "absolute_difference:R1:R2:pressure",
+                    "kind": "absolute_difference",
+                    "leftKey": "R1",
+                    "rightKey": "R2",
+                    "metric": "pressure",
+                    "difference": {
+                      "value": 2.0,
+                      "unit": "mTorr",
+                      "status": "AVAILABLE",
+                      "reason": null,
+                      "sourceValue": null
+                    },
+                    "percentChange": null,
+                    "direction": "not_applicable"
+                  }
+                ],
+                "summaries": [
+                  {
+                    "id": "summary:pressure",
+                    "metric": "pressure",
+                    "availableCount": 2,
+                    "minimum": {
+                      "value": 4.0,
+                      "unit": "mTorr",
+                      "status": "AVAILABLE",
+                      "reason": null,
+                      "sourceValue": null
+                    },
+                    "minimumKeys": [
+                      "R1"
+                    ],
+                    "maximum": {
+                      "value": 6.0,
+                      "unit": "mTorr",
+                      "status": "AVAILABLE",
+                      "reason": null,
+                      "sourceValue": null
+                    },
+                    "maximumKeys": [
+                      "R2"
+                    ],
+                    "range": {
+                      "value": 2.0,
+                      "unit": "mTorr",
+                      "status": "AVAILABLE",
+                      "reason": null,
+                      "sourceValue": null
+                    }
+                  }
+                ],
+                "trends": [],
+                "observations": [
+                  {
+                    "id": "O1",
+                    "source": {
+                      "kind": "run",
+                      "key": "R1",
+                      "metric": "pressure"
+                    },
+                    "text": "R1 (SYN-A)의 압력: 4 mTorr."
+                  },
+                  {
+                    "id": "O2",
+                    "source": {
+                      "kind": "run",
+                      "key": "R2",
+                      "metric": "pressure"
+                    },
+                    "text": "R2 (SYN-B)의 압력: 6 mTorr."
+                  },
+                  {
+                    "id": "O3",
+                    "source": {
+                      "kind": "comparison",
+                      "key": "absolute_difference:R1:R2:pressure",
+                      "metric": "pressure"
+                    },
+                    "text": "R1 → R2의 압력 절대 차이: 2 mTorr."
+                  },
+                  {
+                    "id": "O4",
+                    "source": {
+                      "kind": "summary",
+                      "key": "summary:pressure",
+                      "metric": "pressure"
+                    },
+                    "text": "선택한 Run의 압력 최솟값: 4 mTorr, 최댓값: 6 mTorr, 범위 폭: 2 mTorr. 가용 Run 2개."
+                  },
+                  {
+                    "id": "O5",
+                    "source": {
+                      "kind": "run",
+                      "key": "R1",
+                      "metric": "sourcePower"
+                    },
+                    "text": "R1 (SYN-A)의 소스 전력: 300 W."
+                  },
+                  {
+                    "id": "O6",
+                    "source": {
+                      "kind": "run",
+                      "key": "R1",
+                      "metric": "biasPower"
+                    },
+                    "text": "R1 (SYN-A)의 바이어스 전력: 600 W."
+                  },
+                  {
+                    "id": "O7",
+                    "source": {
+                      "kind": "run",
+                      "key": "R2",
+                      "metric": "sourcePower"
+                    },
+                    "text": "R2 (SYN-B)의 소스 전력: 300 W."
+                  },
+                  {
+                    "id": "O8",
+                    "source": {
+                      "kind": "run",
+                      "key": "R2",
+                      "metric": "biasPower"
+                    },
+                    "text": "R2 (SYN-B)의 바이어스 전력: 600 W."
+                  }
+                ],
+                "usedRunRefs": [
+                  {
+                    "runId": "SYN-A",
+                    "runVersionId": "9c96bd07-9b6d-5acf-a790-e1560f6df19e"
+                  },
+                  {
+                    "runId": "SYN-B",
+                    "runVersionId": "728da6ce-f414-5460-bce8-5f2ce04d4989"
+                  }
+                ],
+                "numericPolicyVersion": "v1",
+                "aggregationPolicyVersion": "multi-run-1",
+                "plotIds": [],
+                "outputs": [],
+                "featurePolicyVersion": "source-features-1"
+              },
+              "pressure": [
+                {
+                  "value": 4.0,
+                  "field": "pressure",
+                  "unit": "mTorr",
+                  "run_ref": {
+                    "runId": "SYN-A",
+                    "runVersionId": "9c96bd07-9b6d-5acf-a790-e1560f6df19e"
+                  },
+                  "evidence_ids": [
+                    "execution-1-compare:R1:pressure"
+                  ]
+                },
+                {
+                  "value": 6.0,
+                  "field": "pressure",
+                  "unit": "mTorr",
+                  "run_ref": {
+                    "runId": "SYN-B",
+                    "runVersionId": "728da6ce-f414-5460-bce8-5f2ce04d4989"
+                  },
+                  "evidence_ids": [
+                    "execution-1-compare:R2:pressure"
+                  ]
+                }
+              ]
+            },
+            "runRefs": [
+              {
+                "runId": "SYN-A",
+                "runVersionId": "9c96bd07-9b6d-5acf-a790-e1560f6df19e"
+              },
+              {
+                "runId": "SYN-B",
+                "runVersionId": "728da6ce-f414-5460-bce8-5f2ce04d4989"
+              }
+            ],
+            "groupId": "comparison",
+            "reason": null
+          }
+        ],
+        "evidence": [
+          {
+            "id": "execution-1-search:candidates",
+            "executionId": "execution-1-search",
+            "field": "candidates",
+            "value": [
+              "SYN-A",
+              "SYN-B"
+            ],
+            "unit": null,
+            "runRef": null
+          },
+          {
+            "id": "execution-1-compare:R1:pressure",
+            "executionId": "execution-1-compare",
+            "field": "pressure",
+            "value": 4.0,
+            "unit": "mTorr",
+            "runRef": {
+              "runId": "SYN-A",
+              "runVersionId": "9c96bd07-9b6d-5acf-a790-e1560f6df19e"
+            }
+          },
+          {
+            "id": "execution-1-compare:R2:pressure",
+            "executionId": "execution-1-compare",
+            "field": "pressure",
+            "value": 6.0,
+            "unit": "mTorr",
+            "runRef": {
+              "runId": "SYN-B",
+              "runVersionId": "728da6ce-f414-5460-bce8-5f2ce04d4989"
+            }
+          },
+          {
+            "id": "execution-1-compare:O1",
+            "executionId": "execution-1-compare",
+            "field": "observation",
+            "value": "R1 (SYN-A)의 압력: 4 mTorr.",
+            "unit": null,
+            "runRef": null
+          },
+          {
+            "id": "execution-1-compare:O2",
+            "executionId": "execution-1-compare",
+            "field": "observation",
+            "value": "R2 (SYN-B)의 압력: 6 mTorr.",
+            "unit": null,
+            "runRef": null
+          },
+          {
+            "id": "execution-1-compare:O3",
+            "executionId": "execution-1-compare",
+            "field": "observation",
+            "value": "R1 → R2의 압력 절대 차이: 2 mTorr.",
+            "unit": null,
+            "runRef": null
+          },
+          {
+            "id": "execution-1-compare:O4",
+            "executionId": "execution-1-compare",
+            "field": "observation",
+            "value": "선택한 Run의 압력 최솟값: 4 mTorr, 최댓값: 6 mTorr, 범위 폭: 2 mTorr. 가용 Run 2개.",
+            "unit": null,
+            "runRef": null
+          },
+          {
+            "id": "execution-1-compare:O5",
+            "executionId": "execution-1-compare",
+            "field": "observation",
+            "value": "R1 (SYN-A)의 소스 전력: 300 W.",
+            "unit": null,
+            "runRef": null
+          },
+          {
+            "id": "execution-1-compare:O6",
+            "executionId": "execution-1-compare",
+            "field": "observation",
+            "value": "R1 (SYN-A)의 바이어스 전력: 600 W.",
+            "unit": null,
+            "runRef": null
+          },
+          {
+            "id": "execution-1-compare:O7",
+            "executionId": "execution-1-compare",
+            "field": "observation",
+            "value": "R2 (SYN-B)의 소스 전력: 300 W.",
+            "unit": null,
+            "runRef": null
+          },
+          {
+            "id": "execution-1-compare:O8",
+            "executionId": "execution-1-compare",
+            "field": "observation",
+            "value": "R2 (SYN-B)의 바이어스 전력: 600 W.",
+            "unit": null,
+            "runRef": null
+          }
+        ],
+        "draft": null,
+        "answer": "검색 결과 2개\n\nSYN-A의 압력: 4.0 mTorr\n\nSYN-B의 압력: 6.0 mTorr\n\nR1 (SYN-A)의 압력: 4 mTorr.\n\nR2 (SYN-B)의 압력: 6 mTorr.\n\nR1 → R2의 압력 절대 차이: 2 mTorr.\n\n선택한 Run의 압력 최솟값: 4 mTorr, 최댓값: 6 mTorr, 범위 폭: 2 mTorr. 가용 Run 2개.\n\nR1 (SYN-A)의 소스 전력: 300 W.\n\nR1 (SYN-A)의 바이어스 전력: 600 W.\n\nR2 (SYN-B)의 소스 전력: 300 W.\n\nR2 (SYN-B)의 바이어스 전력: 600 W.",
+        "executionStatus": "COMPLETE",
+        "hasIncompleteWork": false,
+        "review": {
+          "status": "SKIPPED",
+          "answers": [],
+          "reason": null
+        },
+        "budget": {
+          "replans_used": 0,
+          "answer_rewrites_used": 0,
+          "partial_finalizations_used": 0,
+          "model_requests_used": 2,
+          "tool_invocations_used": 2,
+          "active_elapsed_seconds": 0.0
+        }
+      }
+    },
+    "pending": {
+      "id": "46343cf8-3297-53fb-99f1-f4850b1c62c1",
+      "type": "run_selection",
+      "message": "검색 결과에서 비교할 Run을 2개 선택해 주세요.",
+      "minSelections": 2,
+      "maxSelections": 2,
+      "sourceExecutionId": "execution-1-search"
+    },
+    "calls": [
+      "PLAN_INITIAL",
+      "PLAN_REVIEW"
+    ],
+    "review_calls": 1
+  },
+  "rewrite": {
+    "answer": {
+      "implementationId": "baseline",
+      "graphVersion": "baseline",
+      "schemaVersion": 1,
+      "intent": "COMPOSITE_ANSWER",
+      "question": "선택한 두 Run의 압력을 비교하고 의미를 설명해줘.",
+      "confirmedContext": {
+        "entries": [
+          {
+            "key": "R1",
+            "ref": {
+              "runId": "A",
+              "runVersionId": "synthetic-A-v1"
+            }
+          },
+          {
+            "key": "R2",
+            "ref": {
+              "runId": "B",
+              "runVersionId": "synthetic-B-v1"
+            }
+          }
+        ]
+      },
+      "planRevision": 1,
+      "stepResults": [
+        {
+          "executionId": "execution-compare",
+          "stepId": "compare",
+          "status": "verified",
+          "outputs": {
+            "toolResult": {
+              "kind": "compare_runs",
+              "resultStatus": "COMPARISON_READY",
+              "mode": "pair",
+              "metricIds": [
+                "pressure"
+              ],
+              "baselineKey": null,
+              "trendAxis": null,
+              "runs": [
+                {
+                  "key": "R1",
+                  "ref": {
+                    "runId": "A",
+                    "runVersionId": "synthetic-A-v1"
+                  },
+                  "conditions": {
+                    "pressure": {
+                      "value": 8.0,
+                      "unit": "mTorr",
+                      "status": "AVAILABLE",
+                      "reason": null,
+                      "sourceValue": {
+                        "value": 8.0,
+                        "unit": "mTorr"
+                      }
+                    },
+                    "sourcePower": {
+                      "value": 300.0,
+                      "unit": "W",
+                      "status": "AVAILABLE",
+                      "reason": null,
+                      "sourceValue": {
+                        "value": 300.0,
+                        "unit": "W"
+                      }
+                    },
+                    "biasPower": {
+                      "value": 100.0,
+                      "unit": "W",
+                      "status": "AVAILABLE",
+                      "reason": null,
+                      "sourceValue": {
+                        "value": 100.0,
+                        "unit": "W"
+                      }
+                    }
+                  },
+                  "metrics": {
+                    "pressure": {
+                      "value": 8.0,
+                      "unit": "mTorr",
+                      "status": "AVAILABLE",
+                      "reason": null,
+                      "sourceValue": {
+                        "value": 8.0,
+                        "unit": "mTorr"
+                      }
+                    }
+                  },
+                  "quality": {
+                    "convergenceStatus": "CONVERGED",
+                    "qualityStatus": "VERIFIED",
+                    "catalogStatus": "READY"
+                  }
+                },
+                {
+                  "key": "R2",
+                  "ref": {
+                    "runId": "B",
+                    "runVersionId": "synthetic-B-v1"
+                  },
+                  "conditions": {
+                    "pressure": {
+                      "value": 12.0,
+                      "unit": "mTorr",
+                      "status": "AVAILABLE",
+                      "reason": null,
+                      "sourceValue": {
+                        "value": 12.0,
+                        "unit": "mTorr"
+                      }
+                    },
+                    "sourcePower": {
+                      "value": 300.0,
+                      "unit": "W",
+                      "status": "AVAILABLE",
+                      "reason": null,
+                      "sourceValue": {
+                        "value": 300.0,
+                        "unit": "W"
+                      }
+                    },
+                    "biasPower": {
+                      "value": 100.0,
+                      "unit": "W",
+                      "status": "AVAILABLE",
+                      "reason": null,
+                      "sourceValue": {
+                        "value": 100.0,
+                        "unit": "W"
+                      }
+                    }
+                  },
+                  "metrics": {
+                    "pressure": {
+                      "value": 12.0,
+                      "unit": "mTorr",
+                      "status": "AVAILABLE",
+                      "reason": null,
+                      "sourceValue": {
+                        "value": 12.0,
+                        "unit": "mTorr"
+                      }
+                    }
+                  },
+                  "quality": {
+                    "convergenceStatus": "CONVERGED",
+                    "qualityStatus": "VERIFIED",
+                    "catalogStatus": "READY"
+                  }
+                }
+              ],
+              "comparisons": [
+                {
+                  "id": "absolute_difference:R1:R2:pressure",
+                  "kind": "absolute_difference",
+                  "leftKey": "R1",
+                  "rightKey": "R2",
+                  "metric": "pressure",
+                  "difference": {
+                    "value": 4.0,
+                    "unit": "mTorr",
+                    "status": "AVAILABLE",
+                    "reason": null,
+                    "sourceValue": null
+                  },
+                  "percentChange": null,
+                  "direction": "not_applicable"
+                }
+              ],
+              "summaries": [
+                {
+                  "id": "summary:pressure",
+                  "metric": "pressure",
+                  "availableCount": 2,
+                  "minimum": {
+                    "value": 8.0,
+                    "unit": "mTorr",
+                    "status": "AVAILABLE",
+                    "reason": null,
+                    "sourceValue": null
+                  },
+                  "minimumKeys": [
+                    "R1"
+                  ],
+                  "maximum": {
+                    "value": 12.0,
+                    "unit": "mTorr",
+                    "status": "AVAILABLE",
+                    "reason": null,
+                    "sourceValue": null
+                  },
+                  "maximumKeys": [
+                    "R2"
+                  ],
+                  "range": {
+                    "value": 4.0,
+                    "unit": "mTorr",
+                    "status": "AVAILABLE",
+                    "reason": null,
+                    "sourceValue": null
+                  }
+                }
+              ],
+              "trends": [],
+              "observations": [
+                {
+                  "id": "O1",
+                  "source": {
+                    "kind": "run",
+                    "key": "R1",
+                    "metric": "pressure"
+                  },
+                  "text": "R1 (A)의 압력: 8 mTorr."
+                },
+                {
+                  "id": "O2",
+                  "source": {
+                    "kind": "run",
+                    "key": "R2",
+                    "metric": "pressure"
+                  },
+                  "text": "R2 (B)의 압력: 12 mTorr."
+                },
+                {
+                  "id": "O3",
+                  "source": {
+                    "kind": "comparison",
+                    "key": "absolute_difference:R1:R2:pressure",
+                    "metric": "pressure"
+                  },
+                  "text": "R1 → R2의 압력 절대 차이: 4 mTorr."
+                },
+                {
+                  "id": "O4",
+                  "source": {
+                    "kind": "summary",
+                    "key": "summary:pressure",
+                    "metric": "pressure"
+                  },
+                  "text": "선택한 Run의 압력 최솟값: 8 mTorr, 최댓값: 12 mTorr, 범위 폭: 4 mTorr. 가용 Run 2개."
+                },
+                {
+                  "id": "O5",
+                  "source": {
+                    "kind": "run",
+                    "key": "R1",
+                    "metric": "sourcePower"
+                  },
+                  "text": "R1 (A)의 소스 전력: 300 W."
+                },
+                {
+                  "id": "O6",
+                  "source": {
+                    "kind": "run",
+                    "key": "R1",
+                    "metric": "biasPower"
+                  },
+                  "text": "R1 (A)의 바이어스 전력: 100 W."
+                },
+                {
+                  "id": "O7",
+                  "source": {
+                    "kind": "run",
+                    "key": "R2",
+                    "metric": "sourcePower"
+                  },
+                  "text": "R2 (B)의 소스 전력: 300 W."
+                },
+                {
+                  "id": "O8",
+                  "source": {
+                    "kind": "run",
+                    "key": "R2",
+                    "metric": "biasPower"
+                  },
+                  "text": "R2 (B)의 바이어스 전력: 100 W."
+                }
+              ],
+              "usedRunRefs": [
+                {
+                  "runId": "A",
+                  "runVersionId": "synthetic-A-v1"
+                },
+                {
+                  "runId": "B",
+                  "runVersionId": "synthetic-B-v1"
+                }
+              ],
+              "numericPolicyVersion": "v1",
+              "aggregationPolicyVersion": "multi-run-1",
+              "plotIds": [],
+              "outputs": [],
+              "featurePolicyVersion": "source-features-1"
+            },
+            "pressure": [
+              {
+                "value": 8.0,
+                "field": "pressure",
+                "unit": "mTorr",
+                "run_ref": {
+                  "runId": "A",
+                  "runVersionId": "synthetic-A-v1"
+                },
+                "evidence_ids": [
+                  "execution-compare:R1:pressure"
+                ]
+              },
+              {
+                "value": 12.0,
+                "field": "pressure",
+                "unit": "mTorr",
+                "run_ref": {
+                  "runId": "B",
+                  "runVersionId": "synthetic-B-v1"
+                },
+                "evidence_ids": [
+                  "execution-compare:R2:pressure"
+                ]
+              }
+            ]
+          },
+          "runRefs": [
+            {
+              "runId": "A",
+              "runVersionId": "synthetic-A-v1"
+            },
+            {
+              "runId": "B",
+              "runVersionId": "synthetic-B-v1"
+            }
+          ],
+          "groupId": "comparison",
+          "reason": null
+        }
+      ],
+      "evidence": [
+        {
+          "id": "execution-compare:R1:pressure",
+          "executionId": "execution-compare",
+          "field": "pressure",
+          "value": 8.0,
+          "unit": "mTorr",
+          "runRef": {
+            "runId": "A",
+            "runVersionId": "synthetic-A-v1"
+          }
+        },
+        {
+          "id": "execution-compare:R2:pressure",
+          "executionId": "execution-compare",
+          "field": "pressure",
+          "value": 12.0,
+          "unit": "mTorr",
+          "runRef": {
+            "runId": "B",
+            "runVersionId": "synthetic-B-v1"
+          }
+        },
+        {
+          "id": "execution-compare:O1",
+          "executionId": "execution-compare",
+          "field": "observation",
+          "value": "R1 (A)의 압력: 8 mTorr.",
+          "unit": null,
+          "runRef": null
+        },
+        {
+          "id": "execution-compare:O2",
+          "executionId": "execution-compare",
+          "field": "observation",
+          "value": "R2 (B)의 압력: 12 mTorr.",
+          "unit": null,
+          "runRef": null
+        },
+        {
+          "id": "execution-compare:O3",
+          "executionId": "execution-compare",
+          "field": "observation",
+          "value": "R1 → R2의 압력 절대 차이: 4 mTorr.",
+          "unit": null,
+          "runRef": null
+        },
+        {
+          "id": "execution-compare:O4",
+          "executionId": "execution-compare",
+          "field": "observation",
+          "value": "선택한 Run의 압력 최솟값: 8 mTorr, 최댓값: 12 mTorr, 범위 폭: 4 mTorr. 가용 Run 2개.",
+          "unit": null,
+          "runRef": null
+        },
+        {
+          "id": "execution-compare:O5",
+          "executionId": "execution-compare",
+          "field": "observation",
+          "value": "R1 (A)의 소스 전력: 300 W.",
+          "unit": null,
+          "runRef": null
+        },
+        {
+          "id": "execution-compare:O6",
+          "executionId": "execution-compare",
+          "field": "observation",
+          "value": "R1 (A)의 바이어스 전력: 100 W.",
+          "unit": null,
+          "runRef": null
+        },
+        {
+          "id": "execution-compare:O7",
+          "executionId": "execution-compare",
+          "field": "observation",
+          "value": "R2 (B)의 소스 전력: 300 W.",
+          "unit": null,
+          "runRef": null
+        },
+        {
+          "id": "execution-compare:O8",
+          "executionId": "execution-compare",
+          "field": "observation",
+          "value": "R2 (B)의 바이어스 전력: 100 W.",
+          "unit": null,
+          "runRef": null
+        }
+      ],
+      "draft": {
+        "fact_ids": [
+          "execution-compare:R1:pressure"
+        ],
+        "interpretations": [
+          {
+            "id": "interpretation",
+            "evidence_ids": [
+              "execution-compare:R1:pressure"
+            ],
+            "text": "관찰만으로 원인을 단정할 수 없습니다. 압력은 8 mTorr입니다.",
+            "assumptions": []
+          }
+        ],
+        "limitations": []
+      },
+      "answer": "A의 압력: 8.0 mTorr\n\n관찰만으로 원인을 단정할 수 없습니다. 압력은 8 mTorr입니다.",
+      "executionStatus": "COMPLETE",
+      "hasIncompleteWork": false,
+      "review": {
+        "status": "PASS",
+        "answers": [
+          {
+            "name": "interpretation_scope",
+            "choice": "within_evidence",
+            "probabilities": {
+              "within_evidence": 1.0,
+              "overclaim": 0.0,
+              "unassessable": 0.0
+            },
+            "confidence": 1.0
+          }
+        ],
+        "reason": null
+      },
+      "budget": {
+        "replans_used": 0,
+        "answer_rewrites_used": 1,
+        "partial_finalizations_used": 0,
+        "model_requests_used": 6,
+        "tool_invocations_used": 1,
+        "active_elapsed_seconds": 0.0
+      }
+    },
+    "calls": [
+      "PLAN_INITIAL",
+      "PLAN_REVIEW",
+      "COMPOSE",
+      "REVIEW",
+      "ANSWER_REWRITE",
+      "REVIEW"
+    ]
+  }
+}

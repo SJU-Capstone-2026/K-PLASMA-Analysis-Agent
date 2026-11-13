@@ -1,0 +1,208 @@
+{
+  "schemaVersion": 1,
+  "changes": [
+    {
+      "path": "backend_client.py",
+      "selectors": [
+        "class:BackendClient/function:__init__",
+        "import:kplasma_agent.v2_local_llm.network:local_http_client"
+      ],
+      "reason": "Restrict the owned backend client to one explicit loopback origin with no proxy or redirects.",
+      "tests": [
+        "tests/v2_local_llm/test_network.py",
+        "tests/v2_local_llm/test_model_client.py"
+      ]
+    },
+    {
+      "path": "config.py",
+      "selectors": [
+        "assign:PREFIX",
+        "class:Settings/assign:context_tokens",
+        "class:Settings/assign:d1_batch_tokens",
+        "class:Settings/assign:d1_context_tokens",
+        "class:Settings/assign:d1_model",
+        "class:Settings/assign:d1_model_path",
+        "class:Settings/assign:d1_revision",
+        "class:Settings/assign:d1_runtime_version",
+        "class:Settings/assign:d1_token",
+        "class:Settings/assign:d1_tokenizer_path",
+        "class:Settings/assign:d1_ubatch_tokens",
+        "class:Settings/assign:d1_url",
+        "class:Settings/assign:graph_build_id",
+        "class:Settings/assign:model",
+        "class:Settings/assign:model_path",
+        "class:Settings/assign:model_revision",
+        "class:Settings/assign:model_url",
+        "class:Settings/assign:phoenix_project_name",
+        "class:Settings/assign:runtime_version",
+        "class:Settings/assign:tokenizer_path",
+        "class:Settings/function:from_env",
+        "class:Settings/function:readiness",
+        "class:Settings/function:versions",
+        "function:_reject_contamination",
+        "import:dotenv:dotenv_values",
+        "import:dotenv:load_dotenv",
+        "import:kplasma_agent.v2_local_llm.network:validate_endpoint",
+        "class:Settings/assign:measurement_path",
+        "class:Settings/assign:reasoning_effort",
+        "class:Settings/function:generation_options"
+      ],
+      "reason": "Require pinned local artifacts, live native model contracts and matching full-stack memory measurements; preserve local-only destinations and recovery identity without OS outbound-filter requirements. Follow-up: pinned llama.cpp GGUF profile, role-specific thinking, native token counting and measured sequential residency; unchanged graph/tool/final answer contracts.",
+      "tests": [
+        "tests/v2_local_llm/test_config.py",
+        "tests/v2_local_llm/test_worker.py",
+        "tests/v2_local_llm/test_llamacpp_profile.py",
+        "tests/v2_local_llm/test_llamacpp_runtime.py"
+      ]
+    },
+    {
+      "path": "model_client.py",
+      "selectors": [
+        "docstring",
+        "class:ModelClient/function:__init__",
+        "class:ModelClient/function:_generate",
+        "class:ModelClient/function:_json_request",
+        "class:ModelClient/function:_tool_request",
+        "import:kplasma_agent.v2_local_llm.network:local_http_client,validate_endpoint",
+        "class:ModelClient/function:_input",
+        "class:ModelClient/function:_request",
+        "class:ModelClient/function:select_tool",
+        "class:ModelClient/function:answer",
+        "class:ModelClient/function:stream_answer",
+        "class:ModelClient/function:generate"
+      ],
+      "reason": "Use Qwen through the owned loopback transport, native submit_plan tool calls for planning and JSON Schema for answer drafts; preserve real native call provenance, validation, failure handling, budgets, usage and answer streaming. Follow-up: pinned llama.cpp GGUF profile, role-specific thinking, native token counting and measured sequential residency; unchanged graph/tool/final answer contracts. LocalLLM_v2.1 removes unused inherited Responses and v1 tool-selection/continuation methods; active native planning, strict answer generation and streaming stay unchanged.",
+      "tests": [
+        "tests/v2_local_llm/test_model_client.py",
+        "tests/v2_local_llm/test_chat_schema.py",
+        "tests/v2_local_llm/test_model_gateway.py",
+        "tests/v2_local_llm/test_native_plan.py",
+        "tests/v2_local_llm/test_llamacpp_profile.py",
+        "tests/v2_local_llm/test_llamacpp_runtime.py"
+      ]
+    },
+    {
+      "path": "persistence/checkpointer.py",
+      "selectors": [
+        "class:DurableSaver/function:__init__",
+        "class:DurableSaver/function:_save"
+      ],
+      "reason": "Use a local-only saver format so another graph cannot reuse its checkpoint envelope.",
+      "tests": [
+        "tests/v2_local_llm/test_checkpoint_adapter.py",
+        "tests/v2_local_llm/test_worker.py"
+      ]
+    },
+    {
+      "path": "tracing.py",
+      "selectors": [
+        "function:_register",
+        "function:initialize",
+        "import:urllib.parse:urlsplit"
+      ],
+      "reason": "Disable external exporter construction; preserve no-op spans and credential scrubbing.",
+      "tests": [
+        "tests/v2_local_llm/test_tracing.py"
+      ]
+    },
+    {
+      "path": "core/budget.py",
+      "selectors": [
+        "assign:ROLES",
+        "assign:MAX_INPUT_TOKENS",
+        "docstring",
+        "function:_check_count",
+        "function:_context_limit",
+        "function:_encoding",
+        "function:_json",
+        "function:_role",
+        "function:check_payload",
+        "function:make_input_guard",
+        "import:functools:lru_cache",
+        "import:tiktoken",
+        "function:make_d1_counter",
+        "function:make_qwen_counter"
+      ],
+      "reason": "Count the complete pinned local Qwen and native d1 templates with local tokenizers; enforce actual context/batch limits and reject overflow without truncating input. Follow-up: pinned llama.cpp GGUF profile, role-specific thinking, native token counting and measured sequential residency; unchanged graph/tool/final answer contracts. LocalLLM_v2.1 removes the obsolete Hugging Face tokenizer fallback; current workers and evaluations retain authenticated native counters and all budget checks, failing closed when a Qwen counter is missing.",
+      "tests": [
+        "tests/v2_local_llm/test_budget.py",
+        "tests/v2_local_llm/test_native_token_counting.py",
+        "tests/v2_local_llm/test_llamacpp_profile.py",
+        "tests/v2_local_llm/test_llamacpp_runtime.py"
+      ]
+    },
+    {
+      "path": "core/model_gateway.py",
+      "selectors": [
+        "docstring",
+        "class:V2LocalLLMModelGateway/function:submit_plan",
+        "class:V2LocalLLMSettings/function:from_env",
+        "function:_decisions_response",
+        "function:call_submit_plan",
+        "import:pydantic:ValidationError",
+        "import:os"
+      ],
+      "reason": "Receive exactly one native submit_plan call with the frozen tool schema, decode only nullable revision and JSON-encoded list representations, preserve strict validation and its error paths for the existing replan loop; retain mandatory d1 review and unchanged graph nodes, edges and answer contracts without content JSON fallback. Follow-up: pinned llama.cpp GGUF profile, role-specific thinking, native token counting and measured sequential residency; unchanged graph/tool/final answer contracts.",
+      "tests": [
+        "tests/v2_local_llm/test_config.py",
+        "tests/v2_local_llm/test_decisions.py",
+        "tests/v2_local_llm/test_model_gateway.py",
+        "tests/v2_local_llm/test_native_plan.py",
+        "tests/v2_local_llm/test_llamacpp_profile.py",
+        "tests/v2_local_llm/test_llamacpp_runtime.py"
+      ]
+    },
+    {
+      "path": "graph.py",
+      "selectors": [
+        "function:_generation_failure"
+      ],
+      "reason": "Forward native argument validation diagnostics in the existing generation_failure replan context, retaining original arguments and usage. No graph node, edge, routing, budget, execution or final answer changes.",
+      "tests": [
+        "tests/v2_local_llm/test_native_plan.py",
+        "tests/v2_local_llm/test_clone_parity.py"
+      ]
+    },
+    {
+      "path": "network.py",
+      "newFile": true,
+      "selectors": [],
+      "reason": "Enforce one literal loopback origin at the transport before a request reaches sockets; ignore proxies and do not follow redirects.",
+      "tests": [
+        "tests/v2_local_llm/test_network.py"
+      ]
+    },
+    {
+      "path": "core/decisions.py",
+      "newFile": true,
+      "selectors": [],
+      "reason": "Normalize native System One typed choices without inventing probabilities, confidence or usage.",
+      "tests": [
+        "tests/v2_local_llm/test_decisions.py"
+      ]
+    },
+    {
+      "path": "worker.py",
+      "newFile": true,
+      "selectors": [],
+      "reason": "Physically derive the private single-version worker from the pinned v2 worker (worker-source.json); directly construct the owned graph/saver/gateway and block unverified real execution.",
+      "tests": [
+        "tests/v2_local_llm/test_worker.py",
+        "tests/v2_local_llm/test_checkpoint_adapter.py"
+      ]
+    },
+    {
+      "path": "runtime.py",
+      "newFile": true,
+      "selectors": [],
+      "reason": "Read local runtime readiness and native memory facts without external services or OS network filters. Follow-up: pinned llama.cpp GGUF profile, role-specific thinking, native token counting and measured sequential residency; unchanged graph/tool/final answer contracts.",
+      "tests": [
+        "tests/v2_local_llm/test_runtime_measurement.py",
+        "tests/v2_local_llm/test_config.py",
+        "tests/v2_local_llm/test_worker.py",
+        "tests/v2_local_llm/test_llamacpp_profile.py",
+        "tests/v2_local_llm/test_llamacpp_runtime.py"
+      ]
+    }
+  ]
+}

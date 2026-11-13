@@ -12,3 +12,15 @@ test('accepts the shared artificial v2 snapshot', async () => {
   const { default: fixture } = await import('./support/v2/contracts.json');
   expect(contracts.isGraphV2AnswerSnapshot(fixture.general_answer)).toBe(true);
 });
+
+test.each(['v2', 'v3', 'v2_localLLM'])('recognizes %s without weakening the strict v2 guard', async version => {
+  const { default: fixture } = await import('./support/v2/contracts.json');
+  const snapshot = {...fixture.general_answer, implementationId: version, graphVersion: version};
+  const guard = Reflect.get(contracts, 'isCompositeAnswerSnapshot');
+  expect(guard).toBeTypeOf('function');
+  expect(guard(snapshot)).toBe(true);
+  expect(contracts.isGraphV2AnswerSnapshot(snapshot)).toBe(version === 'v2');
+  expect(guard({...snapshot, graphVersion: version === 'v3' ? 'v2' : 'v3'})).toBe(false);
+  expect(guard({...snapshot, implementationId: 'v1', graphVersion: 'v1'})).toBe(false);
+  expect(guard({...snapshot, budget: {...snapshot.budget, model_requests_used: 14}})).toBe(false);
+});

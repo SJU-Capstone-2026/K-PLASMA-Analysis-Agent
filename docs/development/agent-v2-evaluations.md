@@ -82,7 +82,7 @@ uv run --frozen python -m evals.run_plan_review --output /tmp/decisions-plan-001
 | 파일 | 역할 |
 | --- | --- |
 | `cases.json` | 고정 40문항, 선택 Run·기준, HITL 선택, 기대 필터·정렬·수치·정답 집합과 검토 기준 |
-| `runs.json` | 고정 149개 Run의 불변 버전, 조건, 수치, 단위·분석 메타데이터 |
+| `runs.json` | 고정 Run의 불변 버전, 조건, 수치, 단위·분석 메타데이터. 기존 묶음은 149개, 복원 후 별도 묶음은 150개 |
 | `wave-expected.json` | 원본 파형에서 독립 계산한 기대값 |
 | `distribution-expected.json` | 원본 분포에서 독립 계산한 기대값·부재 이유 |
 | `oracle-overrides.json` | 해당 oracle 해시와 일치하는 동결 정답 보정이 있는 경우 함께 공급 |
@@ -90,6 +90,10 @@ uv run --frozen python -m evals.run_plan_review --output /tmp/decisions-plan-001
 실행기는 문항별 oracle 해시, 40개 고유 문항과 범주 구성, 기대 검색 결과·계산을
 확인한다. 다른 자료나 잘못된 정답 묶음을 사용하면 사전 검사에서 중단한다.
 새 문항을 추가하는 실험은 기존 기준을 덮어쓰지 말고 별도 버전으로 준비한다.
+Run 수는 각 문항의 `sourceOracle.catalogCount`와 일치해야 하며 149개·150개 묶음을 구분한다.
+150개 묶음은 기존 문항을 유지하고, 복원된 원본을 독립 기준 자료와 대조한 뒤 영향을 받는
+검색·비교 정답과 oracle 해시를 새 디렉터리에 동결한다. 기존 149개 묶음과 평가 기록은 보존한다.
+현재 로컬 모델의 웹 40문항 기준 결과는 [별도 기록](../verification/2026-11-13-v2-local-llm-baseline-40.md)에 있다.
 
 **앱 환경.** [로컬 개발 환경](../development.md)을 따라 별도 DB·storage의 평가용
 backend와 frontend를 시작한다. 동결 자료와 같은 Run 버전을 복원한 DB와 대응 storage가
@@ -179,3 +183,10 @@ API 전용 결과의 실제 화면까지 추가 검증한 것으로 표시하지
 CI는 평가기·HITL·복구 분류를 인공 응답으로 검사하며 두 유료 명령을 자동 실행하지 않는다.
 내부 평가의 집계 성적과 재현 방법은 문서·PR에 기록할 수 있다. 실제 Run 데이터,
 사용자 원문을 포함한 평가 파일·trace·스크린샷과 비밀값은 GitHub Actions·PR artifact에 올리지 않는다.
+
+
+## 웹 일부 문항 실행
+
+`evals.run_flow`는 전체 40문항 은행을 검증한 뒤 `--mode browser --limit 5`로 첫 5문항만 선택할 수 있다. 기본값은 기존 40 browser + 40 API다. manifest·진행·완료 검사는 선택한 행렬의 실제 개수를 사용하며 실패 문항을 자동 재접수하지 않는다.
+
+이번 llama.cpp 구성 비교는 Q01~Q05 각 1회, API 모드 접수 0회로 제한한다. 기존 같은 다섯 문항의 자동 통과는 1/5이며 전체 성적 5/40과 구분한다. [전환·평가 계획](../plans/2026-11-13-001-v2-local-llm-llamacpp-thinking-web5.md)을 따른다.

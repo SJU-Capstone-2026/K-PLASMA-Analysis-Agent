@@ -78,7 +78,7 @@ export async function createZip(root,target) {
   await command(process.env.JAVA_HOME?join(process.env.JAVA_HOME,'bin/jar'):'jar',['--create','--file',target,'--no-manifest','-C',root,'.']);
 }
 /** Streams files; the actual150 folder can be >1GiB and must not be buffered into FormData. */
-export async function upload(api,root,mode,archive) {
+export async function upload(api,root,mode,archive,requestHeaders={}) {
   const paths=mode==='FOLDER'?await listFiles(root):[archive];
   const boundary=`kplasma-${randomUUID()}`;
   const entries=paths.map((path,index)=>({partName:`file${index}`,relativePath:mode==='FOLDER'?path:'reference.zip'}));
@@ -88,15 +88,15 @@ export async function upload(api,root,mode,archive) {
   const files=paths.map(path=>mode==='FOLDER'?join(root,path):path);
   const sizes=await Promise.all(files.map(async path=>(await stat(path)).size));
   const length=manifest.length+suffix.length+sizes.reduce((sum,size,index)=>sum+size+headers[index].length+2,0);
-  const req=request(new URL('/api/import-batches',api),{method:'POST',headers:{'Content-Type':`multipart/form-data; boundary=${boundary}`,'Content-Length':length,'Idempotency-Key':randomUUID()}});
+  const req=request(new URL('/api/import-batches',api),{method:'POST',headers:{...requestHeaders,'Content-Type':`multipart/form-data; boundary=${boundary}`,'Content-Length':length,'Idempotency-Key':randomUUID()}});
   const response=new Promise((resolve,reject)=>{req.once('error',reject);req.once('response',async res=>{const chunks=[];for await(const chunk of res)chunks.push(chunk);if(res.statusCode!==202){reject(new Error(`Import rejected HTTP ${res.statusCode}; no response values logged.`));return;}resolve(JSON.parse(Buffer.concat(chunks).toString()));});});
   async function send(chunk){if(!req.write(chunk))await once(req,'drain');}
   await send(manifest);
   for(let index=0;index<files.length;index++){await send(headers[index]);for await(const chunk of createReadStream(files[index]))await send(chunk);await send(Buffer.from('\r\n'));}
   req.end(suffix);return response;
 }
-export async function get(api,path) {const response=await fetch(new URL(path,api));if(!response.ok)throw new Error(`API ${path.split('/').slice(0,3).join('/')} returned HTTP ${response.status}`);return response.json();}
-export async function terminalBatch(api,id) {for(let count=0;count<1800;count++){const batch=await get(api,`/api/import-batches/${id}`);if(['SUCCESS','PARTIAL_SUCCESS','FAILED'].includes(batch.status))return batch;await sleep(500);}throw new Error('Import processing timed out.');}
+export async function get(api,path,requestHeaders={}) {const response=await fetch(new URL(path,api),{headers:requestHeaders});if(!response.ok)throw new Error(`API ${path.split('/').slice(0,3).join('/')} returned HTTP ${response.status}`);return response.json();}
+export async function terminalBatch(api,id,requestHeaders={}) {for(let count=0;count<1800;count++){const batch=await get(api,`/api/import-batches/${id}`,requestHeaders);if(['SUCCESS','PARTIAL_SUCCESS','FAILED'].includes(batch.status))return batch;await sleep(500);}throw new Error('Import processing timed out.');}
 export async function syntheticFolder(output) {
   const source=await readFile(join(repo,'backend/src/test/java/com/kplasma/analysisagent/ingestion/SyntheticRunFiles.java'),'utf8');
   const blocks=[...source.matchAll(/return """\n([\s\S]*?)\n\s*"""/g)].map(match=>match[1].split('\n').map(line=>line.replace(/^ {12}/,'')).join('\n')+'\n');

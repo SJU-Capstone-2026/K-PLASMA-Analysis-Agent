@@ -1,3 +1,4 @@
+import {isCompositeGraphVersion} from 'agent';
 import {useEffect,useMemo,useState} from 'react';
 import type {AgentRequestView,LegacyRunOptions,RunOption,Snapshot} from 'agent';
 import {fetchLegacyRunOptions} from '../../api/agent';
@@ -7,7 +8,7 @@ import {RunPicker} from './RunPicker';
 type RunSelectionProps={request:AgentRequestView;sending:boolean;onResume:(input:Snapshot)=>Promise<void>;onError:(error:unknown)=>void;onCancel?:()=>Promise<void>};
 export function RunSelectionPanel(props:RunSelectionProps){
  const key=`${props.request.requestId}:${props.request.requestRevision}:${props.request.pendingInput!.id}`;
- return props.request.graphVersion==='v2'?<LegacyRunPicker key={key} {...props}/>:<RunPicker key={key} {...props}/>;
+ return isCompositeGraphVersion(props.request.graphVersion)?<LegacyRunPicker key={key} {...props}/>:<RunPicker key={key} {...props}/>;
 }
 
 function LegacyRunPicker({request,sending,onResume,onError,onCancel}:RunSelectionProps){

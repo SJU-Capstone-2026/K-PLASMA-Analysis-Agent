@@ -5,6 +5,7 @@ import pytest
 from .run_v2 import jobs
 from .v2_cases import CASES
 from .v2_harness import score_case
+from .v2_harness import runtime_for_version
 
 
 class MatchingPlanReview:
@@ -28,7 +29,11 @@ def test_live_cli_rejects_plan_review_off_before_loading_models(monkeypatch, tmp
 
     output = tmp_path / "disabled-cli"
     monkeypatch.setattr("sys.argv", ["run_v2", "--live", "--plan-review", "off", "--output", str(output)])
-    monkeypatch.setattr(run_v2.Settings, "from_env", lambda _: pytest.fail("disabled live evaluation loaded models"))
+    def configure(graph_version, env_file):
+        assert graph_version == "v2" and env_file is None
+        pytest.fail("disabled live evaluation loaded models")
+
+    monkeypatch.setattr(run_v2, "live_configuration", configure)
 
     with pytest.raises(SystemExit) as failure:
         run_v2.main()
@@ -42,9 +47,14 @@ def test_live_cli_rejects_disabled_environment_before_provider_calls(monkeypatch
     from . import run_v2
 
     monkeypatch.setattr("sys.argv", ["run_v2", "--live", "--output", str(tmp_path / "disabled-env")])
-    monkeypatch.setattr(run_v2.Settings, "from_env", lambda _: run_v2.Settings(api_key="unit-test"))
+    settings = runtime_for_version("v2").config
+    monkeypatch.setattr(settings, "from_env", lambda _: settings(api_key="unit-test"))
     monkeypatch.setenv("AGENT_V2_PLAN_REVIEW_ENABLED", "false")
-    monkeypatch.setattr(run_v2, "check_payload", lambda *_: pytest.fail("disabled live evaluation reached providers"))
+    def gateway(graph_version, base, configured):
+        assert graph_version == "v2"
+        pytest.fail("disabled live evaluation reached providers")
+
+    monkeypatch.setattr(run_v2, "open_gateway", gateway)
 
     with pytest.raises(SystemExit) as failure:
         run_v2.main()
@@ -60,14 +70,16 @@ def test_live_cli_keeps_plan_review_enabled_and_configured_timeout(monkeypatch, 
     output = tmp_path / "enabled"
     monkeypatch.setattr("sys.argv", ["run_v2", "--live", "--case", "flux-over-20", "--repeat", "1",
                                     "--output", str(output), *arguments])
-    monkeypatch.setattr(run_v2.Settings, "from_env", lambda _: run_v2.Settings(api_key="unit-test", timeout=90))
+    runtime = runtime_for_version("v2")
+    monkeypatch.setattr(runtime.config, "from_env", lambda _: runtime.config(api_key="unit-test", timeout=90))
     monkeypatch.setenv("AGENT_V2_PLAN_REVIEW_ENABLED", "true")
-    monkeypatch.setattr(run_v2, "check_payload", lambda *_: None)
-
-    def evaluate(case, models, *, plan_review_enabled):
+    def evaluate(case, models, *, plan_review_enabled, graph_version):
+        assert graph_version == "v2"
+        assert type(models) is runtime.gateway
         assert models.settings.plan_review_enabled is True
         assert plan_review_enabled is True
         assert models.decisions.timeout.read == 90
+        assert models.input_guard is runtime.budget.check_payload
         return {"case": case.id, "pass": True}
 
     monkeypatch.setattr(run_v2, "evaluate_case", evaluate)

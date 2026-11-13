@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "sourceCommit": "51d077c9878b635c96da709eb7eb2aefd36699e1",
+  "sourcePath": "agent/python/src/kplasma_agent/worker.py",
+  "sourceSha256": "27815bb50c5f02ca8b774bd2a34be25a2bf4be47c58d008bcb29071b7886e79d",
+  "targetPath": "worker.py",
+  "changes": [
+    "direct owned builder instead of v1/v2 dispatcher",
+    "local identity and recovery fingerprint",
+    "private settings and readiness gate before clients/claims",
+    "separate model tokens and loopback transports",
+    "sanitized readiness CLI"
+  ]
+}
