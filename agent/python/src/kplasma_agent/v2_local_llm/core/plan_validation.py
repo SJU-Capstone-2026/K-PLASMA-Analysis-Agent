@@ -112,7 +112,7 @@ def _uses_builtin_difference(step: DeriveStep, compare: CompareStep, selected_ru
         or requirement.count not in (None, len(selected_run_keys))
         or requirement.value_type not in (None, "quantities")
         or requirement.unit not in (None, FIELD_META[requirement.field]["unit"])
-        for requirement in step.requires
+        for requirement in step.required_prior_outputs
     ):
         return False
 
@@ -174,8 +174,8 @@ def validate_plan(
         raise InvalidPlan("explain_answer must appear at most once, as the last step")
     if explanations:
         explanation = explanations[0]
-        if plan.steps[-1].id != explanation.id or explanation.run_if or explanation.requires:
-            raise InvalidPlan("explain_answer must be the last, unconditional step without requires")
+        if plan.steps[-1].id != explanation.id or explanation.run_if or explanation.required_prior_outputs:
+            raise InvalidPlan("explain_answer must be the last, unconditional step without required_prior_outputs")
         if any(explanation.id in step.depends_on for step in work):
             raise InvalidPlan("no step may depend on explain_answer")
     if plan.request_mode == "general_only":
@@ -319,7 +319,7 @@ def validate_plan(
                         raise InvalidPlan("selection requires an input confirmation step")
                 elif isinstance(scope, (RunScope, ContextSelectionScope)) and scope.key not in context_keys:
                     raise InvalidPlan(f"unknown confirmed Run: {scope.key}")
-        for output in step.requires:
+        for output in step.required_prior_outputs:
             producer(output.step_id, output.field)
         for condition in step.run_if:
             if condition.step_id not in parents:

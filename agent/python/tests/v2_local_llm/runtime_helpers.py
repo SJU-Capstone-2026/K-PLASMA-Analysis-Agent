@@ -52,7 +52,7 @@ class ScriptedGateway:
                  "inputs": {"runs": {"kind": "result_ref", "step_id": "choose", "field": "selection",
                                      "scope": {"kind": "scalar"}}, "fields": ["ionFlux"]}},
                 {"id": "max", "kind": "derive", "operation": "max", "depends_on": ["compare"],
-                 "requires": [{"step_id": "compare", "field": "ionFlux", "count": 2}],
+                 "required_prior_outputs": [{"step_id": "compare", "field": "ionFlux", "count": 2}],
                  "inputs": {"values": {"kind": "result_ref", "step_id": "compare", "field": "ionFlux",
                                        "scope": {"kind": "confirmed_selection", "step_id": "choose"}}}},
                 {"id": "search", "kind": "tool", "tool": "reverse_search", "depends_on": ["max"],

@@ -454,6 +454,8 @@ def main():
         if GRAPH_VERSION == "v2_localLLM":
             from kplasma_agent.v2_local_llm.network import local_http_client
 
+            manifest["settings"].update(memoryPolicy=settings.memory_policy,
+                                         qwenPlanCacheEnabled=settings.qwen_plan_cache_enabled)
             CLIENT = local_http_client(API, timeout=30)
             bootstrap_local_session(CLIENT, WEB, connection.get("bootstrapToken"),
                                     session_cookie=connection.get("sessionCookie"))

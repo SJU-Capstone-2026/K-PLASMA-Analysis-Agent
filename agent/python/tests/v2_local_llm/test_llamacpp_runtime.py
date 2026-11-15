@@ -15,22 +15,28 @@ def props(settings, *, sleeping=True, path=None):
             "default_generation_settings":{"n_ctx":settings.context_tokens},"is_sleeping":sleeping}
 
 
-@pytest.mark.parametrize("role,port", [("plan",8081),("answer",8081),("review",8082),("plan_review",8082)])
-def test_role_switch_waits_for_other_model_without_waking_either(role, port, monkeypatch):
+@pytest.mark.parametrize("role", ["plan","answer","review","plan_review"])
+def test_role_switch_releases_d1_or_waits_for_qwen_without_waking_either(role, monkeypatch):
     settings=Settings(model_path="/synthetic/qwen.gguf")
     events=[]
     waiting=iter([False,True])
     def handle(request):
+        events.append((request.method,request.url.port,request.url.path))
+        if request.url.port==8083:
+            assert request.method=="POST" and request.url.path=="/unload"
+            return httpx.Response(200,json={"engine":"mlx-decision","released":True,"loaded":False,
+                "memory":{"active_bytes":100,"cache_bytes":0},"idle_active_bytes":100})
         assert request.method=="GET" and request.url.path=="/props"
-        events.append(request.url.port)
-        if request.url.port==port:
-            return httpx.Response(200,json=props(settings,sleeping=next(waiting)))
-        return httpx.Response(200,json=props(settings))
+        return httpx.Response(200,json=props(settings,
+            sleeping=next(waiting) if role in {"review","plan_review"} else True))
     monkeypatch.setattr(runtime.time,"sleep",lambda _:None)
     with local_http_client(settings.model_url,timeout=5,transport=httpx.MockTransport(handle)) as qwen, \
          local_http_client(settings.d1_url,timeout=5,transport=httpx.MockTransport(handle)) as d1:
         runtime.ModelRuntime(settings,qwen,d1).prepare(role)
-    assert events.count(port)==2
+    if role in {"plan","answer"}:
+        assert events==[("GET",8082,"/props"),("POST",8083,"/unload")]
+    else:
+        assert events==[("GET",8082,"/props")]*2
 
 
 def test_wrong_qwen_path_is_rejected_without_unloading_other_model():
@@ -63,14 +69,15 @@ def test_native_qwen_counter_uses_actual_template_and_special_tokens(role,thinki
             "type":"function","name":"submit_plan","parameters":{"type":"object"}}]},role)==3
 
 
-def test_runtime_profile_is_independent_of_app_addresses_and_bound_to_thinking():
+def test_runtime_profile_is_independent_of_app_addresses_and_bound_to_thinking(monkeypatch):
+    monkeypatch.setattr(runtime,"_mlx_libraries",lambda *_:"a"*64)
     settings=Settings()
     profile=runtime.runtime_profile(settings)
     assert runtime.runtime_profile(replace(settings,backend_url="http://127.0.0.1:9999",worker_token="other"))==profile
     assert runtime.runtime_profile(replace(settings,reasoning_effort="none"))!=profile
 
 
-@pytest.mark.parametrize("bad", [None, "batch", "ubatch", "duplicate", "executable"])
+@pytest.mark.parametrize("bad", [None, "batch", "ubatch", "duplicate", "executable", "cache", "cache-wrong", "cache-unexpected"])
 def test_runtime_requires_the_256_batch_profile_and_pinned_executable(tmp_path, monkeypatch, bad):
     import shlex
     key=tmp_path/"key"
@@ -81,6 +88,11 @@ def test_runtime_requires_the_256_batch_profile_and_pinned_executable(tmp_path, 
         "--ubatch-size":"256","--parallel":"1","--sleep-idle-seconds":"1","--device":"MTL0",
         "--gpu-layers":"all","--fit":"off","--timeout":"90","--reasoning":"auto",
         "--reasoning-format":"deepseek","--reasoning-budget":"2048"}
+    if bad in {"cache", "cache-wrong"}:
+        settings=replace(settings,qwen_plan_cache_enabled=True,qwen_plan_cache_dir=str(tmp_path/"cache"))
+        options["--slot-save-path"]=str(tmp_path/("wrong" if bad=="cache-wrong" else "cache"))
+    if bad=="cache-unexpected":
+        options["--slot-save-path"]=str(tmp_path/"cache")
     if bad in {"batch", "ubatch"}:
         options["--batch-size" if bad == "batch" else "--ubatch-size"] = "512"
     binary="/synthetic/other-server" if bad=="executable" else "/synthetic/llama-server"
@@ -94,8 +106,8 @@ def test_runtime_requires_the_256_batch_profile_and_pinned_executable(tmp_path, 
         return binary if command[-1]=="comm=" else shlex.join(args)
     monkeypatch.setattr(runtime.subprocess,"check_output",output)
     manifest=json.loads(runtime.Path(runtime.__file__).with_name("runtime-manifest.json").read_text())
-    monkeypatch.setattr(runtime,"_hash",lambda p:manifest["d1RuntimeFiles"].get(p.name,"wrong-executable"))
-    if bad is None:
+    monkeypatch.setattr(runtime,"_hash",lambda p:manifest["qwenRuntimeFiles"].get(p.name,"wrong-executable"))
+    if bad in {None, "cache"}:
         assert runtime._server_facts(settings,settings.model_url,settings.model_path,qwen=True).startswith("123")
     else:
         with pytest.raises(ValueError):

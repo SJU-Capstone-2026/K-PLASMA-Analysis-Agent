@@ -5,6 +5,13 @@ from kplasma_agent.v2_local_llm.core.budget import check_payload
 from kplasma_agent.v2_local_llm.config import Settings
 
 
+def counted(names, counts):
+    return {"schema_version": 1, "group_counts": counts,
+            "group_question_ids": [[name] for name in sorted(names)], "group_size": 1,
+            "independent_batch_size": 1, "policy": "sorted-greedy-full-pack-v1",
+            "input_limit": 16000, "truncated": False}
+
+
 @pytest.mark.parametrize("role", ["plan", "answer"])
 def test_qwen_requires_an_explicit_native_counter(role):
     with pytest.raises(ValueError, match="^LOCAL_TOKEN_COUNTER_UNAVAILABLE$"):
@@ -65,7 +72,8 @@ def test_every_native_d1_question_must_fit_its_full_context():
     fields = {"d1_context_tokens": 15999, "d1_batch_tokens": 16000, "d1_ubatch_tokens": 16000}
     payload = {"input": {"question": "원문 그대로"}, "questions": [{"name": "one"}, {"name": "two"}]}
     with pytest.raises(ValueError, match="input budget exceeded"):
-        budget.make_input_guard(Settings(**fields), d1_count=lambda *_: [200, 16000])(payload, "plan_review")
+        budget.make_input_guard(Settings(**fields), d1_count=lambda *_: counted(
+            ["one", "two"], [200, 16000]))(payload, "plan_review")
     assert payload["input"]["question"] == "원문 그대로"
 
 
@@ -73,9 +81,9 @@ def test_d1_provider_covers_each_question_and_uses_d1_limits_not_qwen_limits():
     settings = Settings(context_tokens=6500, d1_context_tokens=30000,
                         d1_batch_tokens=16000, d1_ubatch_tokens=16000)
     payload = {"input": {"question": "인공 질문"}, "questions": [{"name": "a"}, {"name": "b"}]}
-    budget.make_input_guard(settings, d1_count=lambda *_: [16000, 16000])(payload, "review")
+    budget.make_input_guard(settings, d1_count=lambda *_: counted(["a", "b"], [16000, 16000]))(payload, "review")
     with pytest.raises(ValueError, match="LOCAL_TOKEN_COUNT_INVALID"):
-        budget.make_input_guard(settings, d1_count=lambda *_: [10])(payload, "review")
+        budget.make_input_guard(settings, d1_count=lambda *_: counted(["a"], [10]))(payload, "review")
 
 
 @pytest.mark.parametrize("value", [0, -1, True, 1.5, float("nan")])
@@ -88,7 +96,7 @@ def test_native_counter_results_must_be_positive_integer_token_counts(value):
 def test_24gb_profile_rejects_inputs_above_16k_without_truncation(role):
     payload = {"input": {"question": "complete original"}, "questions": [{"name": "one"}]}
     guard = budget.make_input_guard(Settings(d1_batch_tokens=32768, d1_ubatch_tokens=32768),
-        qwen_count=lambda *_: 16001, d1_count=lambda *_: [16001])
+        qwen_count=lambda *_: 16001, d1_count=lambda *_: counted(["one"], [16001]))
     with pytest.raises(ValueError, match="input budget exceeded"):
         guard(payload, role)
     assert payload["input"]["question"] == "complete original"

@@ -14,11 +14,13 @@ def clock_and_clients(monkeypatch, *, pressure, sleeping=lambda *_: True, failed
     monkeypatch.setattr(runtime, "memory_sample", lambda **_: {"pressure": pressure(clock[0])})
 
     def respond(request):
-        assert request.method == "GET" and request.url.path == "/props"
+        mlx=request.url.port==8083
+        assert request.method == "GET" and request.url.path == ("/runtime" if mlx else "/props")
         assert request.headers["Authorization"] in {"Bearer synthetic-qwen", "Bearer synthetic-d1"}
         requests.append(request.url.port)
+        idle=sleeping(request.url.port, clock[0])
         return httpx.Response(503 if request.url.port == failed_port else 200,
-                              json={"is_sleeping": sleeping(request.url.port, clock[0])})
+                              json={"released":idle,"loaded":False} if mlx else {"is_sleeping":idle})
 
     def client(url, **kwargs):
         return local_http_client(url, **kwargs, transport=httpx.MockTransport(respond))
@@ -35,10 +37,10 @@ def test_warning_and_relapse_require_five_continuous_normal_seconds(monkeypatch)
     clock, requests = clock_and_clients(monkeypatch, pressure=lambda t: 2 if t < 1 or t == 3 else 1)
     runtime.wait_for_stability(settings())
     assert clock[0] == 9
-    assert set(requests) == {8081, 8082}
+    assert set(requests) == {8083, 8082}
 
 
-@pytest.mark.parametrize("port", [8081, 8082])
+@pytest.mark.parametrize("port", [8083, 8082])
 def test_normal_pressure_is_not_enough_until_both_models_sleep(monkeypatch, port):
     clock, _ = clock_and_clients(monkeypatch, pressure=lambda _: 1,
                                 sleeping=lambda selected, t: selected != port or t >= 3)
@@ -69,7 +71,7 @@ def test_critical_pressure_fails_immediately(monkeypatch):
 
 
 def test_unreachable_model_cannot_become_ready(monkeypatch):
-    clock, _ = clock_and_clients(monkeypatch, pressure=lambda _: 1, failed_port=8081)
+    clock, _ = clock_and_clients(monkeypatch, pressure=lambda _: 1, failed_port=8083)
     with pytest.raises(ValueError, match="LOCAL_MODEL_RUNTIME_UNAVAILABLE"):
         runtime.wait_for_stability(settings())
     assert clock[0] == 0

@@ -2,46 +2,6 @@
 
 import json
 import math
-from functools import lru_cache
-from pathlib import Path
-import re
-
-
-@lru_cache(maxsize=1)
-def _prompt_template():
-    from jinja2.sandbox import SandboxedEnvironment
-    contract = json.loads(Path(__file__).with_name("d1-prompt.json").read_text())
-    spellings = sorted(contract["controlTokens"], key=lambda value: len(value.encode()), reverse=True)
-    return (SandboxedEnvironment().from_string(contract["template"]),
-            re.compile("|".join(re.escape(value) for value in spellings)))
-
-
-def render_prompts(native):
-    """Match b12317 lfm3-d1 rendering; one untruncated choice prompt per question."""
-    template, controls = _prompt_template()
-
-    def escape(text):
-        while True:
-            escaped = controls.sub(lambda match: match[0][0] + "\u200b" + match[0][1:], text)
-            if escaped == text:
-                return text
-            text = escaped
-
-    if not isinstance(native["state"], str):
-        raise ValueError("LOCAL_TOKEN_TEMPLATE_UNSUPPORTED")
-    prompts = []
-    for name, question in sorted(native["questions"].items()):
-        criteria = question["criteria"]
-        if (question["type"] != "choice" or not 2 <= len(criteria) <= 26
-                or not isinstance(question["instructions"], str)):
-            raise ValueError("LOCAL_TOKEN_TEMPLATE_UNSUPPORTED")
-        keys = sorted(criteria)
-        letters = all(len(key) == 1 and key.isascii() and key.isalpha() for key in keys)
-        options = [{"key": escape(key), "description": escape(criteria[key]) if criteria[key] else criteria[key],
-                    "label": key if letters else chr(65 + index)} for index, key in enumerate(keys)]
-        prompts.append(template.render(id=name, type="choice", state=escape(native["state"]),
-                                       instructions=escape(question["instructions"]), options=options, images=[]))
-    return prompts
 
 
 def native_request(body):

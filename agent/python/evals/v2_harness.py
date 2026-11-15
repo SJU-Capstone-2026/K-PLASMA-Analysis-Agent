@@ -68,6 +68,7 @@ def live_configuration(graph_version, env_file):
 @contextmanager
 def open_gateway(graph_version, base, configured):
     runtime = runtime_for_version(graph_version)
+    cache_options = {}
     if graph_version == "v2_localLLM":
         # Recheck immediately before constructing clients; an earlier status is not a permit.
         status = base.readiness()
@@ -81,6 +82,9 @@ def open_gateway(graph_version, base, configured):
         control = local_http_client(base.model_url, timeout=base.timeout,
                                     headers={"Authorization": "Bearer " + base.api_key})
         model_runtime = ModelRuntime(base, control, client)
+        if base.qwen_plan_cache_enabled:
+            from kplasma_agent.v2_local_llm.prompt_cache import QwenPlanCache
+            cache_options["plan_cache"] = QwenPlanCache(base, control)
         guard = runtime.budget.make_input_guard(base, qwen_count=runtime.budget.make_qwen_counter(base, control),
                                                 d1_count=runtime.budget.make_d1_counter(base, client),
                                                 prepare=model_runtime.prepare)
@@ -92,7 +96,7 @@ def open_gateway(graph_version, base, configured):
         if graph_version == "v2_localLLM":
             stack.enter_context(control)
             stack.enter_context(model_lease())
-        models = runtime.gateway(configured, client, guard)
+        models = runtime.gateway(configured, client, guard, **cache_options)
         try:
             yield models
         finally:

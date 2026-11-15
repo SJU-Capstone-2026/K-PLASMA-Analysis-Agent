@@ -12,7 +12,7 @@ import httpx
 from kplasma_agent.v2_local_llm.runtime import ModelRuntime, ModelRuntimeBusy, model_lease
 
 QWEN_MODEL = "unsloth/Qwen3.5-9B-GGUF:Q4_K_M"
-D1_MODEL = "LiquidAI/d1-2B-GGUF:Q8_0"
+D1_MODEL = "LiquidAI/d1-2B:MLX8"
 PREFIX = "AGENT_V2_LOCAL_LLM_"
 UNIT = "m⁻²s⁻¹"
 
@@ -183,7 +183,7 @@ def run_smoke(settings, *, client=None, prepare=None):
     except json.JSONDecodeError:
         raise SmokeError("SMOKE_JSON_INVALID") from None
     return {"schema_version": 1, "graphVersion": "v2_localLLM", "synthetic_only": True, "passed": True,
-            "runtime_ready": False, "requested_models": {"qwen": QWEN_MODEL, "d1": D1_MODEL},
+            "runtime_ready": False, "requested_models": {"qwen": QWEN_MODEL, "d1": settings.get("D1_MODEL", D1_MODEL)},
             "usage": usage, "elapsed_seconds": round(time.monotonic() - started, 3),
             "remaining_checks": ["LOCAL_AUTHORITATIVE_READINESS_NOT_CHECKED", "LOCAL_ANALYSIS_QUALITY_UNVERIFIED"]}
 

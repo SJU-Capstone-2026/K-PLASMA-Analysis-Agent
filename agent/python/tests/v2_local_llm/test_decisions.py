@@ -1,28 +1,29 @@
 """Artificial decision payloads; no model, experiment data, or network service."""
 
 from copy import deepcopy
+from dataclasses import replace
 import json
-from types import SimpleNamespace
 
 import httpx
 import pytest
 
 from kplasma_agent.v2_local_llm.core.model_gateway import (
-    QUESTIONS, _decisions_response, review_answer, review_plan,
+    QUESTIONS, V2LocalLLMSettings, _decisions_response, review_answer, review_plan,
 )
+from kplasma_agent.v2_local_llm.config import Settings
 from kplasma_agent.v2_local_llm.core.plan_checks import review_questions
 from kplasma_agent.v2_local_llm.network import local_http_client
 
 from .test_plan_review import example_context
 
 
-URL = "http://127.0.0.1:8081/v1/systemone"
+URL = "http://127.0.0.1:8083/v1/systemone"
 PAYLOAD = {"interpretations": [{"text": "압력만이 플럭스 차이의 원인입니다."}], "evidence": []}
 
 
-def settings():
-    return SimpleNamespace(decisions_url=URL, decisions_model="d1-2B-Q8_0",
-                           writer=SimpleNamespace(api_key="unused-qwen-key"))
+def settings(profile=None):
+    base = Settings(d1_token="synthetic-d1-token", d1_url=URL)
+    return V2LocalLLMSettings.from_env(replace(base, d1_input_profile=profile) if profile else base)
 
 
 def response_body(questions=None, choice="overclaim"):
@@ -39,7 +40,8 @@ def call_answer(body, *, raw=False):
         return review_answer(client, settings(), deepcopy(PAYLOAD))
 
 
-def test_native_payload_preserves_original_evidence_question_meaning_and_provider_choice():
+@pytest.mark.parametrize("profile", ["ko-full", "en-compact-no-view"])
+def test_native_payload_preserves_original_evidence_question_meaning_and_provider_choice(profile):
     original = deepcopy(PAYLOAD)
     requests = []
     usage = {"input_tokens": 57, "output_tokens": 0}
@@ -53,7 +55,12 @@ def test_native_payload_preserves_original_evidence_question_meaning_and_provide
         assert isinstance(body["state"], str) and json.loads(body["state"]) == original
         assert list(body["questions"]) == list(QUESTIONS)
         for name, (instructions, choices) in QUESTIONS.items():
-            assert body["questions"][name] == {"type": "choice", "instructions": instructions, "criteria": choices}
+            question = body["questions"][name]
+            assert question["type"] == "choice" and list(question["criteria"]) == list(choices)
+            if profile == "ko-full":
+                assert question == {"type": "choice", "instructions": instructions, "criteria": choices}
+            else:
+                assert not any("가" <= char <= "힣" for char in json.dumps(question, ensure_ascii=False))
         result = response_body(body["questions"])
         result["answers"]["interpretation_scope"]["probabilities"] = {
             "within_evidence": 0.9, "overclaim": 0.05, "unassessable": 0.05}
@@ -62,7 +69,7 @@ def test_native_payload_preserves_original_evidence_question_meaning_and_provide
 
     with local_http_client(URL, timeout=1, headers={"Authorization": "Bearer synthetic-d1-token"},
                            transport=httpx.MockTransport(transport)) as client:
-        outcome, returned_usage = review_answer(client, settings(), PAYLOAD)
+        outcome, returned_usage = review_answer(client, settings(profile), PAYLOAD)
     assert len(requests) == 1 and PAYLOAD == original
     assert outcome.status == "ISSUE" and outcome.answers[0].choice == "overclaim"
     assert outcome.answers[0].confidence == 0.05
@@ -79,25 +86,37 @@ def test_missing_usage_and_confidence_stay_unavailable_instead_of_becoming_zero_
     assert outcome.answers[0].confidence is None
 
 
-def test_dynamic_plan_questions_and_digests_survive_native_ordering():
+@pytest.mark.parametrize("profile", ["ko-full", "en-compact-no-view"])
+def test_dynamic_plan_questions_and_digests_survive_native_ordering(profile):
     payload = example_context()
     original = deepcopy(payload)
     questions = review_questions(payload)
 
     def transport(request):
         body = json.loads(request.content)
-        assert json.loads(body["state"]) == payload
+        state = json.loads(body["state"])
+        if profile == "ko-full":
+            assert state == payload
+        else:
+            assert not {"execution_view", "plan_digest", "input_digest"} & state.keys()
+            for key in ("question", "input_history", "confirmed_context", "plan", "check_specs"):
+                assert state[key] == payload[key]
         assert list(body["questions"]) == [question["name"] for question in questions]
         for question in questions:
-            assert body["questions"][question["name"]] == {
-                "type": "choice", "instructions": question["instructions"],
-                "criteria": {item["value"]: item["description"] for item in question["choices"]}}
+            wire = body["questions"][question["name"]]
+            assert wire["type"] == "choice"
+            assert list(wire["criteria"]) == [item["value"] for item in question["choices"]]
+            if profile == "ko-full":
+                assert wire == {"type": "choice", "instructions": question["instructions"],
+                                "criteria": {item["value"]: item["description"] for item in question["choices"]}}
+            else:
+                assert not any("가" <= char <= "힣" for char in json.dumps(wire, ensure_ascii=False))
         result = response_body(body["questions"], "match")
         result["answers"] = dict(reversed(list(result["answers"].items())))
         return httpx.Response(200, json=result)
 
     with local_http_client(URL, timeout=1, transport=httpx.MockTransport(transport)) as client:
-        outcome, usage = review_plan(client, settings(), payload)
+        outcome, usage = review_plan(client, settings(profile), payload)
     assert outcome["status"] == "PASS" and usage is None
     assert [item["name"] for item in outcome["checks"]] == [question["name"] for question in questions]
     assert outcome["plan_digest"] == payload["plan_digest"]

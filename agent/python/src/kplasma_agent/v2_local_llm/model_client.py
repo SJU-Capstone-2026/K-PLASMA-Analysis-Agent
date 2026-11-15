@@ -2,6 +2,7 @@
 
 import copy
 import json
+import math
 import httpx
 from openai import OpenAI, APIError, APIConnectionError, APIStatusError, APITimeoutError
 from . import tracing
@@ -72,6 +73,8 @@ def omit_nulls(value):
 class ModelClient:
     def __init__(self, settings, http_client=None):
         self.settings = settings
+        from .qwen_analysis import prepare_tokenizer
+        self.diagnostic_prepare_seconds = prepare_tokenizer(settings.tokenizer_path)
         validate_endpoint(settings.model_url)
         if http_client is not None and (http_client.trust_env or http_client.follow_redirects):
             raise ValueError("LOCAL_HTTP_CLIENT_UNSAFE")
@@ -116,6 +119,13 @@ class ModelClient:
                     "outputTokens": usage.completion_tokens if usage else None,
                     "usageAvailable": usage is not None, "rawUsage": usage.model_dump(mode="json") if usage else None,
                     "maxOutputTokens": 6000, "responseId": result.id, "status": "incomplete"}
+        timings = getattr(result, "timings", None)
+        if isinstance(timings, dict):
+            measured = {key: value for key, value in timings.items()
+                        if key in {"cache_n", "prompt_n", "prompt_ms", "predicted_n", "predicted_ms"}
+                        and type(value) in {int, float} and math.isfinite(value) and value >= 0}
+            if measured:
+                metadata["nativeTimings"] = measured
         if (not isinstance(result.choices, list) or len(result.choices) != 1
                 or result.choices[0] is None or result.choices[0].index != 0):
             raise ModelError("MODEL_OUTPUT_INVALID", usage=metadata)
@@ -130,6 +140,12 @@ class ModelClient:
             valid = False
         if not valid:
             raise ModelError("MODEL_OUTPUT_INVALID", usage=metadata)
+        from .qwen_analysis import planner_diagnostics
+        metadata["qwenDiagnostics"] = planner_diagnostics(
+            choice.message, calls, usage, metadata.get("nativeTimings", {}), choice.finish_reason,
+            self.settings.tokenizer_path)
+        metadata["qwenDiagnostics"]["tokenizerPrepareSeconds"] = self.diagnostic_prepare_seconds
+        self.diagnostic_prepare_seconds = 0
         metadata["status"] = "completed" if choice.finish_reason == "tool_calls" else "incomplete"
         # Preserve actual native calls in the graph's existing failure/replanning envelope.
         response = {"status": metadata["status"], "sourceProtocol": "chat.completions.tool_calls", "output": [

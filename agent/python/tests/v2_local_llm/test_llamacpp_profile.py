@@ -17,7 +17,8 @@ def test_llamacpp_alias_and_role_thinking_are_explicit():
     assert selected.planner.reasoning_effort == "medium"
     assert selected.writer.reasoning_effort == "none"
     assert selected.planner.model_url == "http://127.0.0.1:8082/v1"
-    assert selected.decisions_url == "http://127.0.0.1:8081/v1/systemone"
+    assert selected.decisions_url == "http://127.0.0.1:8083/v1/systemone"
+    assert selected.decisions_model == "LiquidAI/d1-2B:MLX8"
 
 
 def test_native_request_enables_thinking_without_promoting_reasoning_to_arguments():

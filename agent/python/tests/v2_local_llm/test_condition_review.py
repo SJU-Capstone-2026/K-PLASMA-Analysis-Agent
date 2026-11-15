@@ -117,7 +117,7 @@ def test_gateway_sends_all_condition_questions_once_with_rejection_evidence():
         return httpx.Response(200, json={'answers': native})
 
     with httpx.Client(transport=httpx.MockTransport(transport), trust_env=False) as client:
-        gateway = V2LocalLLMModelGateway(V2LocalLLMSettings.from_env(Settings()), client,
+        gateway = V2LocalLLMModelGateway(V2LocalLLMSettings.from_env(Settings(d1_input_profile="ko-full")), client,
                                        lambda body, role: guarded.append((body, role)))
         result, usage = gateway.review_plan(payload)
     assert len(calls) == 1
@@ -163,7 +163,7 @@ def test_trend_axis_and_conditional_execution_are_reviewed_as_distinct_condition
     payload = build_plan_review_context(PlanDraft.model_validate(raw), 1, case.question, [], case.context, {})
     specs = {s['name']: s for s in payload['check_specs']}
     assert specs['trend_axis.compare']['paths'] == [['steps', 0, 'inputs', 'trend_axis']]
-    assert specs['execution_guards.threshold']['paths'] == [['steps', 1, 'run_if'], ['steps', 1, 'requires']]
+    assert specs['execution_guards.threshold']['paths'] == [['steps', 1, 'run_if'], ['steps', 1, 'required_prior_outputs']]
     result = parse_plan_review(reply(payload, 'trend_axis.compare', 'direction_changed'), payload)
     failed = next(c.issue for c in result.checks if c.issue)
     assert failed['plan_values'][0]['value']['value'] == 'sourcePower'

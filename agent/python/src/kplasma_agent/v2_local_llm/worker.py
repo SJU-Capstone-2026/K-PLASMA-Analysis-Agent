@@ -18,6 +18,7 @@ from .core.model_gateway import V2LocalLLMModelGateway, V2LocalLLMSettings
 from .persistence.checkpointer import DurableSaver
 from . import tracing
 from .progress import ProgressReporter
+from .prompt_cache import QwenPlanCache
 
 LOG = logging.getLogger("kplasma.v2_local_llm.worker")
 
@@ -165,10 +166,11 @@ def serve(settings, once=False):
     control = local_http_client(settings.model_url, timeout=settings.timeout,
                                 headers={"Authorization": "Bearer " + settings.api_key})
     runtime = ModelRuntime(settings, control, decisions)
+    cache_options = {"plan_cache": QwenPlanCache(settings, control)} if settings.qwen_plan_cache_enabled else {}
     models = V2LocalLLMModelGateway(V2LocalLLMSettings.from_env(settings), decisions,
                                   make_input_guard(settings, qwen_count=make_qwen_counter(settings, control),
                                                    d1_count=make_d1_counter(settings, decisions),
-                                                   prepare=runtime.prepare))
+                                                   prepare=runtime.prepare), **cache_options)
     stopping = Event()
     worker_id = f"python-v2-local-llm-{uuid.uuid4()}"
 

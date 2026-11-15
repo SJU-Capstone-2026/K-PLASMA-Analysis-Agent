@@ -93,8 +93,8 @@ def test_local_models_are_fixed_to_qwen_and_d1(monkeypatch):
     settings = V2LocalLLMSettings.from_env(base)
     assert (settings.planner.model, settings.planner.reasoning_effort) == ("unsloth/Qwen3.5-9B-GGUF:Q4_K_M", "medium")
     assert settings.planner.model == settings.writer.model
-    assert settings.decisions_model == "LiquidAI/d1-2B-GGUF:Q8_0"
-    assert settings.decisions_url == "http://127.0.0.1:8081/v1/systemone"
+    assert settings.decisions_model == "LiquidAI/d1-2B:MLX8"
+    assert settings.decisions_url == "http://127.0.0.1:8083/v1/systemone"
 
 
 def test_decisions_sends_only_the_interpretation_question_and_uses_choice():
@@ -153,7 +153,7 @@ def test_plan_review_has_condition_questions_in_one_request_and_preserves_low_co
         return httpx.Response(200, json={"answers": native, "usage": {"input_tokens": 100}})
 
     with httpx.Client(transport=httpx.MockTransport(transport), trust_env=False) as client:
-        gateway = V2LocalLLMModelGateway(V2LocalLLMSettings.from_env(Settings()), client,
+        gateway = V2LocalLLMModelGateway(V2LocalLLMSettings.from_env(Settings(d1_input_profile="ko-full")), client,
                                  lambda body, role: guarded.append((body, role)))
         result, usage = gateway.review_plan(payload)
     assert result["status"] == "ISSUE"
@@ -327,3 +327,61 @@ def test_model_failure_code_is_preserved_in_the_existing_outcome_error(failure, 
     assert state.get("replans", 0) == expected_calls - 1
     assert state["answer"]["answerSnapshot"]["executionStatus"] == "FAILED"
     assert "private" not in json.dumps(attempt["outcome"])
+
+
+def test_plan_cache_wraps_the_existing_guard_and_submission(tmp_path):
+    from .test_prompt_cache import create
+    from evals.local_llm_smoke import smoke_plan
+    cache,native,_=create(tmp_path)
+    payload={'question':'인공 캐시 계획'}
+    guarded=[]
+    def request(instructions,text,tool,span):
+        assert json.loads(text)==payload
+        return {'output':[{'type':'function_call','name':'submit_plan','call_id':'synthetic',
+                           'arguments':json.dumps(smoke_plan())}]},{'inputTokens':10}
+    gateway=SimpleNamespace(planner=SimpleNamespace(_tool_request=request),plan_cache=cache,
+                            input_guard=lambda *args:guarded.append(args))
+    plan,usage=V2LocalLLMModelGateway.submit_plan(gateway,payload)
+    assert plan==smoke_plan() and usage['inputTokens']==10
+    assert any(x[2]==b'action=save' for x in native.calls)
+    assert len(guarded)==1 and guarded[0][1]=='plan'
+    assert usage['planCache']['save']=='saved'
+
+
+def test_overflow_never_restores_or_saves_a_plan_cache(tmp_path):
+    from .test_prompt_cache import create
+    cache,native,_=create(tmp_path)
+    def reject(*_):raise ValueError('LOCAL_INPUT_TOO_LARGE')
+    gateway=SimpleNamespace(plan_cache=cache,input_guard=reject)
+    with pytest.raises(ValueError,match='LOCAL_INPUT_TOO_LARGE'):
+        V2LocalLLMModelGateway.submit_plan(gateway,{'question':'인공 초과 입력'})
+    assert not native.calls
+
+
+def test_cached_replan_preserves_the_new_question_rejected_plan_and_feedback(tmp_path):
+    from .test_prompt_cache import create
+    from evals.local_llm_smoke import smoke_plan
+
+    cache, native, _ = create(tmp_path)
+    cache.prepare()
+    assert cache.save() == "saved"
+    native.slot = {"id": 0}
+    payload = {
+        "messages": {"question": "인공 변경: 소스 전력 150 W를 조회해줘."},
+        "previous_plan": {"source_power": 100},
+        "rejected_plan": {"source_power": 100},
+        "validation_error": "인공 오류: 이전 질문의 100 W를 재사용했습니다.",
+        "plan_review_feedback": {"status": "ISSUE", "required_source_power": 150},
+    }
+    seen = []
+
+    def request(instructions, text, tool, span):
+        seen.append(json.loads(text))
+        assert cache.stats["restore"] == "disk"
+        return {"output": [{"type": "function_call", "name": "submit_plan", "call_id": "synthetic",
+                            "arguments": json.dumps(smoke_plan())}]}, {"inputTokens": 100}
+
+    gateway = SimpleNamespace(planner=SimpleNamespace(_tool_request=request), plan_cache=cache,
+                              input_guard=lambda body, role: seen.append(json.loads(body["input"])))
+    V2LocalLLMModelGateway.submit_plan(gateway, payload)
+    assert seen == [payload, payload]

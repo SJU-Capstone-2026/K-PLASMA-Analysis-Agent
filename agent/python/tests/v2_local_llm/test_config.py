@@ -12,6 +12,50 @@ def clean_env(monkeypatch):
             monkeypatch.delenv(key, raising=False)
 
 
+@pytest.mark.parametrize("engine,group,size", [("mlx",16,1),("mlx",1,4),("llama.cpp",1,1),("mlx",1,2)])
+def test_d1_requires_singleton_mlx_profile(tmp_path, monkeypatch, engine, group, size):
+    clean_env(monkeypatch)
+    path = tmp_path / "local.env"
+    path.write_text(f"AGENT_V2_LOCAL_LLM_D1_ENGINE={engine}\nAGENT_V2_LOCAL_LLM_D1_GROUP_SIZE={group}\n"
+                    f"AGENT_V2_LOCAL_LLM_D1_INDEPENDENT_BATCH_SIZE={size}\n")
+    with pytest.raises(ValueError, match="LOCAL_D1_GROUP_CONFIG_INVALID"):
+        Settings.from_env(path)
+
+
+def test_mlx8_single_and_english_compact_are_the_v23_defaults(tmp_path, monkeypatch):
+    clean_env(monkeypatch)
+    path=tmp_path / "local.env"
+    path.write_text("")
+    settings=Settings.from_env(path)
+    assert settings.d1_engine == "mlx"
+    assert settings.d1_precision == "q8"
+    assert settings.d1_model == "LiquidAI/d1-2B:MLX8"
+    assert settings.d1_url == "http://127.0.0.1:8083/v1/systemone"
+    assert settings.d1_group_size == settings.d1_independent_batch_size == 1
+    assert settings.d1_input_profile == "en-compact-no-view"
+    assert "v2.3" in settings.graph_build_id
+
+
+def test_bf16_single_remains_an_explicit_comparison_profile(tmp_path, monkeypatch):
+    clean_env(monkeypatch)
+    path=tmp_path / "local.env"
+    path.write_text("AGENT_V2_LOCAL_LLM_D1_PRECISION=bf16\nAGENT_V2_LOCAL_LLM_D1_INPUT_PROFILE=ko-full\n")
+    settings=Settings.from_env(path)
+    assert settings.d1_precision == "bf16"
+    assert settings.d1_model == "LiquidAI/d1-2B:BF16"
+    assert settings.d1_input_profile == "ko-full"
+
+
+@pytest.mark.parametrize("key,value", [("D1_PRECISION","q4"),("D1_INPUT_PROFILE","english"),
+                                        ("D1_PRECISION","BF16-bad"),("D1_MODEL","LiquidAI/d1-2B-GGUF:Q8_0")])
+def test_unsupported_d1_precision_and_input_profiles_fail_closed(tmp_path, monkeypatch, key, value):
+    clean_env(monkeypatch)
+    path=tmp_path / "local.env"
+    path.write_text(f"AGENT_V2_LOCAL_LLM_{key}={value}\n")
+    with pytest.raises(ValueError, match="LOCAL_D1_(PRECISION|INPUT)_CONFIG_INVALID"):
+        Settings.from_env(path)
+
+
 def test_explicit_local_settings_do_not_load_root_env_or_mutate_process(tmp_path, monkeypatch):
     clean_env(monkeypatch)
     path = tmp_path / "private.env"
@@ -78,6 +122,54 @@ def test_gateway_uses_only_the_selected_local_models_and_keeps_review_enabled(mo
     monkeypatch.setenv("AGENT_V2_PLAN_MODEL", "cloud-model")
     selected = V2LocalLLMSettings.from_env(Settings(api_key="synthetic-qwen", d1_token="synthetic-d1"))
     assert selected.planner.model == selected.writer.model == "unsloth/Qwen3.5-9B-GGUF:Q4_K_M"
-    assert selected.decisions_model == "LiquidAI/d1-2B-GGUF:Q8_0"
-    assert selected.decisions_url == "http://127.0.0.1:8081/v1/systemone"
+    assert selected.decisions_model == "LiquidAI/d1-2B:MLX8"
+    assert selected.decisions_url == "http://127.0.0.1:8083/v1/systemone"
     assert selected.plan_review_enabled is True
+
+
+def test_plan_cache_defaults_off_and_anchors_paths_to_the_checkout(tmp_path, monkeypatch):
+    clean_env(monkeypatch)
+    path=tmp_path/'private.env'
+    path.write_text('')
+    before=Settings.from_env(path)
+    monkeypatch.chdir(tmp_path)
+    after=Settings.from_env(path)
+    assert before.qwen_plan_cache_enabled is False
+    assert before.qwen_plan_cache_dir == after.qwen_plan_cache_dir
+    assert Path(after.qwen_plan_cache_dir).is_absolute()
+    assert Path(after.qwen_plan_cache_dir).parts[-4:] == ('.local','cache','v2_localLLM','qwen-plan-cache-KV')
+
+
+def test_plan_cache_settings_are_explicit_and_fingerprinted(tmp_path, monkeypatch):
+    from dataclasses import replace
+    clean_env(monkeypatch)
+    path=tmp_path/'private.env'
+    cache=tmp_path/'private-cache'
+    path.write_text(f'AGENT_V2_LOCAL_LLM_QWEN_PLAN_CACHE_ENABLED=true\nAGENT_V2_LOCAL_LLM_QWEN_PLAN_CACHE_DIR={cache}\n')
+    settings=Settings.from_env(path)
+    assert settings.qwen_plan_cache_enabled is True
+    assert settings.qwen_plan_cache_dir == str(cache)
+    assert settings.versions()['configFingerprint'] != replace(settings,qwen_plan_cache_enabled=False).versions()['configFingerprint']
+    assert not cache.exists(), 'reading settings must not create cache files'
+
+
+def test_plan_cache_rejects_unrecognized_boolean(tmp_path, monkeypatch):
+    clean_env(monkeypatch)
+    path=tmp_path/'private.env'
+    path.write_text('AGENT_V2_LOCAL_LLM_QWEN_PLAN_CACHE_ENABLED=maybe\n')
+    with pytest.raises(ValueError,match='LOCAL_CACHE_CONFIG_INVALID'):
+        Settings.from_env(path)
+
+
+def test_precision_and_input_representation_are_fingerprinted():
+    from dataclasses import replace
+    from kplasma_agent.v2_local_llm.core.d1_input import VERSION
+    settings=Settings()
+    versions=settings.versions()
+    assert versions['d1Precision']=='q8'
+    assert versions['d1Input']['profile']=='en-compact-no-view'
+    assert versions['d1Input']['version']==VERSION
+    assert len(versions['d1Input']['sha256'])==64
+    assert versions['configFingerprint']!=replace(settings,d1_input_profile='ko-full').versions()['configFingerprint']
+    assert versions['configFingerprint']!=replace(settings,d1_precision='bf16',
+        d1_model='LiquidAI/d1-2B:BF16').versions()['configFingerprint']

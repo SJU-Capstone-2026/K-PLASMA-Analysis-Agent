@@ -24,7 +24,7 @@ RULES = {
     'selection_count': '이 run_selection에서 고를 정확한 개수를 원문과 대조한다. selection_count는 검색 개수 제한이 아니다. 두 개는 2, 세 개는 3이며, 정확한 개수가 없으면 null이다. 아직 선택된 Run이 없다는 이유로 반려하지 않는다.',
     'selection_targets': '이 확인 단계의 후보 출처와 target_step_id/field 연결만 원문과 대조한다. 검색 후 그중 선택은 그 검색 candidates를 사용한다. baseline candidates:null은 대상 비교의 runs를 사용한다. 선택 값은 사용자가 나중에 확정하므로 미리 요구하지 않는다.',
     'trend_axis': '공정 조건 필터나 분포 그래프 자체는 공정 조건에 따른 경향 요청이 아니다. IAD/IED/IEAD 전체 비교에 압력 경향 축을 자동 요구하지 않는다. 이 비교의 trend_axis가 원문에서 요청한 경향의 독립 변수에 맞는가? 압력에 따른 경향은 pressure이며 sourcePower 등 다른 축으로 바꾸면 안 된다. 단순 압력 값 비교는 경향 축 지정이 아니다. 축 확인을 계획한 미래 참조는 허용한다.',
-    'execution_guards': '이 단계의 run_if·requires가 원문 작업을 임의로 건너뛰거나 다른 경우에만 실행하게 만들지 않는가? 원문의 조건부 요청은 보존한다. 필요한 앞 결과의 자료형·단위·정확한 개수를 확인하는 requires는 허용하며 미래 값이 아직 없다는 이유로 반려하지 않는다. 원문에 없는 후보 수 제한 등으로 필수 작업을 생략하면 unexpected다.',
+    'execution_guards': '이 단계의 run_if·required_prior_outputs가 원문 작업을 임의로 건너뛰거나 다른 경우에만 실행하게 만들지 않는가? 원문의 조건부 요청은 보존한다. 필요한 앞 결과의 자료형·단위·정확한 개수를 확인하는 required_prior_outputs는 허용하며 미래 값이 아직 없다는 이유로 반려하지 않는다. 원문에 없는 후보 수 제한 등으로 필수 작업을 생략하면 unexpected다.',
 }
 REASONS = {
     'missing': '원문이 요구한 이 항목을 계획에서 누락',
@@ -73,9 +73,9 @@ def build_check_specs(plan):
     for index, step in enumerate(plan['steps']):
         sid = step['id']
         path = ['steps', index, 'inputs']
-        if step['run_if'] or step['requires']:
+        if step['run_if'] or step['required_prior_outputs']:
             add(f'execution_guards.{sid}', 'execution_guards',
-                [['steps', index, 'run_if'], ['steps', index, 'requires']], [sid])
+                [['steps', index, 'run_if'], ['steps', index, 'required_prior_outputs']], [sid])
         if step.get('tool') in {'reverse_search', 'forward_lookup'}:
             groups: dict[str, list[list]] = {}
             if step['tool'] == 'reverse_search':

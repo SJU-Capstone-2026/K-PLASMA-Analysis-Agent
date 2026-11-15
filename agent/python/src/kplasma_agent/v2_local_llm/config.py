@@ -28,14 +28,19 @@ class Settings:
     reasoning_effort: str = "medium"
     timeout: float = 90
     poll_seconds: float = 1
-    graph_build_id: str = "v2-local-llm-composite-1"
+    graph_build_id: str = "v2-local-llm-v2.3-mlx-single"
     phoenix_endpoint: str = ""
     phoenix_api_key: str = field(default="", repr=False)
     phoenix_project_name: str = "K-PLASMA-local"
     model_url: str = "http://127.0.0.1:8082/v1"
-    d1_url: str = "http://127.0.0.1:8081/v1/systemone"
+    d1_url: str = "http://127.0.0.1:8083/v1/systemone"
     d1_token: str = field(default="", repr=False)
-    d1_model: str = "LiquidAI/d1-2B-GGUF:Q8_0"
+    d1_model: str = "LiquidAI/d1-2B:MLX8"
+    d1_engine: str = "mlx"
+    d1_precision: str = "q8"
+    d1_input_profile: str = "en-compact-no-view"
+    d1_group_size: int = 1
+    d1_independent_batch_size: int = 1
     model_path: str = ""
     d1_model_path: str = ""
     tokenizer_path: str = ""
@@ -49,6 +54,10 @@ class Settings:
     d1_batch_tokens: int = 16000
     d1_ubatch_tokens: int = 16000
     measurement_path: str = ""
+    memory_policy: str = "strict"
+    qwen_plan_cache_enabled: bool = False
+    qwen_plan_cache_dir: str = field(default_factory=lambda: str(
+        Path(__file__).resolve().parents[5] / ".local/cache/v2_localLLM/qwen-plan-cache-KV"))
 
     @classmethod
     def from_env(cls, env_file=None):
@@ -67,13 +76,43 @@ class Settings:
         def get(name, default=""):
             return values.get(PREFIX + name) or default
         timeout = float(get("TIMEOUT_SECONDS", "90"))
+        memory_policy = get("MEMORY_POLICY", "strict").lower()
+        if memory_policy not in {"strict", "development"}:
+            raise ValueError("LOCAL_MEMORY_POLICY_INVALID")
+        cache_enabled = get("QWEN_PLAN_CACHE_ENABLED", "false").lower()
+        if cache_enabled not in {"true", "false", "1", "0"}:
+            raise ValueError("LOCAL_CACHE_CONFIG_INVALID")
+        cache_dir = Path(get("QWEN_PLAN_CACHE_DIR", cls().qwen_plan_cache_dir)).expanduser()
+        if not cache_dir.is_absolute():
+            cache_dir = Path(__file__).resolve().parents[5] / cache_dir
         if timeout != 90 or get("PLAN_REVIEW_ENABLED", "true").lower() not in {"true", "1"}:
             raise ValueError("LOCAL_REQUIRED_BUDGET_OR_REVIEW_CHANGED")
+        d1_engine = get("D1_ENGINE", "mlx")
+        try:
+            group_size = int(get("D1_GROUP_SIZE", "1"))
+            independent_size = int(get("D1_INDEPENDENT_BATCH_SIZE", "1"))
+        except ValueError:
+            raise ValueError("LOCAL_D1_GROUP_CONFIG_INVALID") from None
+        if d1_engine != "mlx" or group_size != 1 or independent_size != 1:
+            raise ValueError("LOCAL_D1_GROUP_CONFIG_INVALID")
+        precision = get("D1_PRECISION", "q8")
+        if precision not in {"q8", "bf16"}:
+            raise ValueError("LOCAL_D1_PRECISION_CONFIG_INVALID")
+        d1_model = get("D1_MODEL", "LiquidAI/d1-2B:" + ("MLX8" if precision == "q8" else "BF16"))
+        if d1_model != "LiquidAI/d1-2B:" + ("MLX8" if precision == "q8" else "BF16"):
+            raise ValueError("LOCAL_D1_PRECISION_CONFIG_INVALID")
+        input_profile = get("D1_INPUT_PROFILE", "en-compact-no-view")
+        if input_profile not in {"ko-full", "en-full", "en-compact", "en-compact-no-view"}:
+            raise ValueError("LOCAL_D1_INPUT_CONFIG_INVALID")
         settings = cls(
             api_key=get("QWEN_TOKEN"), worker_token=get("WORKER_TOKEN"), d1_token=get("D1_TOKEN"),
             backend_url=validate_endpoint(get("BACKEND_URL", "http://127.0.0.1:8080")),
             model_url=validate_endpoint(get("QWEN_URL", "http://127.0.0.1:8082/v1")),
-            d1_url=validate_endpoint(get("D1_URL", "http://127.0.0.1:8081/v1/systemone")),
+            d1_url=validate_endpoint(get("D1_URL", "http://127.0.0.1:8083/v1/systemone")),
+            d1_engine=d1_engine, d1_group_size=group_size, d1_precision=precision,
+            d1_input_profile=input_profile,
+            d1_independent_batch_size=independent_size,
+            d1_model=d1_model,
             model_path=get("MODEL_PATH"), d1_model_path=get("D1_MODEL_PATH"),
             tokenizer_path=get("TOKENIZER_PATH"), d1_tokenizer_path=get("D1_TOKENIZER_PATH"),
             model_revision=get("MODEL_REVISION"), d1_revision=get("D1_REVISION"),
@@ -83,6 +122,9 @@ class Settings:
             d1_batch_tokens=int(get("D1_BATCH_TOKENS", "16000")),
             d1_ubatch_tokens=int(get("D1_UBATCH_TOKENS", "16000")),
             measurement_path=get("MEMORY_MEASUREMENT_PATH"),
+            memory_policy=memory_policy,
+            qwen_plan_cache_enabled=cache_enabled in {"true", "1"},
+            qwen_plan_cache_dir=str(cache_dir.absolute()),
         )
         if settings.context_tokens <= 6000 or min(settings.d1_context_tokens, settings.d1_batch_tokens,
                                                 settings.d1_ubatch_tokens) <= 0:
@@ -100,6 +142,7 @@ class Settings:
                                    "enable_thinking": self.reasoning_effort not in {"none", "minimal"}}}}
 
     def versions(self):
+        from .core.d1_input import VERSION as D1_INPUT_VERSION
         from .core.model_gateway import PLAN_INSTRUCTIONS, COMPOSE_INSTRUCTIONS, submit_plan_tool_schema
         root = Path(__file__).parent
         fields = {
@@ -112,7 +155,8 @@ class Settings:
             )).hexdigest(),
             "planner": self.model, "writer": self.model, "decisions": self.d1_model,
             "modelRevision": self.model_revision, "d1Revision": self.d1_revision,
-            "quantization": "Q4_K_M", "d1Quantization": "Q8_0",
+            "quantization": "Q4_K_M",
+            "d1Quantization": "MLX-affine8-g64/BF16-embedding" if self.d1_precision == "q8" else "BF16",
             "qwenGeneration": {"planThinking": self.reasoning_effort not in {"none", "minimal"},
                                "writerThinking": False, "reasoningBudget": 2048,
                                "planMaxOutput": 6000, "writerMaxOutput": 3000,
@@ -120,11 +164,15 @@ class Settings:
             "runtimeVersion": self.runtime_version, "d1RuntimeVersion": self.d1_runtime_version,
             "contextTokens": self.context_tokens, "d1ContextTokens": self.d1_context_tokens,
             "modelResidency": "sequential-16k-v2",
-            "planProtocol": "native-submit-plan-chat-v1",
+            "planProtocol": "native-submit-plan-chat-v2",
+            "qwenPlanCache": {"enabled": self.qwen_plan_cache_enabled, "format": 1,
+                              "directoryHash": hashlib.sha256(self.qwen_plan_cache_dir.encode()).hexdigest()},
             "runtimeManifestHash": hashlib.sha256((root / "runtime-manifest.json").read_bytes()).hexdigest(),
-            "d1PromptHash": hashlib.sha256((root / "core/d1-prompt.json").read_bytes()).hexdigest(),
             "d1BatchTokens": self.d1_batch_tokens, "d1UbatchTokens": self.d1_ubatch_tokens,
+            "d1Input": {"profile": self.d1_input_profile, "version": D1_INPUT_VERSION,
+                        "sha256": hashlib.sha256((root / "core/d1_input.py").read_bytes()).hexdigest()},
             "timeout": self.timeout, "planReviewEnabled": True,
+            "memoryPolicy": self.memory_policy,
             "cloneManifestHash": hashlib.sha256((root / "clone-manifest.json").read_bytes()).hexdigest(),
             "intentionalDifferencesHash": hashlib.sha256((root / "intentional-differences.json").read_bytes()).hexdigest(),
             "promptHash": hashlib.sha256((PLAN_INSTRUCTIONS + COMPOSE_INSTRUCTIONS).encode()).hexdigest(),
@@ -135,5 +183,8 @@ class Settings:
                 "tokenizerPath": self.tokenizer_path, "d1TokenizerPath": self.d1_tokenizer_path,
             }, sort_keys=True).encode()).hexdigest(),
         }
+        fields.update(d1Engine=self.d1_engine, d1Precision=self.d1_precision,
+                      d1GroupSize=self.d1_group_size, d1IndependentBatchSize=self.d1_independent_batch_size,
+                      d1GroupPolicy="sorted-greedy-full-pack-v1")
         fields["configFingerprint"] = hashlib.sha256(json.dumps(fields, sort_keys=True).encode()).hexdigest()
         return fields

@@ -27,14 +27,14 @@ request_mode는 원문의 요구로 정한다. 순수 개념 설명만 general_o
 설명이 필요할 때만 explain_answer를 마지막에 정확히 하나 둔다. 수치·목록·차이·그래프 표시만 요청했으면 설명 단계를 만들지 않는다.
 explain_answer.inputs.mode는 concept 또는 results다. concept는 정의·공식·일반 원리, results는 실제 결과의 의미·경향·가능한 이유 해석이다.
 혼합 질문에서 개념 설명만 요구하면 data_request와 concept를 함께 쓴다. 실제 결과 해석과 개념을 모두 요구하면 results 한 단계가 함께 설명한다.
-explain_answer는 다른 모든 실행 단계에 의존해야 한다. run_if와 requires는 빈 배열이며 뒤에 다른 단계를 두지 않는다.
+explain_answer는 다른 모든 실행 단계에 의존해야 한다. run_if와 required_prior_outputs는 빈 배열이며 뒤에 다른 단계를 두지 않는다.
 results에는 앞선 실제 Run 조회·검색·비교 근거가 필요하다. 설명문을 후속 도구의 입력으로 쓰지 않는다.
 
 # 요구사항과 담당 단계
 원문의 데이터 작업과 설명 요구를 requirements로 기록하고 각각 실제 담당 단계에 연결한다.
 일반 개념 설명도 requirements를 비우지 않고 explain_answer의 ID로 연결한다. 모든 단계는 처리할 requirement_ids를 가진다.
 예시 입력: “IED가 뭐야?”의 순수 개념 계획:
-{"schema_version":2,"request_mode":"general_only","base_revision":null,"requirements":[{"id":"r1","text":"IED 개념 설명","sources":[{"message_key":"question","quote":"IED가 뭐야?"}],"handled_by":["s_explain"]}],"steps":[{"id":"s_explain","kind":"tool","tool":"explain_answer","requirement_ids":["r1"],"depends_on":[],"requires":[],"run_if":[],"inputs":{"mode":"concept"}}]}
+{"schema_version":2,"request_mode":"general_only","base_revision":null,"requirements":[{"id":"r1","text":"IED 개념 설명","sources":[{"message_key":"question","quote":"IED가 뭐야?"}],"handled_by":["s_explain"]}],"steps":[{"id":"s_explain","kind":"tool","tool":"explain_answer","requirement_ids":["r1"],"depends_on":[],"required_prior_outputs":[],"run_if":[],"inputs":{"mode":"concept"}}]}
 예: “선택한 두 Run의 플럭스 차이를 보여줘” → data_request, compare_runs만 실행한다.
 예: “후보를 찾고 플럭스 뜻도 알려줘” → 검색 요건은 검색 단계, 개념 요건은 마지막 explain_answer(concept)에 연결한다.
 예: “선택한 두 Run의 플럭스가 왜 달라?” → compare_runs 뒤 explain_answer(results)를 둔다.
@@ -102,6 +102,23 @@ selected_runs와 R1 같은 문맥 키는 Run 참조이며 수치가 아니다. �
 derive의 values에서 한 집합을 읽을 때는 위 참조 객체 하나를 사용한다. 입력 배열은 개별 값에만 사용하며, R1·R2는 confirmed_run으로 참조한다.
 max/min/mean 결과의 참조 예: {"kind":"result_ref","step_id":"max","field":"value","scope":{"kind":"scalar"}}.
 두 Run 모두에 관한 계산은 단일 confirmed_run 범위를 사용하지 않는다.
+
+# 선행 출력 조건(required_prior_outputs)
+requirements는 사용자가 요청한 작업, requirement_ids는 그 작업과 단계의 연결이다.
+depends_on은 실행 순서, inputs의 result_ref는 실제 입력 값의 출처를 정한다.
+required_prior_outputs는 이번 단계 실행 전에 필요한 선행 단계 출력의 존재·형태·단위·개수 조건이다.
+조회 결과를 표시할 지표 목록이나 이번 단계가 앞으로 만들 결과를 여기에 쓰지 않는다.
+원문의 리터럴 조건만 사용하는 첫 forward_lookup/reverse_search는 depends_on과 required_prior_outputs를 모두 []로 둔다.
+step_id는 depends_on으로 직접 또는 간접 연결된 앞 단계만 참조한다. 자기 자신·후속·무관한 단계는 참조하지 않는다.
+field는 선행 단계가 실제로 만드는 출력 키다. 조회·검색은 candidates, derive는 value,
+compare_runs는 inputs.fields의 지표, await_input은 run_selection이면 selection이고 그 외는 value다.
+forward_lookup이 보여줄 ionFlux·meanIonEnergy·iedWidth를 자기 자신의 선행 출력으로 요구하지 않는다.
+예: search 후보 전체를 비교하면 compare.depends_on=["search"], inputs.runs는 search.candidates의 result_ref다.
+그 후보 출력의 목록 형태가 필요하면 compare.required_prior_outputs에
+{"step_id":"search","field":"candidates","count":null,"value_type":"run_refs","unit":null}을 넣는다.
+count는 정확한 개수이며 최소 개수나 검색 결과 제한이 아니다. 원문에 없는 개수 조건을 추가하지 않는다.
+value_type은 quantity(단일 수치), quantities(수치 목록), run_refs(Run 참조 목록) 중 하나다.
+count·value_type·unit은 해당 조건이 필요 없으면 null이다. 필요한 선행 출력 조건 자체가 없으면 []다.
 
 # 연결·재계획
 각 단계의 requirement_ids는 requirements[].id를, requirements[].handled_by는 steps[].id를 참조한다.
@@ -203,7 +220,7 @@ def submit_plan_tool_schema():
 
 def _plan_defaults(value):
     """Normalize omitted list defaults and duplicate bounds in a submitted range."""
-    optional_lists = {"requirement_ids", "depends_on", "requires", "run_if", "goals", "plot_ids"}
+    optional_lists = {"requirement_ids", "depends_on", "run_if", "goals", "plot_ids"}
     if isinstance(value, dict):
         result = {k: _plan_defaults(v) for k, v in value.items() if v is not None or k not in optional_lists}
         if (result.get("operator") == "between" and result.get("min") is not None and result.get("max") is not None
@@ -238,6 +255,13 @@ def call_submit_plan(planner, instructions, payload, tool):
                     arguments[name] = json.loads(arguments[name])
                     if not isinstance(arguments[name], list):
                         raise TypeError("Expected a JSON array")
+            # Only step guards have nullable defaults; keep misplaced keys and alias collisions for validation.
+            if isinstance(arguments.get("steps"), list):
+                for step in arguments["steps"]:
+                    if isinstance(step, dict) and not ("required_prior_outputs" in step and "requires" in step):
+                        for name in ("required_prior_outputs", "requires"):
+                            if name in step and step[name] is None:
+                                del step[name]
         plan = PlanDraft.model_validate(_plan_defaults(arguments))
     except (ValueError, TypeError) as error:
         if isinstance(error, ValidationError):
@@ -262,6 +286,10 @@ def _decisions_response(client, settings, body):
         response = client.post(settings.decisions_url, json=native)
         observation.attribute("http.response.status_code", response.status_code)
         response.raise_for_status()
+        raw = response.json()
+        if (response.headers.get("X-MLX-Decision-Truncated", "").lower() == "true"
+                or isinstance(raw, dict) and raw.get("truncated") is True):
+            raise ValueError("DECISIONS_INPUT_TRUNCATED")
         data = normalize_response(response.content, native["questions"])
         observation.output(data)
         usage = data.get("usage") or {}
@@ -272,15 +300,28 @@ def _decisions_response(client, settings, body):
         return data
 
 
-def review_answer(client: httpx.Client, settings: V2LocalLLMSettings, payload):
+def _review_input(settings, payload, questions, role):
+    from .d1_input import prepare_d1_input
+
+    profile = getattr(getattr(settings, "planner", None), "d1_input_profile", "ko-full")
+    return prepare_d1_input(payload, questions, role=role, profile=profile)
+
+
+def _answer_questions():
+    return [
+        {"type": "choice", "name": name, "instructions": instructions,
+         "choices": [{"value": value, "description": desc} for value, desc in choices.items()]}
+        for name, (instructions, choices) in QUESTIONS.items()
+    ]
+
+
+def review_answer(client: httpx.Client, settings: V2LocalLLMSettings, payload, *, prepared=None):
+    view, questions = prepared if prepared is not None else _review_input(
+        settings, payload, _answer_questions(), "review")
     body = {
         "model": settings.decisions_model,
-        "input": [{"role": "user", "content": [{"type": "input_json", "data": payload}]}],
-        "questions": [
-            {"type": "choice", "name": name, "instructions": instructions,
-             "choices": [{"value": value, "description": desc} for value, desc in choices.items()]}
-            for name, (instructions, choices) in QUESTIONS.items()
-        ],
+        "input": [{"role": "user", "content": [{"type": "input_json", "data": view}]}],
+        "questions": questions,
     }
     data = {}
     try:
@@ -312,11 +353,13 @@ def review_answer(client: httpx.Client, settings: V2LocalLLMSettings, payload):
     return ReviewDecision(status="UNAVAILABLE", answers=[], reason=reason), data.get("usage")
 
 
-def review_plan(client: httpx.Client, settings: V2LocalLLMSettings, payload):
+def review_plan(client: httpx.Client, settings: V2LocalLLMSettings, payload, *, prepared=None):
+    view, questions = prepared if prepared is not None else _review_input(
+        settings, payload, review_questions(payload), "plan_review")
     body = {
         "model": settings.decisions_model,
-        "input": [{"role": "user", "content": [{"type": "input_json", "data": payload}]}],
-        "questions": review_questions(payload),
+        "input": [{"role": "user", "content": [{"type": "input_json", "data": view}]}],
+        "questions": questions,
     }
     data = {}
     try:
@@ -334,25 +377,36 @@ def review_plan(client: httpx.Client, settings: V2LocalLLMSettings, payload):
 
 
 class V2LocalLLMModelGateway:
-    def __init__(self, settings: V2LocalLLMSettings, decisions: httpx.Client, input_guard):
+    def __init__(self, settings: V2LocalLLMSettings, decisions: httpx.Client, input_guard, *, plan_cache=None):
         self.settings = settings
         self.planner = ModelClient(settings.planner)
         self.writer = ModelClient(settings.writer)
         self.decisions = decisions
         self.input_guard = input_guard
+        self.plan_cache = plan_cache
 
     def review_plan(self, context):
         try:
-            self.input_guard({"input": context, "questions": review_questions(context)}, "plan_review")
+            prepared = _review_input(self.settings, context, review_questions(context), "plan_review")
+            self.input_guard({"input": prepared[0], "questions": prepared[1]}, "plan_review")
         except ValueError:
             raise ModelError("PLAN_REVIEW_INPUT_INVALID") from None
-        return review_plan(self.decisions, self.settings, context)
+        return review_plan(self.decisions, self.settings, context, prepared=prepared)
 
     def submit_plan(self, context):
         tool = submit_plan_tool_schema()
         payload = json.dumps(context, ensure_ascii=False)
+        cache = getattr(self, "plan_cache", None)
+        if cache is not None:
+            cache.prepare()
         self.input_guard({"instructions": PLAN_INSTRUCTIONS, "input": payload, "tools": [tool]}, "plan")
-        return call_submit_plan(self.planner, PLAN_INSTRUCTIONS, payload, tool)
+        if cache is not None:
+            cache.restore()
+        data, usage = call_submit_plan(self.planner, PLAN_INSTRUCTIONS, payload, tool)
+        if cache is not None:
+            cache.save()
+            usage = {**(usage or {}), "planCache": dict(cache.stats)}
+        return data, usage
 
     def compose(self, context, *, on_block=None, numeric_values=None):
         schema = GeneralAnswerDraft if context["mode"] == "general_only" else DataAnswerDraft
@@ -364,6 +418,9 @@ class V2LocalLLMModelGateway:
                 "evidence_ids": [example["id"]], "text": "검증된 값은 " + reference + "입니다."}, ensure_ascii=False)
         self.input_guard({"instructions": instructions, "input": context,
                           "schema": strict_schema(schema)}, "answer")
+        cache = getattr(self, "plan_cache", None)
+        if cache is not None:
+            cache.writer_used()
         if on_block is None:
             return self.writer.generate(instructions, context, schema)
         projection = AnswerStreamProjector(context["mode"], on_block,
@@ -375,6 +432,7 @@ class V2LocalLLMModelGateway:
         return self.compose(context, on_block=on_block, numeric_values=numeric_values)
 
     def review(self, context):
-        self.input_guard({"input": context, "questions": QUESTIONS}, "review")
-        decision, usage = review_answer(self.decisions, self.settings, context)
+        prepared = _review_input(self.settings, context, _answer_questions(), "review")
+        self.input_guard({"input": prepared[0], "questions": prepared[1]}, "review")
+        decision, usage = review_answer(self.decisions, self.settings, context, prepared=prepared)
         return decision.model_dump(mode="json"), usage

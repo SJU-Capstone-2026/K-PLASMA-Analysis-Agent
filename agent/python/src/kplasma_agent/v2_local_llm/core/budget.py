@@ -47,11 +47,35 @@ def _context_limit(value):
     return min(MAX_INPUT_TOKENS, value - 6000)
 
 
+def validate_d1_groups(counted, names, group_size, independent_batch_size=1):
+    if (not isinstance(counted, dict) or counted.get("schema_version") != 1
+            or group_size != 1 or independent_batch_size != 1
+            or counted.get("truncated") is not False or counted.get("input_limit") != MAX_INPUT_TOKENS
+            or counted.get("group_size") != group_size
+            or counted.get("independent_batch_size", 1) != independent_batch_size
+            or counted.get("policy") != "sorted-greedy-full-pack-v1"):
+        raise ValueError("LOCAL_TOKEN_COUNT_INVALID")
+    groups, counts = counted.get("group_question_ids"), counted.get("group_counts")
+    if (not isinstance(groups, list) or not isinstance(counts, list) or not groups or len(groups) != len(counts)
+            or any(not isinstance(ids, list) or not 1 <= len(ids) <= group_size
+                   or any(not isinstance(name, str) for name in ids) for ids in groups)):
+        raise ValueError("LOCAL_TOKEN_COUNT_INVALID")
+    flat = [name for ids in groups for name in ids]
+    if flat != sorted(names) or len(flat) != len(set(flat)):
+        raise ValueError("LOCAL_TOKEN_COUNT_INVALID")
+    for count in counts:
+        _check_count(count, MAX_INPUT_TOKENS)
+    return counts
+
+
+def d1_count_values(counted):
+    return counted["group_counts"] if isinstance(counted, dict) else counted
+
+
 def make_d1_counter(settings, client):
     """Use the authenticated, origin-locked native tokenizer, never inference or a cloud API."""
     import httpx
-    from .decisions import native_request, render_prompts
-    endpoint = httpx.URL(settings.d1_url).copy_with(path="/tokenize")
+    from .decisions import native_request
 
     def count(payload, role):
         questions = payload["questions"]
@@ -61,16 +85,14 @@ def make_d1_counter(settings, client):
                          for name, (instructions, choices) in questions.items()]
         native = native_request({"input": [{"role": "user", "content": [
             {"type": "input_json", "data": payload["input"]}]}], "questions": questions})
-        counts = []
-        for prompt in render_prompts(native):
-            response = client.post(endpoint, json={"content": prompt, "add_special": False, "parse_special": True})
-            response.raise_for_status()
-            tokens = response.json().get("tokens")
-            if (not isinstance(tokens, list) or not tokens
-                    or any(type(token) is not int or token < 0 for token in tokens)):
-                raise ValueError("LOCAL_TOKEN_COUNT_INVALID")
-            counts.append(len(tokens))
-        return counts
+        if settings.d1_engine != "mlx":
+            raise ValueError("LOCAL_D1_ENGINE_INVALID")
+        response = client.post(httpx.URL(settings.d1_url).copy_with(path="/v1/count"), json=native)
+        response.raise_for_status()
+        counted = response.json()
+        validate_d1_groups(counted, native["questions"], settings.d1_group_size,
+                           settings.d1_independent_batch_size)
+        return counted
 
     return count
 
@@ -117,8 +139,7 @@ def make_input_guard(settings, *, qwen_count=None, d1_count=None, prepare=None):
     """Bind counters to one profile; native providers count the entire rendered input.
 
     qwen_count(payload, role) returns an integer including template/tools/schema.
-    d1_count(payload, role) returns counts for every native question/label variant.
-    There is no generic chat-template approximation for llama.cpp System One.
+    d1_count(payload, role) returns native MLX counts and complete singleton check IDs.
     """
     def guard(payload, role):
         _role(role)
@@ -126,21 +147,20 @@ def make_input_guard(settings, *, qwen_count=None, d1_count=None, prepare=None):
         if prepare is not None:
             prepare(role)
         if role in {"plan_review", "review"}:
+            if settings.d1_engine != "mlx":
+                raise ValueError("LOCAL_D1_ENGINE_INVALID")
             if d1_count is None:
                 raise ValueError("LOCAL_D1_TOKEN_COUNTER_UNAVAILABLE")
             try:
                 counted = d1_count(payload, role)
             except Exception:
                 raise ValueError("LOCAL_TOKEN_COUNTER_UNAVAILABLE") from None
-            try:
-                counts = list(counted)
-            except TypeError:
-                raise ValueError("LOCAL_TOKEN_COUNT_INVALID") from None
-            except Exception:
-                raise ValueError("LOCAL_TOKEN_COUNTER_UNAVAILABLE") from None
             questions = payload.get("questions")
-            if not isinstance(questions, (dict, list)) or not questions or len(counts) < len(questions):
+            if not isinstance(questions, (dict, list)) or not questions:
                 raise ValueError("LOCAL_TOKEN_COUNT_INVALID")
+            names = questions if isinstance(questions, dict) else [q["name"] for q in questions]
+            counts = validate_d1_groups(counted, names, settings.d1_group_size,
+                                        settings.d1_independent_batch_size)
             if type(settings.d1_context_tokens) is not int or settings.d1_context_tokens <= 0:
                 raise ValueError("LOCAL_CONTEXT_INVALID")
             # Native decisions emit no generation tokens; the measured 24GB profile caps full inputs.

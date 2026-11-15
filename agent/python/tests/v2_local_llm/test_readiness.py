@@ -8,6 +8,24 @@ from kplasma_agent.v2_local_llm import runtime
 from kplasma_agent.v2_local_llm.config import Settings
 
 
+@pytest.fixture(autouse=True)
+def fixed_libraries(monkeypatch):
+    monkeypatch.setattr(runtime, "_mlx_libraries", lambda *_: "a" * 64)
+
+
+def memory_rows():
+    rows=[{"role":role,"target":target,"counted":target,"input_tokens":target,
+           "reasoning_present":role=="qwen_plan","passed":True,"seconds":3}
+          for role,target in [(role,target) for target in (256,4096,15500) for role in ("qwen","d1")]
+              +[("qwen_plan",15500)]]
+    for row in rows:
+        if row["role"]=="d1":
+            row.update(input_tokens=row["target"]*3,group_counts=[row["target"]]*3,
+                       group_question_ids=[["one"],["three"],["two"]],released=True,
+                       release_memory={"active_bytes":16,"cache_bytes":0,"idle_active_bytes":16})
+    return rows
+
+
 def test_measured_preparation_can_become_ready_and_live_memory_pressure_revokes_it(tmp_path, monkeypatch):
     check = getattr(runtime, "check_readiness", None)
     assert callable(check), "readiness is still a permanent placeholder"
@@ -67,14 +85,11 @@ def test_memory_evidence_is_recomputed_and_bound_to_the_exact_runtime_profile(tm
     assert callable(verify), "measured memory evidence is missing"
     settings = Settings()
     profile = runtime.runtime_profile(settings)
-    report = {"schema_version": 1, "synthetic_only": True, "full_stack": True, "runtime_profile": profile,
+    report = {"schema_version": 2, "synthetic_only": True, "full_stack": True, "runtime_profile": profile,
               "created_at": 1, "passed": True, "swap_growth_bytes": 0,
               "instance_facts_before":"a"*64,"instance_facts_after":"a"*64,
               "samples": [{"pressure": 1, "swap_bytes": 100, "resident_bytes": 1000}] * 3,
-              "results": [{"role": role, "target": target, "counted": target, "input_tokens":target,"question_counts":[target],
-                           "reasoning_present":False,"passed": True, "seconds": 3}
-                          for target in (256, 4096, 15500) for role in ("qwen", "d1")] + [
-                  {"role":"qwen_plan","target":15500,"counted":15500,"input_tokens":15500,"reasoning_present":True,"passed":True,"seconds":3}]}
+              "results": memory_rows()}
     path = tmp_path / "measured.json"
     path.write_text(json.dumps(report))
     selected = replace(settings, measurement_path=str(path))
@@ -88,6 +103,10 @@ def test_memory_evidence_is_recomputed_and_bound_to_the_exact_runtime_profile(tm
     assert verify(selected)
     with pytest.raises(ValueError, match="LOCAL_MEMORY_EVIDENCE_INVALID"):
         verify(replace(selected, d1_ubatch_tokens=512))
+    with pytest.raises(ValueError, match="LOCAL_MEMORY_EVIDENCE_INVALID"):
+        verify(replace(selected, d1_input_profile="ko-full"))
+    with pytest.raises(ValueError, match="LOCAL_MEMORY_EVIDENCE_INVALID"):
+        verify(replace(selected, d1_precision="bf16", d1_model="LiquidAI/d1-2B:BF16"))
 
 
 def test_wrong_model_files_fail_before_any_runtime_request(tmp_path, monkeypatch):
@@ -98,8 +117,8 @@ def test_wrong_model_files_fail_before_any_runtime_request(tmp_path, monkeypatch
     manifest = json.loads(runtime.Path(runtime.__file__).with_name("runtime-manifest.json").read_text())
     with pytest.raises(ValueError, match="LOCAL_MODEL_ARTIFACT_MISMATCH"):
         verify(Settings(d1_model_path=str(path), model_path=str(tmp_path), tokenizer_path=str(tmp_path),
-            model_revision=manifest["qwen"]["revision"], d1_revision=manifest["d1"]["revision"],
-            runtime_version=manifest["qwenRuntimeVersion"], d1_runtime_version=manifest["d1"]["runtimeVersion"]))
+            model_revision=manifest["qwen"]["revision"], d1_revision="synthetic-unverified",
+            runtime_version=manifest["qwenRuntimeVersion"], d1_runtime_version=manifest["d1MLX"]["runtimeVersion"]))
 
 
 def test_model_hash_cache_detects_same_size_updates_with_preserved_modified_time(tmp_path):
@@ -115,11 +134,9 @@ def test_model_hash_cache_detects_same_size_updates_with_preserved_modified_time
 @pytest.mark.parametrize("role", ["qwen", "qwen_plan", "d1"])
 def test_memory_evidence_rejects_mismatched_observed_token_counts(tmp_path, role):
     settings=Settings()
-    rows=[{"role":r,"target":t,"counted":t,"input_tokens":t,"question_counts":[t],
-           "reasoning_present":r=="qwen_plan","passed":True,"seconds":3}
-          for r,t in [(r,t) for r in ("qwen","d1") for t in (256,4096,15500)]+[("qwen_plan",15500)]]
+    rows=memory_rows()
     next(r for r in rows if r["role"]==role)["input_tokens"]+=1
-    report={"schema_version":1,"synthetic_only":True,"full_stack":True,
+    report={"schema_version":2,"synthetic_only":True,"full_stack":True,
             "runtime_profile":runtime.runtime_profile(settings),"results":rows,
             "samples":[{"pressure":1,"swap_bytes":0,"resident_bytes":100}]*3,
             "instance_facts_before":"a"*64,"instance_facts_after":"a"*64}
@@ -127,3 +144,26 @@ def test_memory_evidence_rejects_mismatched_observed_token_counts(tmp_path, role
     path.write_text(json.dumps(report))
     with pytest.raises(ValueError,match="LOCAL_MEMORY_EVIDENCE_INVALID"):
         runtime.verify_memory_report(replace(settings,measurement_path=str(path)))
+
+
+@pytest.mark.parametrize('probe_kind',['missing','zero','warning','valid'])
+def test_cache_enabled_memory_evidence_requires_real_restore_and_clean_probe_samples(tmp_path,probe_kind):
+    from .test_cache_probe import rows
+    settings=Settings(qwen_plan_cache_enabled=True,measurement_path=str(tmp_path/'memory.json'))
+    samples=[{'pressure':1,'swap_bytes':100,'resident_bytes':1000}]*3
+    report={'schema_version':2,'synthetic_only':True,'full_stack':True,
+            'runtime_profile':runtime.runtime_profile(settings),'instance_facts_before':'a'*64,
+            'instance_facts_after':'a'*64,'samples':samples,
+            'results':memory_rows()}
+    if probe_kind!='missing':
+        report['qwen_plan_cache']={'synthetic_only':True,'rows':rows(0 if probe_kind=='zero' else 80),
+                                  'samples':[dict(x) for x in samples]}
+        if probe_kind=='warning':
+            report['qwen_plan_cache']['samples'][1]['pressure']=2
+    Path=runtime.Path
+    Path(settings.measurement_path).write_text(json.dumps(report))
+    if probe_kind=='valid':
+        assert runtime.verify_memory_report(settings)
+    else:
+        with pytest.raises(ValueError,match='LOCAL_MEMORY_EVIDENCE_INVALID'):
+            runtime.verify_memory_report(settings)

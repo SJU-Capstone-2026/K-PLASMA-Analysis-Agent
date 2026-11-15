@@ -128,7 +128,8 @@ def test_probe_rejects_a_valid_plan_that_changes_the_artificial_source_quote():
 
 
 @pytest.mark.parametrize("qwen_token", ["synthetic-qwen", "sk-lm-synthetic:local-only"])
-def test_synthetic_smoke_exercises_pinned_schema_stream_and_decisions_without_attesting_readiness(qwen_token):
+@pytest.mark.parametrize("d1_model", ["LiquidAI/d1-2B:MLX8", "LiquidAI/d1-2B:BF16"])
+def test_synthetic_smoke_exercises_pinned_schema_stream_and_decisions_without_attesting_readiness(qwen_token, d1_model):
     calls = []
     prepares = []
 
@@ -162,12 +163,13 @@ def test_synthetic_smoke_exercises_pinned_schema_stream_and_decisions_without_at
     with httpx.Client(transport=httpx.MockTransport(handle), trust_env=False) as client:
         result = run_smoke({"QWEN_URL": "http://127.0.0.1:8082/v1", "QWEN_TOKEN": qwen_token,
                             "D1_URL": "http://127.0.0.1:8081/v1/systemone", "D1_TOKEN": "synthetic-d1",
-                            "PLAN_REVIEW_ENABLED": "true"}, client=client, prepare=prepares.append)
+                            "PLAN_REVIEW_ENABLED": "true", "D1_MODEL": d1_model}, client=client, prepare=prepares.append)
     assert len(calls) == 4
     assert prepares == ["plan", "answer", "answer", "plan_review"]
     assert result["passed"] is True and result["synthetic_only"] is True
     assert result["runtime_ready"] is False
     assert result["usage"]["decisions"] is None
+    assert result["requested_models"]["d1"] == d1_model
     assert result["remaining_checks"] == ["LOCAL_AUTHORITATIVE_READINESS_NOT_CHECKED", "LOCAL_ANALYSIS_QUALITY_UNVERIFIED"]
 
 

@@ -62,7 +62,7 @@ def difference_ref(field, key="selected_runs", kind="context_selection"):
     return {"kind": "result_ref", "step_id": "compare", "field": field, "scope": {"kind": kind, "key": key}}
 
 
-@pytest.mark.parametrize("values, requires", [
+@pytest.mark.parametrize("values, prior_outputs", [
     ([difference_ref("potential.maximum")], []),
     ([difference_ref("potential.minimum", "R1"), difference_ref("potential.minimum", "R2")], []),
     ([difference_ref("potential.maximum"), difference_ref("potential.minimum")], [
@@ -70,11 +70,11 @@ def difference_ref(field, key="selected_runs", kind="context_selection"):
          "unit": "V", "value_type": "quantities"} for extreme in ("maximum", "minimum")
     ]),
 ])
-def test_compare_uses_its_builtin_difference_without_a_duplicate_derive(values, requires):
+def test_compare_uses_its_builtin_difference_without_a_duplicate_derive(values, prior_outputs):
     compare = comparison()
     compare["inputs"]["fields"] = ["potential.maximum", "potential.minimum", "potential.peakToPeak"]
     subtract = {**derive(), "operation": "difference", "inputs": {"values": values, "direction": "absolute"},
-                "requires": requires}
+                "required_prior_outputs": prior_outputs}
     plan = draft(compare, subtract)
     compare_req = plan.requirements[0].model_copy(update={"handled_by": ["compare"]})
     delta_req = compare_req.model_copy(update={"id": "delta", "handled_by": ["derive"]})
