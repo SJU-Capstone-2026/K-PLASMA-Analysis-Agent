@@ -92,6 +92,7 @@ def test_only_singleton_mlx_profiles_are_accepted(monkeypatch):
 def test_q8_service_identity_is_bound_to_precision_and_loader_bytes(tmp_path,monkeypatch):
     from kplasma_agent.v2_local_llm import runtime
     from pathlib import Path
+    from kplasma_agent.v2_local_llm.core.d1_context import context_identity
     s=replace(Settings(), d1_model_path=str(tmp_path), d1_runtime_version="pinned",d1_revision="rev",
               d1_token="local-d1")
     key=tmp_path/"key"
@@ -114,9 +115,12 @@ def test_q8_service_identity_is_bound_to_precision_and_loader_bytes(tmp_path,mon
         "independent_batch_size":1,"input_limit":16000,"service_sha256":"a"*64,
         "weights_sha256":"a"*64,"libraries_sha256":"a"*64,"integrity_sha256":"a"*64,
         "manifest_sha256":"e"*64,"model_path":str(tmp_path),"pid":123}
+    facts["context"] = context_identity(s.d1_context_mode)
     with httpx.Client(transport=httpx.MockTransport(lambda _:httpx.Response(200,json=facts)),trust_env=False) as client:
         assert runtime._mlx_server_facts(s,client)
-        for changed in [{"precision":"bf16"},{"weights_sha256":"b"*64},{"dtype":"bfloat16"}]:
+        for changed in [{"precision":"bf16"},{"weights_sha256":"b"*64},{"dtype":"bfloat16"},
+                        {"context": context_identity("per_check")},
+                        {"context": {**facts["context"], "selector_sha256": "b"*64}}]:
             original=dict(facts)
             facts.update(changed)
             with pytest.raises(ValueError,match="LOCAL_RUNTIME_PROFILE_MISMATCH"):

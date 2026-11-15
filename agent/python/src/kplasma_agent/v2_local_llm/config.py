@@ -28,7 +28,7 @@ class Settings:
     reasoning_effort: str = "medium"
     timeout: float = 90
     poll_seconds: float = 1
-    graph_build_id: str = "v2-local-llm-v2.3-mlx-single"
+    graph_build_id: str = "v2-local-llm-v2.4-per-check-context"
     phoenix_endpoint: str = ""
     phoenix_api_key: str = field(default="", repr=False)
     phoenix_project_name: str = "K-PLASMA-local"
@@ -39,6 +39,7 @@ class Settings:
     d1_engine: str = "mlx"
     d1_precision: str = "q8"
     d1_input_profile: str = "en-compact-no-view"
+    d1_context_mode: str = "full"
     d1_group_size: int = 1
     d1_independent_batch_size: int = 1
     model_path: str = ""
@@ -104,6 +105,9 @@ class Settings:
         input_profile = get("D1_INPUT_PROFILE", "en-compact-no-view")
         if input_profile not in {"ko-full", "en-full", "en-compact", "en-compact-no-view"}:
             raise ValueError("LOCAL_D1_INPUT_CONFIG_INVALID")
+        context_mode = get("D1_CONTEXT_MODE", "full")
+        if context_mode not in {"full", "per_check"}:
+            raise ValueError("LOCAL_D1_CONTEXT_CONFIG_INVALID")
         settings = cls(
             api_key=get("QWEN_TOKEN"), worker_token=get("WORKER_TOKEN"), d1_token=get("D1_TOKEN"),
             backend_url=validate_endpoint(get("BACKEND_URL", "http://127.0.0.1:8080")),
@@ -111,6 +115,7 @@ class Settings:
             d1_url=validate_endpoint(get("D1_URL", "http://127.0.0.1:8083/v1/systemone")),
             d1_engine=d1_engine, d1_group_size=group_size, d1_precision=precision,
             d1_input_profile=input_profile,
+            d1_context_mode=context_mode,
             d1_independent_batch_size=independent_size,
             d1_model=d1_model,
             model_path=get("MODEL_PATH"), d1_model_path=get("D1_MODEL_PATH"),
@@ -142,6 +147,7 @@ class Settings:
                                    "enable_thinking": self.reasoning_effort not in {"none", "minimal"}}}}
 
     def versions(self):
+        from .core.d1_context import context_identity
         from .core.d1_input import VERSION as D1_INPUT_VERSION
         from .core.model_gateway import PLAN_INSTRUCTIONS, COMPOSE_INSTRUCTIONS, submit_plan_tool_schema
         root = Path(__file__).parent
@@ -171,6 +177,7 @@ class Settings:
             "d1BatchTokens": self.d1_batch_tokens, "d1UbatchTokens": self.d1_ubatch_tokens,
             "d1Input": {"profile": self.d1_input_profile, "version": D1_INPUT_VERSION,
                         "sha256": hashlib.sha256((root / "core/d1_input.py").read_bytes()).hexdigest()},
+            "d1Context": context_identity(self.d1_context_mode),
             "timeout": self.timeout, "planReviewEnabled": True,
             "memoryPolicy": self.memory_policy,
             "cloneManifestHash": hashlib.sha256((root / "clone-manifest.json").read_bytes()).hexdigest(),

@@ -49,17 +49,29 @@ def canonical_request(body):
     return {"state": body["state"], "questions": questions}
 
 
-def pack_requests(body, group_size, count, limit=MAX_INPUT_TOKENS):
+def pack_requests(body, group_size, count, limit=MAX_INPUT_TOKENS, *, context_mode="full", context_trace=None):
+    from kplasma_agent.v2_local_llm.core.d1_context import VERSION, project_state
+    if context_mode not in {"full", "per_check"}:
+        raise ValueError("LOCAL_D1_CONTEXT_CONFIG_INVALID")
     body = canonical_request(body)
     if group_size != 1 or type(group_size) is not int or not 0 < limit <= MAX_INPUT_TOKENS:
         raise ValueError("LOCAL_D1_GROUP_CONFIG_INVALID")
     groups = []
     for name, question in body["questions"].items():
-        full = {"state": body["state"], "questions": {name: question}}
+        state = body["state"]
+        if context_mode == "per_check":
+            state, trace = project_state(state, name)
+        else:
+            trace = {"action": "full", "reason": "full_mode", "tool_ids": [], "metric_ids": [],
+                     "version": VERSION,
+                     "state_sha256": hashlib.sha256(state.encode()).hexdigest()}
+        full = {"state": state, "questions": {name: question}}
         n = count(full)
         if type(n) is not int or not 0 < n <= limit:
             raise ValueError("LOCAL_D1_INPUT_TOO_LARGE")
         groups.append((full, n))
+        if context_trace is not None:
+            context_trace.append({**trace, "question_id": name})
     return groups
 
 
@@ -78,6 +90,7 @@ class Runtime:
         root = Path(__file__).resolve().parent
         sys.path.insert(0, str(root.parents[1] / "src"))
         from kplasma_agent.v2_local_llm import runtime_integrity
+        from kplasma_agent.v2_local_llm.core.d1_context import context_identity
         from kplasma_agent.v2_local_llm.runtime_integrity import verify_libraries, verify_weights
         pins = json.loads(
             (root.parents[1] / "src/kplasma_agent/v2_local_llm/runtime-manifest.json").read_text()
@@ -103,6 +116,8 @@ class Runtime:
         self.mx = mx
         self.service_hash = file_hash(__file__)
         self.integrity_hash = file_hash(runtime_integrity.__file__)
+        self.context_mode = config.get("context_mode", "full")
+        self.context_identity = context_identity(self.context_mode)
         self.path = Path(config["model_path"]).resolve(strict=True)
         manifest_path = self.path / "kplasma-manifest.json"
         self.manifest_hash = file_hash(manifest_path)
@@ -170,11 +185,25 @@ class Runtime:
             raise ValueError("LOCAL_D1_PACK_MISMATCH")
         return len(packed[0].ids)
 
-    def groups(self, body):
-        return pack_requests(body, self.group_size, self.count)
+    def groups(self, body, *, context_trace=None):
+        groups = pack_requests(body, self.group_size, self.count,
+                               context_mode=self.context_mode, context_trace=context_trace)
+        if context_trace is not None:
+            for (native, _), trace in zip(groups, context_trace, strict=True):
+                trace["state_tokens"] = len(self.encoder.tokenizer.encode(
+                    native["state"], add_special_tokens=False).ids)
+                try:
+                    state = json.loads(native["state"])
+                except json.JSONDecodeError:
+                    continue
+                if isinstance(state, dict) and isinstance(state.get("tool_contracts"), dict):
+                    contracts = state["tool_contracts"]
+                    trace["tool_contract_tokens"] = len(self.encoder.tokenizer.encode(
+                        json.dumps(contracts, ensure_ascii=False, separators=(",", ":")),
+                        add_special_tokens=False).ids)
+        return groups
 
-    def counts(self, body):
-        groups = self.groups(body)
+    def pack_fingerprints(self, groups):
         fingerprints = []
         if self.group_size == 1:
             from mlx_decision.types import parse_request
@@ -186,6 +215,11 @@ class Runtime:
                            "spans": packed.spans, "ends": packed.ends}
                 fingerprints.append({"question_ids": packed.question_ids,
                     "sha256": hashlib.sha256(json.dumps(content, separators=(",", ":")).encode()).hexdigest()})
+        return fingerprints
+
+    def counts(self, body):
+        context: list[dict] = []
+        groups = self.groups(body, context_trace=context)
         return {
             "schema_version": 1,
             "group_counts": [n for _, n in groups],
@@ -193,7 +227,8 @@ class Runtime:
             "group_size": self.group_size,
             "policy": GROUP_POLICY,
             "independent_batch_size": self.independent_batch_size,
-            "pack_fingerprints": fingerprints,
+            "pack_fingerprints": self.pack_fingerprints(groups),
+            "context": context,
             "input_limit": MAX_INPUT_TOKENS,
             "truncated": False,
         }
@@ -232,12 +267,15 @@ class Runtime:
             "weights_sha256": self.weights_hash,
             "libraries_sha256": self.libraries_hash,
             "integrity_sha256": self.integrity_hash,
+            "context": self.context_identity,
         }
 
     def infer(self, body):
         from mlx_decision.types import parse_request
 
-        groups = self.groups(body)
+        context: list[dict] = []
+        groups = self.groups(body, context_trace=context)
+        fingerprints = self.pack_fingerprints(groups)
         self.mx.synchronize()
         self.mx.reset_peak_memory()
         started = time.monotonic()
@@ -275,6 +313,8 @@ class Runtime:
             "usage": {"input_tokens": sum(n for _, n in groups), "output_tokens": 0},
             "local_metrics": {
                 "groups": timings,
+                "context": context,
+                "pack_fingerprints": fingerprints,
                 "load_seconds": load_seconds,
                 "seconds": time.monotonic() - started,
                 "memory": self.memory(),

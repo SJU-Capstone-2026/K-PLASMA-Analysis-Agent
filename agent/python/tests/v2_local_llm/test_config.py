@@ -12,6 +12,28 @@ def clean_env(monkeypatch):
             monkeypatch.delenv(key, raising=False)
 
 
+def test_v24_context_mode_defaults_full_and_binds_recovery_identity(tmp_path, monkeypatch):
+    from dataclasses import replace
+    clean_env(monkeypatch)
+    path = tmp_path / "local.env"
+    path.write_text("")
+    full = Settings.from_env(path)
+    assert full.d1_context_mode == "full"
+    selected = replace(full, d1_context_mode="per_check")
+    assert full.versions()["d1Context"]["mode"] == "full"
+    assert selected.versions()["d1Context"]["mode"] == "per_check"
+    assert full.versions()["configFingerprint"] != selected.versions()["configFingerprint"]
+
+
+@pytest.mark.parametrize("mode", ["auto", "per-check", "FULL", "disabled"])
+def test_invalid_context_mode_is_rejected_before_models(tmp_path, monkeypatch, mode):
+    clean_env(monkeypatch)
+    path = tmp_path / "local.env"
+    path.write_text(f"AGENT_V2_LOCAL_LLM_D1_CONTEXT_MODE={mode}\n")
+    with pytest.raises(ValueError, match="LOCAL_D1_CONTEXT_CONFIG_INVALID"):
+        Settings.from_env(path)
+
+
 @pytest.mark.parametrize("engine,group,size", [("mlx",16,1),("mlx",1,4),("llama.cpp",1,1),("mlx",1,2)])
 def test_d1_requires_singleton_mlx_profile(tmp_path, monkeypatch, engine, group, size):
     clean_env(monkeypatch)
@@ -22,7 +44,7 @@ def test_d1_requires_singleton_mlx_profile(tmp_path, monkeypatch, engine, group,
         Settings.from_env(path)
 
 
-def test_mlx8_single_and_english_compact_are_the_v23_defaults(tmp_path, monkeypatch):
+def test_mlx8_single_and_english_compact_remain_the_v24_defaults(tmp_path, monkeypatch):
     clean_env(monkeypatch)
     path=tmp_path / "local.env"
     path.write_text("")
@@ -33,7 +55,7 @@ def test_mlx8_single_and_english_compact_are_the_v23_defaults(tmp_path, monkeypa
     assert settings.d1_url == "http://127.0.0.1:8083/v1/systemone"
     assert settings.d1_group_size == settings.d1_independent_batch_size == 1
     assert settings.d1_input_profile == "en-compact-no-view"
-    assert "v2.3" in settings.graph_build_id
+    assert "v2.4" in settings.graph_build_id
 
 
 def test_bf16_single_remains_an_explicit_comparison_profile(tmp_path, monkeypatch):

@@ -53,9 +53,10 @@
         "class:Settings/assign:d1_group_size",
         "class:Settings/assign:d1_independent_batch_size",
         "class:Settings/assign:d1_precision",
-        "class:Settings/assign:d1_input_profile"
+        "class:Settings/assign:d1_input_profile",
+        "class:Settings/assign:d1_context_mode"
       ],
-      "reason": "Require pinned local artifacts, live native model contracts and matching full-stack memory measurements; preserve local-only destinations and recovery identity without OS outbound-filter requirements. Follow-up: pinned llama.cpp GGUF profile, role-specific thinking, native token counting and measured sequential residency; unchanged graph and final answer contracts. LocalLLM_v2.2 names prerequisite guards required_prior_outputs, reads legacy requires without rewriting records, and explains predecessor-only semantics; dependency, execution and final answer rules are preserved. Explicit development memory policy permits recorded warnings without weakening the strict default; policy is bound to evidence and recovery identity. LocalLLM_v2.3 adds numerical Qwen diagnostics and an isolated, explicitly selected BF16 d1 MLX profile with full packed input counting and measured release; graph, review meanings and response contracts stay fixed. v2.3 uses MLX affine8 single-check d1 with a retained BF16 single mode; only the transmitted review context is translated and deduplicated, retaining original snapshots, question IDs, choices and the graph/answer contracts.",
+      "reason": "Require pinned local artifacts, live native model contracts and matching full-stack memory measurements; preserve local-only destinations and recovery identity without OS outbound-filter requirements. Follow-up: pinned llama.cpp GGUF profile, role-specific thinking, native token counting and measured sequential residency; unchanged graph and final answer contracts. LocalLLM_v2.2 names prerequisite guards required_prior_outputs, reads legacy requires without rewriting records, and explains predecessor-only semantics; dependency, execution and final answer rules are preserved. Explicit development memory policy permits recorded warnings without weakening the strict default; policy is bound to evidence and recovery identity. LocalLLM_v2.3 adds numerical Qwen diagnostics and an isolated, explicitly selected BF16 d1 MLX profile with full packed input counting and measured release; graph, review meanings and response contracts stay fixed. v2.3 uses MLX affine8 single-check d1 with a retained BF16 single mode; only the transmitted review context is translated and deduplicated, retaining original snapshots, question IDs, choices and the graph/answer contracts. LocalLLM_v2.4 keeps full tool contracts by default and binds opt-in per-check projection identity to readiness and recovery.",
       "tests": [
         "tests/v2_local_llm/test_config.py",
         "tests/v2_local_llm/test_worker.py",
@@ -353,6 +354,16 @@
       "tests": [
         "tests/v2_local_llm/test_d1_input.py",
         "tests/v2_local_llm/test_d1_v23_gateway.py"
+      ]
+    },
+    {
+      "path": "core/d1_context.py",
+      "newFile": true,
+      "selectors": [],
+      "reason": "Conservatively select only registered per-check tool contracts on the native MLX wire; preserve original plans, snapshots, all checks, graphs and final response contracts, with byte-identical full fallback. User-approved follow-up uses fixed reference sets for three always-present coverage checks and per-kind selection for all thirteen kinds; omitted requests remain reviewable and unknown inputs retain safe fallback.",
+      "tests": [
+        "tests/v2_local_llm/test_d1_context.py",
+        "tests/v2_local_llm/test_d1_mlx.py"
       ]
     }
   ]

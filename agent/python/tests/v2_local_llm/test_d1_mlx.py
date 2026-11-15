@@ -66,3 +66,46 @@ def test_production_order_and_choice_order_are_deterministic():
     groups = service().pack_requests(request, 1, lambda _: 100)
     assert [next(iter(b["questions"])) for b, _ in groups] == sorted(request["questions"])
     assert all(list(next(iter(b["questions"].values()))["criteria"]) == ["changed", "match"] for b, _ in groups)
+
+
+def test_per_check_packing_counts_selected_state_and_preserves_request():
+    from copy import deepcopy
+    import json
+    from kplasma_agent.v2_local_llm.core.d1_input import prepare_d1_input
+    from kplasma_agent.v2_local_llm.core.decisions import native_request
+    from kplasma_agent.v2_local_llm.core.plan_checks import review_questions
+    from .test_d1_input import context
+
+    payload = context("P06")
+    state, questions = prepare_d1_input(payload, review_questions(payload),
+                                       role="plan_review", profile="en-compact-no-view")
+    native = native_request({"input": [{"role": "user", "content": [
+        {"type": "input_json", "data": state}]}], "questions": questions})
+    original = deepcopy(native)
+    counted = []
+
+    def count(body):
+        counted.append(deepcopy(body))
+        return max(1, len(body["state"]) // 10)
+
+    groups = service().pack_requests(native, 1, count, context_mode="per_check")
+    assert native == original and [b for b, _ in groups] == counted
+    assert len(groups) == len(questions)
+    pressure = next(b for b, _ in groups if "filter.search.pressure" in b["questions"])
+    assert len(pressure["state"]) < len(native["state"])
+    projected = json.loads(pressure["state"])
+    assert {k: v for k, v in projected.items() if k != "tool_contracts"} == {
+        k: v for k, v in state.items() if k != "tool_contracts"}
+    fixed = next(b for b, _ in groups if "request.tasks" in b["questions"])
+    assert len(fixed["state"]) < len(native["state"])
+    fixed_state = json.loads(fixed["state"])
+    assert {k: v for k, v in fixed_state.items() if k != "tool_contracts"} == {
+        k: v for k, v in state.items() if k != "tool_contracts"}
+    fields = fixed_state["tool_contracts"]["compare_runs"]["fields"]
+    assert set(fields) == set(state["tool_contracts"]["compare_runs"]["fields"])
+    assert all("definition" not in item and "definition_ref" not in item for item in fields.values())
+
+
+def test_per_check_never_changes_valid_non_plan_unit_inputs():
+    groups = service().pack_requests(body(2), 1, lambda _: 100, context_mode="per_check")
+    assert all(b["state"] == "complete-state" for b, _ in groups)

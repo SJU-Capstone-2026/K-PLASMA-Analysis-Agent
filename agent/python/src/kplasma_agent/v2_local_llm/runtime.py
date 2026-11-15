@@ -75,6 +75,8 @@ def _single_profile(settings):
         raise ValueError("LOCAL_D1_PRECISION_CONFIG_INVALID")
     if settings.d1_input_profile not in {"ko-full", "en-full", "en-compact", "en-compact-no-view"}:
         raise ValueError("LOCAL_D1_INPUT_CONFIG_INVALID")
+    if settings.d1_context_mode not in {"full", "per_check"}:
+        raise ValueError("LOCAL_D1_CONTEXT_CONFIG_INVALID")
 
 
 def _mlx_variant(settings, manifest):
@@ -116,7 +118,7 @@ def runtime_profile(settings):
     profile = {**{key: getattr(settings, key) for key in PROFILE_FIELDS},
             "qwenRuntimeOptions": dict(QWEN_RUNTIME_OPTIONS),
             **{key: versions[key] for key in ("planner", "writer", "decisions", "quantization",
-                "d1Quantization", "d1Precision", "d1Input", "runtimeManifestHash", "qwenGeneration")}}
+                "d1Quantization", "d1Precision", "d1Input", "d1Context", "runtimeManifestHash", "qwenGeneration")}}
     if settings.qwen_plan_cache_enabled:
         profile["qwenPlanCache"] = versions["qwenPlanCache"]
     if settings.memory_policy != "strict":
@@ -271,6 +273,7 @@ def live_facts(settings):
 
 
 def _mlx_server_facts(settings, client):
+    from .core.d1_context import context_identity
     _single_profile(settings)
     response = client.get(httpx.URL(settings.d1_url).copy_with(path="/runtime"))
     response.raise_for_status()
@@ -282,6 +285,7 @@ def _mlx_server_facts(settings, client):
                 "revision": settings.d1_revision, "precision": settings.d1_precision,
                 "dtype": "mixed-affine8-bf16" if settings.d1_precision == "q8" else "bfloat16",
                 "offline": True, "device": "gpu", "group_size": 1,
+                "context": context_identity(settings.d1_context_mode),
                 "group_policy": "sorted-greedy-full-pack-v1", "independent_batch_size": 1,
                 "input_limit": MAX_INPUT_TOKENS, "service_sha256": _hash(_mlx_script()),
                 "weights_sha256": _hash(_mlx_script().with_name("weights.py")),
@@ -303,6 +307,7 @@ def _mlx_server_facts(settings, client):
     config = json.loads(Path(args[3]).read_text())
     if (Path(config["model_path"]).resolve() != Path(settings.d1_model_path).resolve()
             or config["precision"] != settings.d1_precision
+            or config.get("context_mode", "full") != settings.d1_context_mode
             or config.get("group_size", 1) != 1 or config.get("independent_batch_size", 1) != 1
             or config["port"] != httpx.URL(settings.d1_url).port
             or Path(config["token_file"]).read_text().strip() != settings.d1_token):
