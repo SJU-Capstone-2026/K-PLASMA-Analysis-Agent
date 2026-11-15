@@ -32,8 +32,11 @@ def citation(document, index):
 
 
 class DecisionRecordEngine:
-    def __init__(self, execution_mode=None, *, encoder=None, index_dir=None, synthetic=None):
+    def __init__(self, execution_mode=None, *, encoder=None, index_dir=None, synthetic=None,
+                 record_policy=policy.RECORD_POLICY_VERSION):
         self.execution_mode = normalize_mode(execution_mode)
+        # Only the cost_exclusion count uses this version; retrieval is unchanged.
+        self.record_policy = policy.require_version(record_policy)
         self.encoder = encoder
         self.index_dir = Path(index_dir) if index_dir is not None else None
         self.synthetic = (os.getenv("AGENT_V3_RAG_SYNTHETIC", "false").lower() == "true"
@@ -55,9 +58,9 @@ class DecisionRecordEngine:
             if (parsed is None or not parsed["exclude"] or not policy.mentions_cost(question)
                     or not policy.valid_threshold(threshold) or threshold != parsed["threshold"]):
                 raise DomainError("INVALID_RECORD_RULE_REQUEST")
-            summaries = [policy.summarize(records, run_id) for run_id in run_ids]
+            summaries = [policy.summarize(records, run_id, self.record_policy) for run_id in run_ids]
             excluded = [summary["runId"] for summary in summaries if summary["count"] >= threshold]
-            rules = {"policy": policy.RECORD_POLICY_VERSION, "action": "APPLY_EXISTING_COST_RULE",
+            rules = {"policy": self.record_policy, "action": "APPLY_EXISTING_COST_RULE",
                      "threshold": threshold, "aggregationScope": "ALL_RECORDS_FOR_RUN_ID_INCLUDING_HISTORY",
                      "perRun": [{key: summary[key] for key in ("runId", "count", "status", "mixed")} |
                                 {"costRejectionRecordIds": sorted({entry["recordId"] for entry in summary["entries"]

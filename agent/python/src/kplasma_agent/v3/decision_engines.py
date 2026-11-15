@@ -15,7 +15,7 @@ class DecisionEngineError(ValueError):
         super().__init__(code)
 
 
-def _rag4_profile():
+def _rag4_profile(record_policy=None):
     # Imported lazily so selecting another engine never loads this engine's modules.
     from .decision_rag.embedding import MODEL_FILES, MODEL_ID, REVISION
     from .decision_rag.evidence_selection import EVIDENCE_SELECTION_POLICY
@@ -23,7 +23,7 @@ def _rag4_profile():
     return {"model": MODEL_ID, "revision": REVISION,
             "fileHashes": {name: value[1] for name, value in MODEL_FILES.items()},
             "minScore": 0.78, "relativeMargin": 0.08, "topK": 5,
-            "selectionPolicy": EVIDENCE_SELECTION_POLICY, "recordPolicy": RECORD_POLICY_VERSION,
+            "selectionPolicy": EVIDENCE_SELECTION_POLICY, "recordPolicy": record_policy or RECORD_POLICY_VERSION,
             "rerankerEnabled": False, "experimentalFacets": False}
 
 
@@ -32,8 +32,20 @@ def _rag4_create(execution_mode):
     return DecisionRecordEngine(execution_mode)
 
 
+def _rules3_profile():
+    from .decision_rag.policy import COST_REGEX_3
+    return _rag4_profile(COST_REGEX_3)
+
+
+def _rules3_create(execution_mode):
+    # Rules: cost-regex-3. Search: the rag4 retrieval until a replacement retriever is chosen.
+    from .decision_rag.policy import COST_REGEX_3
+    from .decision_rag.runtime import DecisionRecordEngine
+    return DecisionRecordEngine(execution_mode, record_policy=COST_REGEX_3)
+
+
 # Engine id -> (profile factory, engine factory). The first entry is the PR #36 engine.
-ENGINES = {"rag4": (_rag4_profile, _rag4_create)}
+ENGINES = {"rag4": (_rag4_profile, _rag4_create), "rules3-rag4": (_rules3_profile, _rules3_create)}
 
 
 def require_engine(engine_id):

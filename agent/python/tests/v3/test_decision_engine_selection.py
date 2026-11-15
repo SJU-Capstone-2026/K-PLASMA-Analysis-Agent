@@ -117,3 +117,24 @@ def test_executor_creates_only_the_selected_engine_lazily(fake_engine):
 def test_executor_rejects_an_unregistered_engine_id():
     with pytest.raises(DecisionEngineError):
         SequentialExecutor(SimpleNamespace(), MODE, engine_id="missing")
+
+
+def test_rules3_engine_changes_only_the_record_policy_in_its_profile():
+    rag4, rules3 = decision_engines.engine_profile("rag4"), decision_engines.engine_profile("rules3-rag4")
+    assert rules3["recordPolicy"] == "cost-regex-3"
+    assert {k: v for k, v in rules3.items() if k not in {"engine", "recordPolicy"}} == \
+        {k: v for k, v in rag4.items() if k not in {"engine", "recordPolicy"}}
+
+
+def test_rules3_engine_counts_with_cost_regex_3_and_rag4_keeps_cost_regex_2():
+    query = "선택한 후보 중 비용 반려 1건 이상 후보를 제외해줘."
+    ref = REFS[0]
+    records = [{"reviewId": "ART-UNDETERMINED", "targetRunId": ref["runId"], "targetRunRef": ref,
+                "comparedRunRefs": [], "decision": "REJECT", "createdAt": "2026-01-01T00:00:00Z",
+                "comment": "가격이 비싸지만 다른 평가 내용도 있어 사유를 단정하지 않았다.", "runSnapshots": [ref]}]
+    old = decision_engines.create_engine("rag4", MODE).execute("cost_exclusion", query, REFS, records, 1)
+    new = decision_engines.create_engine("rules3-rag4", MODE).execute("cost_exclusion", query, REFS, records, 1)
+    assert old["rules"]["policy"] == "cost-regex-2" and old["rules"]["excludedRunIds"] == ["RUN-ONE"]
+    assert new["rules"]["policy"] == "cost-regex-3" and new["rules"]["excludedRunIds"] == []
+    assert new["rules"]["perRun"][0]["status"] == "사유 확인 필요"
+    assert new["decisionEvidence"]["citations"] == []

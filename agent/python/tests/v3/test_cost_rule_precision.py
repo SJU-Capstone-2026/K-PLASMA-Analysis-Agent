@@ -28,6 +28,26 @@ def test_cost_policy_version_describes_changed_semantics():
     assert policy.RECORD_POLICY_VERSION == "cost-regex-2"
 
 
+@pytest.mark.parametrize("case", CASES, ids=[case["id"] for case in CASES])
+def test_cost_regex_3_differs_only_where_the_shared_contract_says(case):
+    assert policy.classify(case["note"], policy.COST_REGEX_3) == case.get("expectedCostRegex3", case["expected"])
+
+
+def test_unknown_policy_version_is_rejected():
+    with pytest.raises(policy.PolicyError):
+        policy.classify("가격이 비싸다.", "cost-regex-9")
+
+
+def test_cost_regex_3_counts_undetermined_reason_notes_as_unclear():
+    records = [record("ART-UNDETERMINED", "가격이 비싸지만 다른 평가 내용도 있어 사유를 단정하지 않았다."),
+               record("ART-EXPLICIT", "비용 초과로 반려했다. 다만 다른 사유는 확정하지 못했다.")]
+    assert policy.summarize(records, REF_A["runId"])["count"] == 2
+    summary = policy.summarize(records, REF_A["runId"], policy.COST_REGEX_3)
+    assert summary["count"] == 1
+    assert {e["recordId"]: e["reason"] for e in summary["entries"]} == {
+        "ART-UNDETERMINED": "UNCLEAR", "ART-EXPLICIT": "COST"}
+
+
 def test_only_distinct_saved_cost_rejections_count_despite_record_keeping_contrasts():
     first = record("ART-COST-1", "비용 초과를 두 번 적었지만 하나의 심사에서 반려했다.")
     older = record("ART-COST-2", "가격이 비싸서 반려했지만 작성 회의는 네 번이었다.",

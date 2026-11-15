@@ -156,9 +156,9 @@ final class V3DecisionEvidenceValidator {
     }
     private static String reason(String note,String runId,String policy){
         // Previously saved policy1 results keep their original interpretation.
-        if(!V3CostPolicy.VERSION.equals(policy))return reason(note,runId);
+        if(!V3CostPolicy.supports(policy))return reason(note,runId);
         var foreign=RUN_ID.matcher(note);while(foreign.find())if(!foreign.group().equals(runId))return "UNCLEAR";
-        return V3CostPolicy.classify(note);
+        return V3CostPolicy.classify(note,policy);
     }
     private void validateRules(Map<String,Object> rules,Map<String,Map<String,Object>> records,Set<String> scope){
         if("disabled".equals(rules.get("policy"))) {
@@ -173,7 +173,7 @@ final class V3DecisionEvidenceValidator {
         fields(required,"policy","action","threshold","perRun","excludedRunIds","remainingRunIds","completeAggregation");
         if(rules.containsKey("aggregationScope"))check("ALL_RECORDS_FOR_RUN_ID_INCLUDING_HISTORY".equals(rules.get("aggregationScope")),"Unknown decision aggregation scope");
         String policy=text(rules.get("policy"),80);
-        check(Set.of("cost-regex-1",V3CostPolicy.VERSION).contains(policy)&&Boolean.TRUE.equals(rules.get("completeAggregation")),"Unknown or incomplete decision policy");
+        check(("cost-regex-1".equals(policy)||V3CostPolicy.supports(policy))&&Boolean.TRUE.equals(rules.get("completeAggregation")),"Unknown or incomplete decision policy");
         String action=text(rules.get("action"),80);check(ACTIONS.contains(action),"Unknown decision policy action");
         check(scope.isEmpty()=="ASK_SCOPE".equals(action),"Decision policy scope action mismatch");
         check(rules.get("threshold")==null||finite(rules.get("threshold")),"Invalid decision policy threshold");

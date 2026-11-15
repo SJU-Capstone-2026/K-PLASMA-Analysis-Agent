@@ -251,7 +251,7 @@ def planner_instructions(execution_mode=None):
         instructions += ("search는 관련 판단 메모 검색이다. threshold:null이며 최대5개 원문 근거를 제공한다. "
                          "검색 유사도로 후보 Run을 확정 제외하지 않으며 candidates는 입력 범위를 유지한다. ")
     if "cost_exclusion" in actions:
-        instructions += ("cost_exclusion은 비용 반려 N건 이상 제외하는 cost-regex-2 전수 집계다. "
+        instructions += ("cost_exclusion은 비용 반려 N건 이상 제외하는 전수 집계다. "
                          "원문의 명시적 양의 정수 N을 threshold literal에 넣고 unit:null, 실제 source를 연결한다. "
                          "기록 수 상위 검색으로 집계하지 않는다. 애매한 제외 기준이나 다른 사유 제외는 지원한다고 만들지 않는다. ")
     return instructions

@@ -380,7 +380,7 @@ public class AgentRequestService {
             && evidence.path("retrieval").equals(output.path("retrieval")),"V3 decision diagnostics differ from their evidence");
         if("search".equals(action))require("disabled".equals(evidence.path("rules").path("policy").asString()),
             "Semantic retrieval must not apply exclusion rules");
-        else require(V3CostPolicy.VERSION.equals(evidence.path("rules").path("policy").asString()),"Unknown exclusion policy");
+        else require(V3CostPolicy.supports(evidence.path("rules").path("policy").asString()),"Unknown exclusion policy");
         var decision=Map.<String,Object>of("decisionEvidence",requests.read(mapper.writeValueAsString(evidence)));
         new V3DecisionEvidenceValidator(mapper).validate(new AgentResponse(null,null,List.of(),null,decision,refs),row.manifest());
         var expected=inputs.path("runs");

@@ -66,6 +66,11 @@ V3에서는 등록된 `RUN-…` 이름을 질문에 그대로 쓸 수 있다. �
 | 값 | 엔진 |
 | --- | --- |
 | `rag4` (기본) | 이 문서의 `cost-regex-2` 규칙과 E5 검색 엔진 |
+| `rules3-rag4` | `cost-regex-3` 규칙과 `rag4`와 같은 E5 검색. 검색 교체 후보를 고르기 전까지 검색은 동일하다 |
+
+`cost-regex-3`은 `cost-regex-2`에 한 가지 조건만 더한다. 메모가 비용 상태로 분류되더라도 원문에 반려 사유를 단정·확정·특정하지 않았다는 표현(예: "사유를 단정하지 않았다", "원인은 확정하기 어렵다")이 있고, 비용을 반려 원인으로 직접 적은 절(예: "비용 초과로 반려")이 없으면 `UNCLEAR`로 본다. 이 조건은 결과가 비용(`COST`)일 때만 적용하므로 "비용 문제는 해결됨"처럼 비용 문제 없음으로 분류된 메모는 바뀌지 않는다. Python `policy.py`와 서버 `V3CostPolicy`가 같은 규칙을 구현하고, 공통 인공 케이스 `v3-cost-policy-cases.json`의 `expectedCostRegex3`로 두 구현을 대조한다. 서버는 저장된 `rules.policy` 값으로 `cost-regex-1/2/3`을 각각 다시 계산하므로 다른 버전의 건수를 새 버전 이름으로 바꿔 저장할 수 없다.
+
+엔진 비교에서 모델 입력 차이가 섞이지 않도록 계획 지시문과 의미 검토 계약에는 규칙 버전 이름을 넣지 않고 "비용 반려 전수 집계"로 같게 설명한다. 실제 적용 버전은 실행 결과의 `rules.policy`와 version fingerprint의 `retrievalProfile.recordPolicy`에 남는다.
 
 엔진 이름과 검색 profile은 요청의 version fingerprint에 포함된다. 따라서 설정을 바꾼 뒤에는 이전 엔진으로 시작한 미완료 요청을 재개하지 않는다(`RECOVERY_VERSION_MISMATCH`). 모든 엔진은 같은 `decision_records` 계획 계약과 `decisionEvidence` 저장 계약을 따르므로 서버 검증·화면·요청별 두 스위치는 엔진과 무관하게 같다. 엔진 목록은 `agent/python/src/kplasma_agent/v3/decision_engines.py`에 있다.
 
