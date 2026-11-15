@@ -66,7 +66,10 @@ V3에서는 등록된 `RUN-…` 이름을 질문에 그대로 쓸 수 있다. �
 | 값 | 엔진 |
 | --- | --- |
 | `rag4` (기본) | 이 문서의 `cost-regex-2` 규칙과 E5 검색 엔진 |
-| `rules3-rag4` | `cost-regex-3` 규칙과 `rag4`와 같은 E5 검색. 검색 교체 후보를 고르기 전까지 검색은 동일하다 |
+| `rules3-rag4` | `cost-regex-3` 규칙과 `rag4`와 같은 E5 검색. 규칙 변경만의 효과를 비교할 때 사용한다 |
+| `rules3-kosr` | `cost-regex-3` 규칙과 로컬 `jhgan/ko-sroberta-multitask` 검색(최소 유사도 `0.47`, 상대 차이 `0.02`, 명시 근거 선택 유지) |
+
+`rules3-kosr`의 검색 모델과 기준값은 [임베딩·거름망 비교](../evaluations/agent-v3-decision-engine-comparisons-20261115.md)에서 정했다. ko-sroberta는 유사도 크기가 E5보다 낮아 E5 기준값 `0.78`을 그대로 쓰지 않는다. 모델 파일은 E5와 다른 `AGENT_V3_RAG_KOSR_MODEL_DIR`에서 읽고, revision과 파일 SHA256을 코드(`embedding.KO_SROBERTA`)로 고정한다. 최대 입력은 128토큰이므로 이보다 긴 메모의 뒷부분은 임베딩에 반영되지 않는다. 모델 카드에 라이선스 표기가 없으므로 팀 배포 전에 확인한다.
 
 `cost-regex-3`은 `cost-regex-2`에 한 가지 조건만 더한다. 메모가 비용 상태로 분류되더라도 원문에 반려 사유를 단정·확정·특정하지 않았다는 표현(예: "사유를 단정하지 않았다", "원인은 확정하기 어렵다")이 있고, 비용을 반려 원인으로 직접 적은 절(예: "비용 초과로 반려")이 없으면 `UNCLEAR`로 본다. 이 조건은 결과가 비용(`COST`)일 때만 적용하므로 "비용 문제는 해결됨"처럼 비용 문제 없음으로 분류된 메모는 바뀌지 않는다. Python `policy.py`와 서버 `V3CostPolicy`가 같은 규칙을 구현하고, 공통 인공 케이스 `v3-cost-policy-cases.json`의 `expectedCostRegex3`로 두 구현을 대조한다. 서버는 저장된 `rules.policy` 값으로 `cost-regex-1/2/3`을 각각 다시 계산하므로 다른 버전의 건수를 새 버전 이름으로 바꿔 저장할 수 없다.
 
@@ -96,6 +99,12 @@ $env:PYTHONPATH='agent/python/src'
 & agent/python/.venv/Scripts/python.exe -c "from pathlib import Path; from kplasma_agent.v3.decision_rag.embedding import download; download(Path('.local/models/multilingual-e5-small'))"
 ```
 
+`rules3-kosr` 엔진을 쓸 때는 ko-sroberta 파일도 같은 방식으로 준비한다(약 112MB).
+
+```sh
+PYTHONPATH=agent/python/src agent/python/.venv/bin/python -c "from pathlib import Path; from kplasma_agent.v3.decision_rag.embedding import download, KO_SROBERTA; download(Path('.local/models/ko-sroberta-multitask'), KO_SROBERTA)"
+```
+
 다운로드 함수는 명시적으로 실행했을 때 공개 모델 파일만 내려받고 해시를 검증한다. 프로젝트 기록은 다운로드 요청에 넣지 않는다. 검색 시 파일이 없거나 해시가 다르면 오류를 표시하며 기록을 외부 서비스로 보내 대신 검색하지 않는다.
 
 기존 `.env`를 덮지 말고 `.env.example`을 참고하여 다음 설정을 자기 환경에 추가한다. 실제 키와 worker 토큰은 기존 공통 설정처럼 비공개로 보관한다.
@@ -111,6 +120,8 @@ AGENT_V3_RAG_MODEL_DIR=./.local/models/multilingual-e5-small
 AGENT_V3_RAG_CACHE_DIR=./.local/v3-rag-cache
 AGENT_V3_RAG_SYNTHETIC=false
 AGENT_V3_DECISION_ENGINE=rag4
+# rules3-kosr 엔진을 쓸 때만 필요
+AGENT_V3_RAG_KOSR_MODEL_DIR=./.local/models/ko-sroberta-multitask
 ```
 
 공통 backend와 frontend를 시작한 뒤 루트에서 `npm run dev:agent`로 worker를 시작한다. 이 명령은 `agent/python/.venv`를 사용하며 `PYTHONPATH`를 설정한다. 시작 로그의 `graphs=v1,v2,v3`를 확인하고 새 대화에서 버전 `v3`와 두 스위치를 선택한다. 모델·프롬프트·소스가 바뀐 미완료 요청은 이전 fingerprint로 재개하지 않는다. 완료 답변을 새 코드로 다시 생성하지 않는다.

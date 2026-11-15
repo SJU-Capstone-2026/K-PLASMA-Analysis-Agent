@@ -44,8 +44,42 @@ def _rules3_create(execution_mode):
     return DecisionRecordEngine(execution_mode, record_policy=COST_REGEX_3)
 
 
+# ko-sroberta thresholds were tuned on the dev half of docs/evaluations/v3-embedding-candidates
+# (strict explicit-support selection kept); its similarity scale is lower than E5's.
+KOSR_MODEL_DIR_ENV = "AGENT_V3_RAG_KOSR_MODEL_DIR"
+KOSR_MIN_SCORE, KOSR_RELATIVE_MARGIN = 0.47, 0.02
+
+
+def _kosr_retrieval(spec):
+    return {"policy": "kosr-1.strict-support.ko-sroberta-" + spec.revision[:7],
+            "embedding": f"{spec.model_id}@{spec.revision}", "minScore": KOSR_MIN_SCORE,
+            "relativeMargin": KOSR_RELATIVE_MARGIN, "topK": 5, "rerankerEnabled": False, "experimentalFacets": False}
+
+
+def _kosr_profile():
+    from .decision_rag.embedding import KO_SROBERTA
+    from .decision_rag.evidence_selection import EVIDENCE_SELECTION_POLICY
+    from .decision_rag.policy import COST_REGEX_3
+    return {"model": KO_SROBERTA.model_id, "revision": KO_SROBERTA.revision,
+            "fileHashes": {name: value[1] for name, value in KO_SROBERTA.files.items()},
+            "modelDirEnv": KOSR_MODEL_DIR_ENV, "minScore": KOSR_MIN_SCORE, "relativeMargin": KOSR_RELATIVE_MARGIN,
+            "topK": 5, "selectionPolicy": EVIDENCE_SELECTION_POLICY, "recordPolicy": COST_REGEX_3,
+            "rerankerEnabled": False, "experimentalFacets": False}
+
+
+def _kosr_create(execution_mode):
+    # Rules: cost-regex-3. Search: ko-sroberta with the unchanged strict explicit-support selection.
+    from .decision_rag.embedding import KO_SROBERTA
+    from .decision_rag.policy import COST_REGEX_3
+    from .decision_rag.runtime import DecisionRecordEngine
+    return DecisionRecordEngine(execution_mode, record_policy=COST_REGEX_3, encoder_spec=KO_SROBERTA,
+                                model_dir_env=KOSR_MODEL_DIR_ENV, min_score=KOSR_MIN_SCORE,
+                                relative_margin=KOSR_RELATIVE_MARGIN, profile=_kosr_retrieval(KO_SROBERTA))
+
+
 # Engine id -> (profile factory, engine factory). The first entry is the PR #36 engine.
-ENGINES = {"rag4": (_rag4_profile, _rag4_create), "rules3-rag4": (_rules3_profile, _rules3_create)}
+ENGINES = {"rag4": (_rag4_profile, _rag4_create), "rules3-rag4": (_rules3_profile, _rules3_create),
+           "rules3-kosr": (_kosr_profile, _kosr_create)}
 
 
 def require_engine(engine_id):
