@@ -19,9 +19,7 @@ from .core.model_gateway import V3ModelGateway, V3Settings
 from .graph import build_v3_graph
 from .persistence.checkpointer import DurableSaver
 from .runtime import normalize_mode
-from .decision_rag.embedding import MODEL_ID, MODEL_FILES, REVISION
-from .decision_rag.evidence_selection import EVIDENCE_SELECTION_POLICY
-from .decision_rag.policy import RECORD_POLICY_VERSION
+from .decision_engines import DecisionEngineError, engine_profile
 
 LOG = logging.getLogger("kplasma.v3.worker")
 
@@ -43,12 +41,9 @@ def versions_for_request(settings, mode):
         "answerEffort": settings.writer.reasoning_effort, "decisions": settings.decisions_model,
         "decisionsUrl": settings.decisions_url, "planReviewEnabled": settings.plan_review_enabled,
         "timeout": settings.planner.timeout, "executionMode": mode,
-        "retrievalProfile": {"model": MODEL_ID, "revision": REVISION,
-                             "fileHashes": {name: value[1] for name, value in MODEL_FILES.items()},
-                             "minScore": 0.78, "relativeMargin": 0.08, "topK": 5,
-                             "selectionPolicy": EVIDENCE_SELECTION_POLICY,
-                             "recordPolicy": RECORD_POLICY_VERSION,
-                             "rerankerEnabled": False, "experimentalFacets": False},
+        # The engine id and its profile are part of the fingerprint, so a paused request never resumes
+        # on a different engine after the worker setting changes.
+        "retrievalProfile": engine_profile(settings.decision_engine),
     }
     fields["configFingerprint"] = hashlib.sha256(
         json.dumps(fields, sort_keys=True, separators=(",", ":")).encode()
@@ -140,6 +135,8 @@ def run_v3_claim(claim):
             execute_claim(claim, backend, models)
     except BackendError as error:
         LOG.warning("worker transport: %s", error.code)
+    except DecisionEngineError as error:
+        backend.fail(error.code)
     except ValueError:
         backend.fail("INVALID_V3_OPTIONS")
     finally:

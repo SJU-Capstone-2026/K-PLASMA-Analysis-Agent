@@ -16,6 +16,7 @@ from .contracts import DataAnswerDraft, GeneralAnswerDraft, PlanDraft, ReviewAns
 from .plan_checks import review_questions
 from .plan_review import parse_plan_review, review_result
 from ..runtime import allowed_record_actions, normalize_mode
+from ..decision_engines import DEFAULT_ENGINE, engine_from_env
 
 PLAN_INSTRUCTIONS = """# 역할과 제출
 원문과 확인된 문맥을 읽고 schema_version=2인 전체 계획을 submit_plan으로 정확히 한 번 제출한다.
@@ -166,6 +167,7 @@ class V3Settings:
     decisions_model: str
     decisions_url: str
     plan_review_enabled: bool = True
+    decision_engine: str = DEFAULT_ENGINE
 
     @classmethod
     def from_env(cls, base: Settings) -> "V3Settings":
@@ -181,6 +183,7 @@ class V3Settings:
             decisions_model=os.getenv("AGENT_V3_DECISIONS_MODEL", "gpt-6-luna"),
             decisions_url=url + "/decisions",
             plan_review_enabled=os.getenv("AGENT_V3_PLAN_REVIEW_ENABLED", "true").lower() not in {"false", "0"},
+            decision_engine=engine_from_env(),
         )
 
 

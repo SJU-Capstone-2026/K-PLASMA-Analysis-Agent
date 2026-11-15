@@ -59,6 +59,16 @@ V3에서는 등록된 `RUN-…` 이름을 질문에 그대로 쓸 수 있다. �
 
 `NO_EVIDENCE`는 지정 범위와 검색 조건에서 지지 메모를 찾지 못했다는 뜻이다. 전체 DB에 기록이 없다는 증명이나 해당 Run 데이터가 없다는 뜻으로 바꾸지 않는다. 모의 기록 환경은 `AGENT_V3_RAG_SYNTHETIC=true`로 표시한다.
 
+## 판단 기록 엔진 선택
+
+규칙·검색 엔진 구현을 비교하기 위해 worker 설정 `AGENT_V3_DECISION_ENGINE`으로 엔진을 고른다. 비우거나 지정하지 않으면 위에서 설명한 기본 엔진 `rag4`를 사용한다. 등록되지 않은 값은 다른 엔진으로 대체하지 않고 요청을 `INVALID_V3_DECISION_ENGINE`으로 실패시킨다.
+
+| 값 | 엔진 |
+| --- | --- |
+| `rag4` (기본) | 이 문서의 `cost-regex-2` 규칙과 E5 검색 엔진 |
+
+엔진 이름과 검색 profile은 요청의 version fingerprint에 포함된다. 따라서 설정을 바꾼 뒤에는 이전 엔진으로 시작한 미완료 요청을 재개하지 않는다(`RECOVERY_VERSION_MISMATCH`). 모든 엔진은 같은 `decision_records` 계획 계약과 `decisionEvidence` 저장 계약을 따르므로 서버 검증·화면·요청별 두 스위치는 엔진과 무관하게 같다. 엔진 목록은 `agent/python/src/kplasma_agent/v3/decision_engines.py`에 있다.
+
 ## 전용 clone에서 준비하기
 
 공통 Java·Node·PostgreSQL·backend·frontend 준비는 [팀 로컬 실행](../development.md)을 따른다. 아래는 V3에 추가되는 단계다. 기존 V1/V2 작업 폴더와 Python 환경을 덮어쓰지 않도록 V3 전용 clone에서 실행한다.
@@ -95,6 +105,7 @@ AGENT_V3_PLAN_REVIEW_ENABLED=true
 AGENT_V3_RAG_MODEL_DIR=./.local/models/multilingual-e5-small
 AGENT_V3_RAG_CACHE_DIR=./.local/v3-rag-cache
 AGENT_V3_RAG_SYNTHETIC=false
+AGENT_V3_DECISION_ENGINE=rag4
 ```
 
 공통 backend와 frontend를 시작한 뒤 루트에서 `npm run dev:agent`로 worker를 시작한다. 이 명령은 `agent/python/.venv`를 사용하며 `PYTHONPATH`를 설정한다. 시작 로그의 `graphs=v1,v2,v3`를 확인하고 새 대화에서 버전 `v3`와 두 스위치를 선택한다. 모델·프롬프트·소스가 바뀐 미완료 요청은 이전 fingerprint로 재개하지 않는다. 완료 답변을 새 코드로 다시 생성하지 않는다.

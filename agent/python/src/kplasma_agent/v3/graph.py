@@ -22,6 +22,7 @@ from .core.contracts import (
     ExplainStep, GraphV3AnswerSnapshotV1, PlanDraft, ResultRef, ReviewDecision, StepResult,
 )
 from .core.executor import SequentialExecutor
+from .decision_engines import DEFAULT_ENGINE
 from .core.plan_validation import InvalidPlan, validate_plan
 from .core.plan_review import (
     PROMPT_VERSION, PlanReviewResult, build_plan_review_context, digest, plan_digest,
@@ -155,7 +156,8 @@ def _generation_failure(outcome):
 
 
 def build_v3_graph(models, executions, checkpointer):
-    executor = SequentialExecutor(executions, getattr(models, "execution_mode", None))
+    engine_id = getattr(getattr(models, "settings", None), "decision_engine", DEFAULT_ENGINE)
+    executor = SequentialExecutor(executions, getattr(models, "execution_mode", None), engine_id=engine_id)
     progress = getattr(executions, "progress", None) or ProgressReporter(None)
 
     def publish_results(values):

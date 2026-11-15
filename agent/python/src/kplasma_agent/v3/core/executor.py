@@ -17,14 +17,16 @@ from .bindings import BlockedInput, resolve_inputs, should_run
 from .contracts import CompareStep, DecisionRecordStep, DeriveStep, ForwardStep, Quantity, StepResult
 from .derivations import compute_derived
 from ..runtime import normalize_mode, require_action
+from ..decision_engines import DEFAULT_ENGINE, create_engine, require_engine
 
 
 class SequentialExecutor:
-    def __init__(self, executions, execution_mode=None, record_engine=None):
+    def __init__(self, executions, execution_mode=None, record_engine=None, engine_id=DEFAULT_ENGINE):
         self.executions = executions
         self.progress = getattr(executions, "progress", None) or ProgressReporter(None)
         self.execution_mode = normalize_mode(execution_mode)
         self.record_engine = record_engine
+        self.engine_id = require_engine(engine_id)
 
     def execute(self, revision, step, context, results):
         try:
@@ -86,8 +88,7 @@ class SequentialExecutor:
             require_action(self.execution_mode, inputs["action"])
             records = self.executions.decision_records(execution)
             if self.record_engine is None:
-                from ..decision_rag.runtime import DecisionRecordEngine
-                self.record_engine = DecisionRecordEngine(self.execution_mode)
+                self.record_engine = create_engine(self.engine_id, self.execution_mode)
             try:
                 outputs = self.record_engine.execute(inputs["action"], inputs["query"], inputs["runs"], records,
                                                      inputs["threshold"])
