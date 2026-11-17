@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "synthetic": true,
-  "notes": "Artificial policy contract cases; no source records or physical Run data.",
+  "notes": "Artificial policy contract cases; no source records or physical Run data. expectedCostRegex3 is the cost-regex-3 result when it differs from cost-regex-2's expected.",
   "cases": [
     {
       "id": "cost-v2-01",
@@ -246,6 +246,44 @@
     {
       "id": "cost-v2-49",
       "note": "비용이 높아 반려했다. 작성자 확인은 필요하다.",
+      "expected": "COST"
+    },
+    {
+      "id": "cost-v3-01",
+      "note": "가격이 비싸지만 다른 평가 내용도 있어 사유를 단정하지 않았다.",
+      "expected": "COST",
+      "expectedCostRegex3": "UNCLEAR"
+    },
+    {
+      "id": "cost-v3-02",
+      "note": "원가 부담이 크다. 반려 원인은 확정하기 어렵다.",
+      "expected": "COST",
+      "expectedCostRegex3": "UNCLEAR"
+    },
+    {
+      "id": "cost-v3-03",
+      "note": "가격이 높다. 이유는 단정할 수 없다.",
+      "expected": "COST",
+      "expectedCostRegex3": "UNCLEAR"
+    },
+    {
+      "id": "cost-v3-04",
+      "note": "비용 초과로 반려했다. 다만 다른 사유는 확정하지 못했다.",
+      "expected": "COST"
+    },
+    {
+      "id": "cost-v3-05",
+      "note": "예산 초과 때문에 반려했고 다른 이유는 특정할 수 없다.",
+      "expected": "COST"
+    },
+    {
+      "id": "cost-v3-06",
+      "note": "비용 문제는 해결됨. 최종 반려 원인은 확정하기 어렵다.",
+      "expected": "NO_COST"
+    },
+    {
+      "id": "cost-v3-07",
+      "note": "가격이 비싸다.",
       "expected": "COST"
     }
   ]

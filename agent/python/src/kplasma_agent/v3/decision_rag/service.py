@@ -23,11 +23,11 @@ class RagServiceError(ValueError):
 class RagService:
     def __init__(self, corpus, encoder, index_dir: Path, *, min_score=0.78, relative_margin=0.08,
                  reranker=None, min_rerank_score=None, strict_support=True, experimental_facets=False,
-                 include_rules=True):
+                 include_rules=True, index_factory=LocalIndex):
         if not math.isfinite(min_score) or not math.isfinite(relative_margin):
             raise RagServiceError("검색 점수 설정이 올바르지 않습니다.")
         self.corpus, self.encoder = corpus, encoder
-        self.index = LocalIndex(corpus, encoder, index_dir)
+        self.index = index_factory(corpus, encoder, index_dir)
         self.index_stats = self.index.stats
         self.min_score, self.relative_margin = min_score, relative_margin
         if min_rerank_score is not None and (isinstance(min_rerank_score, bool)

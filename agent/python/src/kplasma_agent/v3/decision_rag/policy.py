@@ -1,4 +1,4 @@
-"""V3 cost-regex-2 rules; retrieval similarity never changes exclusion policy.
+"""V3 cost-regex-2/3 rules; retrieval similarity never changes exclusion policy.
 
 Source: domain/decision_records.py at c10c79d0747cf04d5df163e698fd77917ccff4ca.
 The V1/V2 policy is preserved at its original source. V3 classifies cost clauses
@@ -18,6 +18,10 @@ class PolicyError(ValueError):
 
 
 RECORD_POLICY_VERSION = "cost-regex-2"
+# cost-regex-3 = cost-regex-2 plus one guard ported from cost-regex-1: a note that says the
+# rejection reason was not determined is not a cost rejection unless it names cost as the cause.
+COST_REGEX_3 = "cost-regex-3"
+POLICY_VERSIONS = (RECORD_POLICY_VERSION, COST_REGEX_3)
 
 # JavaScript String.prototype.trim() whitespace, including BOM but excluding U+001C.
 _JS_WHITESPACE = (
@@ -52,6 +56,7 @@ _INHERITED_STATE = _js(
     r"(?:해결|해소|적정|괜찮|무관|불명|불확실|미정|미확정|추정|모르|확인|높|비싸|초과|부담|과다|반려|거절)|"
     r"^그\s*때문"
 )
+_UNDETERMINED = _js(r"(사유|원인|이유)<D>{0,10}(단정|확정|특정)<D>{0,6}(않|못|어렵|없|불가)")
 _RUN_ID = _js(r"RUN-[A-Z0-9-]+")
 _RECORD_REQUEST = _js(r"(반려|과거 기록|이전<D>*이유)")
 _EXCLUDE = _js(r"제외|빼")
@@ -98,10 +103,26 @@ def _cost_state(clause):
     return None
 
 
-def classify(note):
+def require_version(version):
+    if version not in POLICY_VERSIONS:
+        raise PolicyError("UNKNOWN_RECORD_POLICY")
+    return version
+
+
+def classify(note, version=RECORD_POLICY_VERSION):
+    require_version(version)
     text = _text(note).strip(_JS_WHITESPACE)
     if not text:
         return "MISSING"
+    state, explicit = _classify(text)
+    if (version == COST_REGEX_3 and state == "COST" and not explicit
+            and _UNDETERMINED.search(text)):
+        return "UNCLEAR"
+    return state
+
+
+def _classify(text):
+    """cost-regex-2 state plus whether any cost clause names cost as the cause."""
     observations: list[tuple[str, bool, bool]] = []
     competing_clause = False
     competing_reason = False
@@ -121,6 +142,7 @@ def classify(note):
         if state is not None:
             observations.append((state, bool(_CURRENT.search(clause)),
                                  bool(_cost_match(_COST_CAUSE, analysis))))
+    explicit = any(cause for _, _, cause in observations)
     if observations:
         states = {state for state, _, _ in observations}
         if len(states) > 1:
@@ -128,17 +150,17 @@ def classify(note):
             # A clearly named current state can supersede a historical one;
             # contradictory states without that ordering remain uncertain.
             if current and len(set(current)) == 1 and observations[-1][1]:
-                return current[-1]
-            return "UNCLEAR"
+                return current[-1], explicit
+            return "UNCLEAR", explicit
         state = observations[0][0]
         if (state == "COST" and competing_clause and (_TRANSITION.search(text) or competing_reason)
-                and not any(explicit for _, _, explicit in observations)):
-            return "UNCLEAR"
-        return state
-    return "OTHER" if _OTHER.search(text) else "UNCLEAR"
+                and not explicit):
+            return "UNCLEAR", explicit
+        return state, explicit
+    return ("OTHER" if _OTHER.search(text) else "UNCLEAR"), explicit
 
 
-def evidence(records, run_id):
+def evidence(records, run_id, version=RECORD_POLICY_VERSION):
     entries = []
     for record in records:
         if record.get("version") == 2:
@@ -161,7 +183,7 @@ def evidence(records, run_id):
             "runId": run_id, "runVersionId": candidate.get("runVersionId"),
             "decision": candidate.get("decision"), "note": note,
             "sharedComment": _text(_first(record.get("overallComment"), "")),
-            "reason": "UNCLEAR" if foreign_run else classify(note),
+            "reason": "UNCLEAR" if foreign_run else classify(note, version),
             "createdAt": record.get("createdAt"),
             "question": _text(_first(record.get("question"), record.get("queryText"), "")),
             "conditions": _first(candidate.get("conditions"), (snapshot or {}).get("conditions"), {}),
@@ -170,8 +192,8 @@ def evidence(records, run_id):
     return entries
 
 
-def summarize(records, run_id):
-    entries = evidence(records, run_id)
+def summarize(records, run_id, version=RECORD_POLICY_VERSION):
+    entries = evidence(records, run_id, version)
     count = len({e["recordId"] for e in entries if e["decision"] == "REJECT" and e["reason"] == "COST"})
     if not entries:
         status = "관련 기록 없음"

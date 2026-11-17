@@ -135,7 +135,7 @@ def tool_contracts(execution_mode=None) -> dict:
             "actions": actions, "runs": "확인된 정확한 버전 또는 선행 검색 candidates 전체",
             "query": "원문 source 메시지 전체, 변경·요약하지 않음",
             "search": "관련 메모를 최대5개 검색. 후보 Run을 확정 제외하지 않음" if "search" in actions else None,
-            "cost_exclusion": "cost-regex-2 전수 집계, 원문 양의 정수 N건 이상만 제외" if "cost_exclusion" in actions else None,
+            "cost_exclusion": "비용 반려 전수 집계, 원문 양의 정수 N건 이상만 제외" if "cost_exclusion" in actions else None,
             "outputs": ["candidates", "decisionEvidence"],
         }
         contracts["decision_records"] = {key: value for key, value in record_contract.items() if value is not None}

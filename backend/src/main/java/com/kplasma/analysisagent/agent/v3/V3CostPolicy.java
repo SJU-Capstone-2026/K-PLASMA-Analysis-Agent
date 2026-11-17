@@ -7,6 +7,9 @@ import java.util.regex.Pattern;
 /** V3-only cost-clause classification, mirrored by decision_rag/policy.py. */
 public final class V3CostPolicy {
     public static final String VERSION="cost-regex-2";
+    /** cost-regex-2 plus the undetermined-reason guard ported from cost-regex-1. */
+    public static final String VERSION_3="cost-regex-3";
+    public static boolean supports(String version){return VERSION.equals(version)||VERSION_3.equals(version);}
     private static final String JS_SPACE="\t\n\u000b\f\r \u00a0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff";
     private static final String DOT="[^\\n\\r\\u2028\\u2029]";
     private static final Pattern NO_COST=compile("(비용|원가|가격)<D>{0,15}(없|않|아니|아님|무관|괜찮|적정)");
@@ -29,6 +32,7 @@ public final class V3CostPolicy {
         +"(?:(?:그|이)\\s*(?:문제|사유|이유)(?:은|는|이|가)?\\s*)?"
         +"(?:해결|해소|적정|괜찮|무관|불명|불확실|미정|미확정|추정|모르|확인|높|비싸|초과|부담|과다|반려|거절)|"
         +"^그\\s*때문");
+    private static final Pattern UNDETERMINED=compile("(사유|원인|이유)<D>{0,10}(단정|확정|특정)<D>{0,6}(않|못|어렵|없|불가)");
 
     private V3CostPolicy(){}
     private static Pattern compile(String expression){return Pattern.compile(expression.replace("<D>",DOT));}
@@ -53,10 +57,21 @@ public final class V3CostPolicy {
         return null;
     }
     private record Observation(String state,boolean current,boolean explicitCause){}
+    private record Result(String state,boolean explicitCause){}
 
-    public static String classify(String note){
+    public static String classify(String note){return classify(note,VERSION);}
+
+    public static String classify(String note,String version){
+        if(!supports(version))throw new IllegalArgumentException("Unknown cost policy");
         String text=trim(note==null?"":note);
         if(text.isEmpty())return "MISSING";
+        var result=classifyText(text);
+        if(VERSION_3.equals(version)&&"COST".equals(result.state())&&!result.explicitCause()
+            &&matches(UNDETERMINED,text))return "UNCLEAR";
+        return result.state();
+    }
+
+    private static Result classifyText(String text){
         var observations=new ArrayList<Observation>();
         boolean competingClause=false,competingReason=false;
         for(String part:CLAUSE_BOUNDARY.split(text)){
@@ -69,19 +84,20 @@ public final class V3CostPolicy {
             String state=costState(analysis);
             if(state!=null)observations.add(new Observation(state,matches(CURRENT,clause),costMatch(COST_CAUSE,analysis)));
         }
+        boolean explicit=observations.stream().anyMatch(Observation::explicitCause);
         if(!observations.isEmpty()){
             var states=new HashSet<String>();for(var observation:observations)states.add(observation.state());
             if(states.size()>1){
                 var current=new ArrayList<String>();
                 for(var observation:observations)if(observation.current())current.add(observation.state());
-                if(!current.isEmpty()&&new HashSet<>(current).size()==1&&observations.getLast().current())return current.getLast();
-                return "UNCLEAR";
+                if(!current.isEmpty()&&new HashSet<>(current).size()==1&&observations.getLast().current())return new Result(current.getLast(),explicit);
+                return new Result("UNCLEAR",explicit);
             }
             String state=observations.getFirst().state();
             if("COST".equals(state)&&competingClause&&(matches(TRANSITION,text)||competingReason)
-                &&observations.stream().noneMatch(Observation::explicitCause))return "UNCLEAR";
-            return state;
+                &&!explicit)return new Result("UNCLEAR",explicit);
+            return new Result(state,explicit);
         }
-        return matches(OTHER,text)?"OTHER":"UNCLEAR";
+        return new Result(matches(OTHER,text)?"OTHER":"UNCLEAR",explicit);
     }
 }

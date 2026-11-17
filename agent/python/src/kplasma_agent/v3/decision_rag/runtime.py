@@ -32,8 +32,19 @@ def citation(document, index):
 
 
 class DecisionRecordEngine:
-    def __init__(self, execution_mode=None, *, encoder=None, index_dir=None, synthetic=None):
+    def __init__(self, execution_mode=None, *, encoder=None, index_dir=None, synthetic=None,
+                 record_policy=policy.RECORD_POLICY_VERSION, encoder_spec=None,
+                 model_dir_env="AGENT_V3_RAG_MODEL_DIR", min_score=0.78, relative_margin=0.08, profile=None,
+                 index_factory=None):
         self.execution_mode = normalize_mode(execution_mode)
+        # Only the cost_exclusion count uses this version.
+        self.record_policy = policy.require_version(record_policy)
+        # Retrieval settings; the defaults are the PR #36 E5 profile. The thresholds belong to
+        # the encoder because similarity scales differ between embedding models.
+        self.encoder_spec, self.model_dir_env = encoder_spec, model_dir_env
+        self.min_score, self.relative_margin = min_score, relative_margin
+        self.profile = profile or retrieval_profile()
+        self.index_factory = index_factory  # None keeps the PR #36 bundle cache (LocalIndex)
         self.encoder = encoder
         self.index_dir = Path(index_dir) if index_dir is not None else None
         self.synthetic = (os.getenv("AGENT_V3_RAG_SYNTHETIC", "false").lower() == "true"
@@ -55,9 +66,9 @@ class DecisionRecordEngine:
             if (parsed is None or not parsed["exclude"] or not policy.mentions_cost(question)
                     or not policy.valid_threshold(threshold) or threshold != parsed["threshold"]):
                 raise DomainError("INVALID_RECORD_RULE_REQUEST")
-            summaries = [policy.summarize(records, run_id) for run_id in run_ids]
+            summaries = [policy.summarize(records, run_id, self.record_policy) for run_id in run_ids]
             excluded = [summary["runId"] for summary in summaries if summary["count"] >= threshold]
-            rules = {"policy": policy.RECORD_POLICY_VERSION, "action": "APPLY_EXISTING_COST_RULE",
+            rules = {"policy": self.record_policy, "action": "APPLY_EXISTING_COST_RULE",
                      "threshold": threshold, "aggregationScope": "ALL_RECORDS_FOR_RUN_ID_INCLUDING_HISTORY",
                      "perRun": [{key: summary[key] for key in ("runId", "count", "status", "mixed")} |
                                 {"costRejectionRecordIds": sorted({entry["recordId"] for entry in summary["entries"]
@@ -77,18 +88,20 @@ class DecisionRecordEngine:
             counts = {"rules": 1, "rag": 0}
         else:
             # Optional heavy dependencies and model files are touched only after the RAG gate succeeds.
-            from .embedding import LocalEncoder
+            from .embedding import E5_SMALL, LocalEncoder
             from .service import RagService
             if self.encoder is None:
-                model_dir = os.getenv("AGENT_V3_RAG_MODEL_DIR", "")
+                model_dir = os.getenv(self.model_dir_env, "")
                 if not model_dir:
                     raise DomainError("DECISION_RAG_NOT_CONFIGURED")
-                self.encoder = LocalEncoder(Path(model_dir))
+                self.encoder = LocalEncoder(Path(model_dir), spec=self.encoder_spec or E5_SMALL)
             directory = self.index_dir or Path(os.getenv("AGENT_V3_RAG_CACHE_DIR", ""))
             if self.index_dir is None and not os.getenv("AGENT_V3_RAG_CACHE_DIR"):
                 raise DomainError("DECISION_RAG_NOT_CONFIGURED")
-            service = RagService(corpus, self.encoder, directory, min_score=0.78, relative_margin=0.08,
-                                 include_rules=False, experimental_facets=False)
+            service = RagService(corpus, self.encoder, directory, min_score=self.min_score,
+                                 relative_margin=self.relative_margin,
+                                 include_rules=False, experimental_facets=False,
+                                 **({"index_factory": self.index_factory} if self.index_factory else {}))
             raw = service.ask(question, run_ids, top_k=5, mode="semantic", version_scope="history")
             citations = [{"citationId": row["citationId"], "documentId": row["documentId"],
                           "recordId": row["recordId"], "subjectRunId": row["runId"],
@@ -97,7 +110,7 @@ class DecisionRecordEngine:
                                                     "sourceNoteSha256", "sourceRecordSha256")}}
                          for row in raw["citations"]]
             answer, status = raw["answer"], raw["status"]
-            retrieval = {**raw["retrieval"], "profile": retrieval_profile()}
+            retrieval = {**raw["retrieval"], "profile": self.profile}
             counts = {"rules": 0, "rag": 1}
         evidence = {"schemaVersion": 1, "kind": "decision_rag", "status": status, "synthetic": self.synthetic,
                     "answer": answer, "scopeRunRefs": refs, "citations": citations, "rules": rules,

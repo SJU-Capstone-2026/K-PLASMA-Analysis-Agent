@@ -222,8 +222,28 @@ class V3DecisionEvidenceValidatorTest {
                 var row=(Map<?,?>)value;
                 assertThat(V3CostPolicy.classify((String)row.get("note")))
                     .as((String)row.get("id")).isEqualTo(row.get("expected"));
+                Object expected3=row.containsKey("expectedCostRegex3")?row.get("expectedCostRegex3"):row.get("expected");
+                assertThat(V3CostPolicy.classify((String)row.get("note"),V3CostPolicy.VERSION_3))
+                    .as((String)row.get("id")+" cost-regex-3").isEqualTo(expected3);
             }
         }
+    }
+
+    @Test void costRegex3IsRecomputedIndependentlyAndCannotReuseCostRegex2Counts(){
+        var record=rev("ART-UNDETERMINED",A,"REJECT","가격이 비싸지만 다른 평가 내용도 있어 사유를 단정하지 않았다.");
+        var records=List.of(record);
+        var rules=rules(A.runId(),0,"사유 확인 필요",false,List.of());
+        rules.put("policy",V3CostPolicy.VERSION_3);
+        var e=evidence(records,List.of(A),List.of(),rules);
+        var f=new Fixture(snapshot(e,List.of(A)),m("catalogRunRefs",List.of(ref(A)),"decisionRecords",records),e,m());
+        valid(f); // cost-regex-3 treats an undetermined reason as unclear.
+        rules.put("policy",V3CostPolicy.VERSION);
+        invalid(f); // cost-regex-2 counts the same note as one cost rejection.
+        rules.put("perRun",List.of(m("runId",A.runId(),"count",1,"status","비용 반려 1건",
+            "mixed",false,"costRejectionRecordIds",List.of("ART-UNDETERMINED"))));
+        valid(f);
+        rules.put("policy",V3CostPolicy.VERSION_3);invalid(f);
+        rules.put("policy","cost-regex-9");invalid(f);
     }
 
     @Test void changedCostClauseSemanticsAreVersionedAndCannotForgeOldCounts(){

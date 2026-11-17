@@ -16,6 +16,7 @@ from .contracts import DataAnswerDraft, GeneralAnswerDraft, PlanDraft, ReviewAns
 from .plan_checks import review_questions
 from .plan_review import parse_plan_review, review_result
 from ..runtime import allowed_record_actions, normalize_mode
+from ..decision_engines import DEFAULT_ENGINE, engine_from_env
 
 PLAN_INSTRUCTIONS = """# 역할과 제출
 원문과 확인된 문맥을 읽고 schema_version=2인 전체 계획을 submit_plan으로 정확히 한 번 제출한다.
@@ -166,6 +167,7 @@ class V3Settings:
     decisions_model: str
     decisions_url: str
     plan_review_enabled: bool = True
+    decision_engine: str = DEFAULT_ENGINE
 
     @classmethod
     def from_env(cls, base: Settings) -> "V3Settings":
@@ -181,6 +183,7 @@ class V3Settings:
             decisions_model=os.getenv("AGENT_V3_DECISIONS_MODEL", "gpt-6-luna"),
             decisions_url=url + "/decisions",
             plan_review_enabled=os.getenv("AGENT_V3_PLAN_REVIEW_ENABLED", "true").lower() not in {"false", "0"},
+            decision_engine=engine_from_env(),
         )
 
 
@@ -248,7 +251,7 @@ def planner_instructions(execution_mode=None):
         instructions += ("search는 관련 판단 메모 검색이다. threshold:null이며 최대5개 원문 근거를 제공한다. "
                          "검색 유사도로 후보 Run을 확정 제외하지 않으며 candidates는 입력 범위를 유지한다. ")
     if "cost_exclusion" in actions:
-        instructions += ("cost_exclusion은 비용 반려 N건 이상 제외하는 cost-regex-2 전수 집계다. "
+        instructions += ("cost_exclusion은 비용 반려 N건 이상 제외하는 전수 집계다. "
                          "원문의 명시적 양의 정수 N을 threshold literal에 넣고 unit:null, 실제 source를 연결한다. "
                          "기록 수 상위 검색으로 집계하지 않는다. 애매한 제외 기준이나 다른 사유 제외는 지원한다고 만들지 않는다. ")
     return instructions
