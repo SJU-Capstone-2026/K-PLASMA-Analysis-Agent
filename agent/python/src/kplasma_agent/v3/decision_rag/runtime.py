@@ -34,7 +34,8 @@ def citation(document, index):
 class DecisionRecordEngine:
     def __init__(self, execution_mode=None, *, encoder=None, index_dir=None, synthetic=None,
                  record_policy=policy.RECORD_POLICY_VERSION, encoder_spec=None,
-                 model_dir_env="AGENT_V3_RAG_MODEL_DIR", min_score=0.78, relative_margin=0.08, profile=None):
+                 model_dir_env="AGENT_V3_RAG_MODEL_DIR", min_score=0.78, relative_margin=0.08, profile=None,
+                 index_factory=None):
         self.execution_mode = normalize_mode(execution_mode)
         # Only the cost_exclusion count uses this version.
         self.record_policy = policy.require_version(record_policy)
@@ -43,6 +44,7 @@ class DecisionRecordEngine:
         self.encoder_spec, self.model_dir_env = encoder_spec, model_dir_env
         self.min_score, self.relative_margin = min_score, relative_margin
         self.profile = profile or retrieval_profile()
+        self.index_factory = index_factory  # None keeps the PR #36 bundle cache (LocalIndex)
         self.encoder = encoder
         self.index_dir = Path(index_dir) if index_dir is not None else None
         self.synthetic = (os.getenv("AGENT_V3_RAG_SYNTHETIC", "false").lower() == "true"
@@ -98,7 +100,8 @@ class DecisionRecordEngine:
                 raise DomainError("DECISION_RAG_NOT_CONFIGURED")
             service = RagService(corpus, self.encoder, directory, min_score=self.min_score,
                                  relative_margin=self.relative_margin,
-                                 include_rules=False, experimental_facets=False)
+                                 include_rules=False, experimental_facets=False,
+                                 **({"index_factory": self.index_factory} if self.index_factory else {}))
             raw = service.ask(question, run_ids, top_k=5, mode="semantic", version_scope="history")
             citations = [{"citationId": row["citationId"], "documentId": row["documentId"],
                           "recordId": row["recordId"], "subjectRunId": row["runId"],

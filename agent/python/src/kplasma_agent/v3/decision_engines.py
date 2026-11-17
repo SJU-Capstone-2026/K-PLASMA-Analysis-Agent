@@ -53,7 +53,8 @@ KOSR_MIN_SCORE, KOSR_RELATIVE_MARGIN = 0.47, 0.02
 def _kosr_retrieval(spec):
     return {"policy": "kosr-1.strict-support.ko-sroberta-" + spec.revision[:7],
             "embedding": f"{spec.model_id}@{spec.revision}", "minScore": KOSR_MIN_SCORE,
-            "relativeMargin": KOSR_RELATIVE_MARGIN, "topK": 5, "rerankerEnabled": False, "experimentalFacets": False}
+            "relativeMargin": KOSR_RELATIVE_MARGIN, "topK": 5, "rerankerEnabled": False, "experimentalFacets": False,
+            "vectorStore": "per-text-sqlite-1"}
 
 
 def _kosr_profile():
@@ -62,7 +63,8 @@ def _kosr_profile():
     from .decision_rag.policy import COST_REGEX_3
     return {"model": KO_SROBERTA.model_id, "revision": KO_SROBERTA.revision,
             "fileHashes": {name: value[1] for name, value in KO_SROBERTA.files.items()},
-            "modelDirEnv": KOSR_MODEL_DIR_ENV, "minScore": KOSR_MIN_SCORE, "relativeMargin": KOSR_RELATIVE_MARGIN,
+            "modelDirEnv": KOSR_MODEL_DIR_ENV, "vectorStore": "per-text-sqlite-1",
+            "minScore": KOSR_MIN_SCORE, "relativeMargin": KOSR_RELATIVE_MARGIN,
             "topK": 5, "selectionPolicy": EVIDENCE_SELECTION_POLICY, "recordPolicy": COST_REGEX_3,
             "rerankerEnabled": False, "experimentalFacets": False}
 
@@ -72,7 +74,14 @@ def _kosr_create(execution_mode):
     from .decision_rag.embedding import KO_SROBERTA
     from .decision_rag.policy import COST_REGEX_3
     from .decision_rag.runtime import DecisionRecordEngine
+
+    def index_factory(corpus, encoder, directory):
+        # Imported only when a search runs, so the cost rule path never loads numpy/SQLite code.
+        from .decision_rag.vector_store import IncrementalIndex
+        return IncrementalIndex(corpus, encoder, directory)
+
     return DecisionRecordEngine(execution_mode, record_policy=COST_REGEX_3, encoder_spec=KO_SROBERTA,
+                                index_factory=index_factory,
                                 model_dir_env=KOSR_MODEL_DIR_ENV, min_score=KOSR_MIN_SCORE,
                                 relative_margin=KOSR_RELATIVE_MARGIN, profile=_kosr_retrieval(KO_SROBERTA))
 
