@@ -12,7 +12,8 @@ from ..answer_stream import AnswerStreamProjector
 from ..config import Settings
 from ..metric_registry import UNITS
 from ..model_client import ModelClient, ModelError, strict_schema
-from .contracts import DataAnswerDraft, GeneralAnswerDraft, PlanDraft, ReviewAnswer, ReviewDecision
+from .contracts import DataAnswerDraft as DataAnswerDraft, GeneralAnswerDraft, PlanDraft, ReviewAnswer, ReviewDecision
+from .selected_values import SelectedValues
 from .plan_checks import review_questions
 from .plan_review import parse_plan_review, review_result
 
@@ -127,8 +128,20 @@ count·value_type·unit은 해당 조건이 필요 없으면 null이다. 필요�
 결과가 누락되면 입력을 확인하거나 지원되는 복구 계획을 세운다. 없는 데이터는 만들지 않는다.
 재계획 시 base_revision을 유지하고 변경과 무관한 유효 단계의 ID와 내용을 보존한다.
 메시지 인용은 제공된 messages의 키와 원문 구절을 사용한다.
-rejected_plan과 validation_error가 있으면 거절된 계획의 오류 위치·actual·allowed를 보고 수정한다. previous_plan은 마지막 승인 계획이다.
-generation_failure는 직전 생성 실패 정보다. 잘린 JSON을 그대로 실행하지 말고 원문 조건을 보존한 완전한 계획을 제출한다."""
+rejected_plan은 형식 검증 또는 d1 의미 검토에서 반려된 직전 계획이며 수정 대상이다.
+previous_plan은 직전 저장 계획의 참고본으로 d1 의미 검토 통과를 보장하지 않는다. d1 반려 후에는 null이다.
+validation_error가 있으면 rejected_plan의 오류 위치·actual·allowed를 보고 수정한다.
+generation_failure는 직전 생성 실패 정보다. 잘린 JSON을 그대로 실행하지 말고 원문 조건을 보존한 완전한 계획을 제출한다.
+
+# d1 의미 검토 반려 후 재계획
+plan_review_feedback가 있으면 rejected_plan은 d1 검토를 통과하지 못했다. 승인된 계획으로 취급하지 않는다.
+base_revision은 입력으로 제공된 저장 계획 revision을 그대로 사용한다.
+failed_checks는 검사별 지적이며 issues에는 condition_id·원문 sources·실제 실행 입력 plan_values가 있다.
+각 지적의 원문 인용·입력 경로·실행값을 rejected_plan과 대조해 해당 오류를 수정한다.
+missing이면 요청된 조건이 실제 입력에 있는지, 올바른 단계·필드에 연결됐는지 확인한다.
+이미 원문과 일치하는 숫자·단위는 유지한다. missing 표시만 보고 값을 추측하거나 조건을 버리지 않는다.
+반려 항목과 함께 원문의 작업 범위도 다시 확인한다. 조회만 요청했으면 불필요한 explain_answer를 제거한다.
+수정과 무관한 유효 단계·조건·인용은 보존하고 schema_version=2인 전체 계획을 submit_plan으로 제출한다."""
 
 COMPOSE_INSTRUCTIONS = """# 설명 담당 범위
 explanation_step의 requirement_ids에 연결된 requirements와 사용자 원문을 읽고 그 설명 요구를 빠짐없이 처리한다.
@@ -142,11 +155,15 @@ mode=general_only이면 개념 설명을 paragraphs에 작성한다. 전체 requ
 각 해석은 evidence_ids로 근거를 연결하고, 원인 추정에 필요한 전제는 assumptions에 명시한다.
 근거 ID는 제공된 evidence 목록에서만 선택한다. search_evidence에 나온 Run ID나 값을 근거 ID로 만들지 않는다.
 feedback이 overclaim이면 관찰 가능한 범위로 해석을 고치고, 원인을 알 수 없으면 그 한계를 설명한다.
-실험 답변의 fact_ids에는 실제 근거 ID를 넣는다. 표에 있는 Run별 값을 나열하지 말고 질문에 답하는 핵심 수치만 인용한다.
-인용하는 모든 실험값(측정값, 위상, 차이, 배율, 공정 조건)은 근거의 value_parts에서 선택한다.
-참조 문법은 {{value:근거ID|항목명}}이다. 근거ID는 이번 evidence[].id 전체를 그대로 복사하고 항목명은 그 근거의 value_parts에서 선택한다.
-단계 이름·Run 이름·compare 접두사를 근거 ID에 추가하거나 실행 ID를 생략하지 않는다. 숫자와 단위는 코드가 채운다.
-각 참조는 해당 해석·가정·한계의 evidence_ids에 넣은 실제 근거 ID여야 한다. 참조 가능한 값이 없으면 관찰의 범위를 설명한다.
+실험 답변의 fact_ids에는 evidence_choices의 ref를 넣는다. 표에 있는 Run별 값을 나열하지 말고 질문에 답하는 핵심 수치만 인용한다.
+해석·한계의 본문은 text 문자열 대신 segments 배열로 작성하고, assumptions도 문장마다 segments 배열로 작성한다.
+일반 문장은 {"kind":"text","text":"문장"}, 실험값을 넣을 위치는 {"kind":"evidence","ref":"V1"}로 표현한다.
+ref는 이번 입력의 value_choices에 있는 선택지만 고른다. 각 선택지는 실제 근거 ID와 value_parts의 항목에 연결된다.
+실험값(측정값, 위상, 차이, 배율, 공정 조건)의 숫자·단위나 참조 표식을 text에 직접 쓰지 않는다. 코드는 선택한 근거로 참조 양식과 실제 숫자를 만든다.
+fact_ids와 해석·가정·한계의 evidence_ids는 evidence_choices의 ref(E1 등)만 고른다. 긴 evidence_id를 직접 복사하거나 새 ID를 만들지 않는다.
+코드는 선택한 ref를 실제 근거 ID로 변환하고, 값 선택지에 연결된 근거도 자동으로 추가한다. 참조 가능한 값이 없으면 관찰의 범위를 설명한다.
+rejected_draft가 text 형식이어도 수정 출력은 segments 형식으로 작성한다.
+rejected_draft에 긴 근거 ID가 있어도 재작성의 fact_ids와 evidence_ids는 이번 evidence_choices의 ref만 사용한다.
 최댓값·최솟값의 부호와 비교 방향은 인용한 관측값과 일치시킨다.
 Run이 많으면 각 Run의 근거 ID를 나열하지 않는다. 요청한 항목의 최솟값·최댓값·범위처럼
 비교를 대표하는 요약 근거 ID를 선택한다.
@@ -409,24 +426,26 @@ class V2LocalLLMModelGateway:
         return data, usage
 
     def compose(self, context, *, on_block=None, numeric_values=None):
-        schema = GeneralAnswerDraft if context["mode"] == "general_only" else DataAnswerDraft
+        selection = None if context["mode"] == "general_only" else SelectedValues(context)
+        schema = GeneralAnswerDraft if selection is None else selection.output_model
+        view = context if selection is None else {**context, "value_choices": selection.choices,
+                                                 "evidence_choices": selection.evidence_choices}
         instructions = COMPOSE_INSTRUCTIONS
-        example = next((row for row in context.get("evidence", []) if row.get("value_parts")), None)
-        if example and context["mode"] != "general_only":
-            reference = "{{value:" + example["id"] + "|" + example["value_parts"][0] + "}}"
-            instructions += "\n이번 입력의 유효한 참조 예시: " + json.dumps({
-                "evidence_ids": [example["id"]], "text": "검증된 값은 " + reference + "입니다."}, ensure_ascii=False)
-        self.input_guard({"instructions": instructions, "input": context,
+        self.input_guard({"instructions": instructions, "input": view,
                           "schema": strict_schema(schema)}, "answer")
         cache = getattr(self, "plan_cache", None)
         if cache is not None:
             cache.writer_used()
-        if on_block is None:
-            return self.writer.generate(instructions, context, schema)
-        projection = AnswerStreamProjector(context["mode"], on_block,
-                                           evidence_ids={row["id"] for row in context.get("evidence", [])},
-                                           numeric_values=numeric_values)
-        return self.writer.generate(instructions, context, schema, on_text_delta=projection.feed)
+        projection = None
+        if on_block is not None:
+            projection = (AnswerStreamProjector(context["mode"], on_block) if selection is None else
+                          selection.projector(on_block, numeric_values=numeric_values))
+        data, usage = self.writer.generate(instructions, view, schema,
+            **({"on_text_delta": projection.feed} if projection is not None else {}))
+        try:
+            return (data if selection is None else selection.compile(data)), usage
+        except ValueError as error:
+            raise ModelError("MODEL_OUTPUT_INVALID", usage=usage) from error
 
     def stream_compose(self, context, *, on_block, numeric_values=None):
         return self.compose(context, on_block=on_block, numeric_values=numeric_values)

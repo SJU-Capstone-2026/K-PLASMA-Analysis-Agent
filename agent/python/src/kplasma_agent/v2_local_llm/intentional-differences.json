@@ -163,6 +163,10 @@
         "import:pydantic:ValidationError",
         "import:os",
         "assign:PLAN_INSTRUCTIONS",
+        "assign:COMPOSE_INSTRUCTIONS",
+        "import:kplasma_agent.v2_local_llm.core.contracts:DataAnswerDraft,GeneralAnswerDraft,PlanDraft,ReviewAnswer,ReviewDecision",
+        "import:kplasma_agent.v2_local_llm.core.contracts:DataAnswerDraft as DataAnswerDraft,GeneralAnswerDraft,PlanDraft,ReviewAnswer,ReviewDecision",
+        "import:kplasma_agent.v2_local_llm.core.selected_values:SelectedValues",
         "function:_plan_defaults",
         "class:V2LocalLLMModelGateway/function:__init__",
         "class:V2LocalLLMModelGateway/function:compose",
@@ -184,18 +188,22 @@
         "tests/v2_local_llm/test_prior_outputs.py",
         "tests/v2_local_llm/test_prompt_cache.py",
         "tests/v2_local_llm/test_d1_input.py",
-        "tests/v2_local_llm/test_d1_v23_gateway.py"
+        "tests/v2_local_llm/test_d1_v23_gateway.py",
+        "tests/v2_local_llm/test_selected_values.py"
       ]
     },
     {
       "path": "graph.py",
       "selectors": [
-        "function:_generation_failure"
+        "function:_generation_failure",
+        "function:build_v2_local_llm_graph"
       ],
-      "reason": "Forward native argument validation diagnostics in the existing generation_failure replan context, retaining original arguments and usage. No graph node, edge, routing, budget, execution or final answer changes.",
+      "reason": "Forward native argument validation diagnostics in generation_failure. Align only request_plan's model input: put the current d1-rejected plan in rejected_plan, omit its duplicate previous_plan, and suppress stale semantic feedback during a format-error replan. No graph node, edge, routing, budget, execution or final answer changes.",
       "tests": [
         "tests/v2_local_llm/test_native_plan.py",
-        "tests/v2_local_llm/test_clone_parity.py"
+        "tests/v2_local_llm/test_clone_parity.py",
+        "tests/v2_local_llm/test_plan_review_graph.py",
+        "tests/v2_local_llm/test_round3_recovery.py"
       ]
     },
     {
@@ -344,6 +352,16 @@
       "tests": [
         "tests/v2_local_llm/test_d1_integrity.py",
         "tests/v2_local_llm/test_d1_mlx_integration.py"
+      ]
+    },
+    {
+      "path": "core/selected_values.py",
+      "newFile": true,
+      "selectors": [],
+      "reason": "The writer selects request-local value choices in typed prose segments and enum-only evidence choices for fact_ids and evidence_ids; code compiles references and all citation IDs into the unchanged DataAnswerDraft and streams the existing public block names. Unknown choices, directly copied citation IDs and model-written reference syntax are rejected, including during rewrites. Graph, d1 review, numeric grounding and final answer contracts are preserved.",
+      "tests": [
+        "tests/v2_local_llm/test_selected_values.py",
+        "tests/v2_local_llm/test_model_gateway.py"
       ]
     },
     {

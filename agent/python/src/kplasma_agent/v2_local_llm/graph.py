@@ -201,16 +201,20 @@ def build_v2_local_llm_graph(models, executions, checkpointer):
         messages.update({f"input_{index}": item.get("text") or str(item)
                          for index, item in enumerate(history)})
         context = _binding_context(state.get("context", {}))
+        review_feedback = state.get("plan_review_feedback") if replan and not state.get("validation_error") else None
+        if review_feedback and review_feedback.get("plan_revision") != state.get("plan_revision"):
+            review_feedback = None
         payload = {
             "messages": messages, "context_keys": list(context),
             "confirmed_run_keys": [entry["key"] for entry in context["comparison_entries"]],
             "base_revision": state.get("plan_revision"),
-            "previous_plan": state.get("plan"),
-            "rejected_plan": state.get("plan_draft") if replan and state.get("validation_error") else None,
+            "previous_plan": None if review_feedback else state.get("plan"),
+            "rejected_plan": state.get("plan") if review_feedback else (
+                state.get("plan_draft") if replan and state.get("validation_error") else None),
             "validation_error": state.get("validation_error") if replan else None,
             "generation_failure": state.get("generation_failure") if replan else None,
             "feedback": state.get("feedback"),
-            "plan_review_feedback": state.get("plan_review_feedback"),
+            "plan_review_feedback": review_feedback,
             "verified_results": {step: value.get("status")
                                  for step, value in state.get("step_results", {}).items()},
         }

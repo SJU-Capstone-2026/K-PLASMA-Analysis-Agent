@@ -77,7 +77,36 @@ def test_rejected_plan_is_never_executed_and_corrected_plan_is_reviewed(choice):
     assert constraints == [{"metric": "meanIonEnergy", "operator": "between", "min": 150.0, "max": 160.0,
                             "unit": "eV"}]
     assert models.plan_inputs[1]["plan_review_feedback"]["failed_checks"]
-    assert models.plan_inputs[1]["previous_plan"]["steps"][0]["inputs"]["constraints"][0]["operator"] == "gt"
+    assert models.plan_inputs[1]["previous_plan"] is None
+    assert models.plan_inputs[1]["rejected_plan"]["steps"][0]["inputs"]["constraints"][0]["operator"] == "gt"
+
+
+def test_each_semantic_replan_receives_its_own_rejected_plan_and_feedback():
+    models = Models([example_plan().model_dump(mode="json"), correct_plan()],
+                    ("mismatch", "mismatch", "match"))
+    state, port = invoke(models)
+    assert state["replans"] == 2 and len(port.steps) == 1
+    for revision, payload in enumerate(models.plan_inputs[1:], 1):
+        assert payload["base_revision"] == revision
+        assert payload["previous_plan"] is None
+        assert payload["rejected_plan"] == models.reviews[revision - 1]["plan"]
+        assert payload["validation_error"] is None
+        assert payload["plan_review_feedback"]["plan_revision"] == revision
+        assert payload["plan_review_feedback"]["failed_checks"]
+    assert models.plan_inputs[1]["rejected_plan"]["steps"][0]["inputs"]["constraints"][0]["operator"] == "gt"
+    assert models.plan_inputs[2]["rejected_plan"]["steps"][0]["inputs"]["constraints"][0]["operator"] == "between"
+
+
+def test_format_replan_does_not_repeat_stale_semantic_feedback():
+    invalid = correct_plan()
+    invalid["steps"][0]["inputs"]["constraints"][0]["min"]["unit"] = "unknown-unit"
+    models = Models([example_plan().model_dump(mode="json"), invalid, correct_plan()], ("mismatch", "match"))
+    state, port = invoke(models)
+    assert state["replans"] == 2 and len(port.steps) == 1
+    payload = models.plan_inputs[2]
+    assert payload["validation_error"]["code"] == "INVALID_PLAN"
+    assert payload["rejected_plan"]["steps"][0]["inputs"]["constraints"][0]["min"]["unit"] == "unknown-unit"
+    assert payload["plan_review_feedback"] is None
 
 
 def test_semantics_and_code_errors_share_the_two_replan_limit():

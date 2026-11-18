@@ -127,10 +127,28 @@ def test_instructions_schemas_and_choice_meanings_match_the_frozen_source(frozen
                                   for key in result["required"]]
         return result
 
-    before, section = gateway.PLAN_INSTRUCTIONS.split("# 선행 출력 조건(required_prior_outputs)\n")
-    _, after = section.split("# 연결·재계획\n")
+    before, _ = gateway.PLAN_INSTRUCTIONS.split("# 선행 출력 조건(required_prior_outputs)\n")
+    # Prerequisite and replan guidance evolve; the remaining cloned contracts stay pinned.
+    after = """각 단계의 requirement_ids는 requirements[].id를, requirements[].handled_by는 steps[].id를 참조한다.
+이전 단계에서 만든 값을 쓰는 경우 depends_on에 그 단계의 ID를 넣는다.
+앞 결과는 등록 필드와 범위가 있는 result_ref로 연결한다. JSON 경로나 계산된 수치를 만들지 않는다.
+결과가 누락되면 입력을 확인하거나 지원되는 복구 계획을 세운다. 없는 데이터는 만들지 않는다.
+재계획 시 base_revision을 유지하고 변경과 무관한 유효 단계의 ID와 내용을 보존한다.
+메시지 인용은 제공된 messages의 키와 원문 구절을 사용한다.
+rejected_plan과 validation_error가 있으면 거절된 계획의 오류 위치·actual·allowed를 보고 수정한다. previous_plan은 마지막 승인 계획이다.
+generation_failure는 직전 생성 실패 정보다. 잘린 JSON을 그대로 실행하지 말고 원문 조건을 보존한 완전한 계획을 제출한다."""
     original_instructions = (before + "# 연결·재계획\n" + after).replace("required_prior_outputs", "requires")
     current["prompts"]["PLAN_INSTRUCTIONS"] = hashlib.sha256(original_instructions.encode()).hexdigest()
+    before, section = gateway.COMPOSE_INSTRUCTIONS.split("해석·한계의 본문은 text 문자열 대신 segments 배열로 작성하고", 1)
+    _, after = section.split("최댓값·최솟값의 부호와 비교 방향은", 1)
+    legacy_references = """인용하는 모든 실험값(측정값, 위상, 차이, 배율, 공정 조건)은 근거의 value_parts에서 선택한다.
+참조 문법은 {{value:근거ID|항목명}}이다. 근거ID는 이번 evidence[].id 전체를 그대로 복사하고 항목명은 그 근거의 value_parts에서 선택한다.
+단계 이름·Run 이름·compare 접두사를 근거 ID에 추가하거나 실행 ID를 생략하지 않는다. 숫자와 단위는 코드가 채운다.
+각 참조는 해당 해석·가정·한계의 evidence_ids에 넣은 실제 근거 ID여야 한다. 참조 가능한 값이 없으면 관찰의 범위를 설명한다.
+"""
+    original_compose = (before + legacy_references + "최댓값·최솟값의 부호와 비교 방향은" + after).replace(
+        "실험 답변의 fact_ids에는 evidence_choices의 ref를 넣는다.", "실험 답변의 fact_ids에는 실제 근거 ID를 넣는다.")
+    current["prompts"]["COMPOSE_INSTRUCTIONS"] = hashlib.sha256(original_compose.encode()).hexdigest()
     current["schemas"]["PlanDraft"] = original_plan_schema(current["schemas"]["PlanDraft"])
     current["tool"]["parameters"] = original_plan_schema(current["tool"]["parameters"])
     assert current == frozen["contracts"]

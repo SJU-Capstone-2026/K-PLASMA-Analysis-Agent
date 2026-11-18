@@ -1591,7 +1591,7 @@
           "type": "null"
         }
       ],
-      "description": "최초 계획은 null, 재계획은 제공된 승인 계획 revision.",
+      "description": "최초 계획은 null, 재계획은 제공된 저장 계획 revision. d1 반려 계획을 수정할 때도 이 revision을 사용한다.",
       "title": "Base Revision"
     },
     "requirements": {

@@ -217,7 +217,8 @@ def test_oversized_plan_review_never_reaches_the_provider():
             gateway.review_plan(example_context())
 
 
-def test_gateway_streams_safe_prose_before_provider_completion_with_one_writer_request():
+@pytest.mark.parametrize("rewrite", [False, True])
+def test_gateway_streams_safe_prose_before_provider_completion_with_one_writer_request(rewrite):
     from kplasma_agent.v2_local_llm.model_client import ModelClient
     from kplasma_agent.v2_local_llm.core.composition import assemble_answer
     from kplasma_agent.v2_local_llm.core.contracts import Evidence
@@ -225,9 +226,11 @@ def test_gateway_streams_safe_prose_before_provider_completion_with_one_writer_r
     observed, requests, guards = [], [], []
     execution_id = "00000000-0000-0000-0000-000000000012"
     evidence_id = execution_id + ":O12"
-    draft = {"fact_ids": [evidence_id], "interpretations": [{"id": "private-I1",
-              "evidence_ids": [evidence_id], "text": "차이는 {{value:" + evidence_id + "|value}}입니다.",
-              "assumptions": ["동일한 조건입니다."]}], "limitations": []}
+    draft = {"fact_ids": ["E1"], "interpretations": [{"id": "private-I1",
+              "evidence_ids": ["E1"], "segments": [
+                  {"kind": "text", "text": "차이는 "}, {"kind": "evidence", "ref": "V1"},
+                  {"kind": "text", "text": "입니다."}],
+              "assumptions": [[{"kind": "text", "text": "동일한 조건입니다."}]]}], "limitations": []}
     raw = json.dumps(draft, ensure_ascii=False)
     response = {"id": "synthetic", "object": "chat.completion.chunk", "created": 0,
                 "model": "unsloth/Qwen3.5-9B-GGUF:Q4_K_M"}
@@ -247,9 +250,11 @@ def test_gateway_streams_safe_prose_before_provider_completion_with_one_writer_r
         body = json.loads(request.content)
         requests.append(body)
         assert body["stream"] is True
-        assert "numeric_values" not in json.loads(body["messages"][1]["content"])
-        assert "{{value:" + evidence_id + "|value}}" in body["messages"][0]["content"]
-        assert "{{value:compare:O7" not in body["messages"][0]["content"]
+        payload = json.loads(body["messages"][1]["content"])
+        assert "numeric_values" not in payload
+        assert payload["value_choices"] == [{"ref": "V1", "evidence_id": evidence_id, "part": "value"}]
+        assert payload["evidence_choices"] == [{"ref": "E1", "evidence_id": evidence_id}]
+        assert "{{value:" not in body["messages"][0]["content"]
         return httpx.Response(200, headers={"content-type": "text/event-stream"}, stream=Body())
 
     settings = V2LocalLLMSettings.from_env(Settings(api_key="test"))
@@ -260,6 +265,12 @@ def test_gateway_streams_safe_prose_before_provider_completion_with_one_writer_r
                             value="검증된 값", unit=None)
         context = {"mode": "data_request", "evidence": [{**evidence.model_dump(mode="json"),
                                                           "value_parts": ["value"]}]}
+        if rewrite:
+            context.update(rejected_draft={"fact_ids": [evidence_id], "interpretations": [{
+                "id": "private-I1", "evidence_ids": [evidence_id],
+                "text": "{{value:" + evidence_id + "|bad}}", "assumptions": []}], "limitations": []},
+                validation_error={"code": "INVALID_ANSWER", "path": "/interpretations/0/text",
+                                  "actual": "bad", "allowed": ["value"]})
         values = {evidence_id: {"value": "12 V"}}
         final, _ = gateway.stream_compose(context, on_block=lambda block, text: observed.append((block, text)),
                                           numeric_values=values)
@@ -268,6 +279,12 @@ def test_gateway_streams_safe_prose_before_provider_completion_with_one_writer_r
     assert guards == ["answer"]
     assert rendered.endswith("차이는 12 V입니다.\n\n동일한 조건입니다.")
     assert saved["interpretations"][0]["text"] == observed[0][1]
+    assert final["fact_ids"] == [evidence_id]
+    assert final["interpretations"][0]["evidence_ids"] == [evidence_id]
+    if rewrite:
+        sent = json.loads(requests[0]["messages"][1]["content"])
+        assert sent["rejected_draft"] == context["rejected_draft"]
+        assert sent["validation_error"] == context["validation_error"]
 
 
 @pytest.mark.parametrize("failure,code", [("timeout", "MODEL_TIMEOUT"), (429, "MODEL_RATE_LIMITED"),

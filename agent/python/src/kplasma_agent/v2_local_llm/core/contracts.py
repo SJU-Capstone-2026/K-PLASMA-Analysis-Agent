@@ -208,7 +208,7 @@ class PlanDraft(ClosedModel):
     request_mode: Literal["general_only", "data_request"] = Field(
         description="순수 개념 설명은 general_only, 실제 Run 정보가 필요한 요청·혼합 요청은 data_request.")
     base_revision: Annotated[int, Field(ge=1)] | None = Field(
-        description="최초 계획은 null, 재계획은 제공된 승인 계획 revision.")
+        description="최초 계획은 null, 재계획은 제공된 저장 계획 revision. d1 반려 계획을 수정할 때도 이 revision을 사용한다.")
     requirements: list[Requirement] = Field(description="원문에서 요청한 작업 목록. 단계의 선행 출력 조건과 구별한다.")
     steps: Annotated[list[StepSpec], Field(max_length=16)] = Field(description="요구사항을 수행할 전체 실행 단계. 최대 16개.")
 
