@@ -50,7 +50,7 @@ def canonical_request(body):
 
 
 def pack_requests(body, group_size, count, limit=MAX_INPUT_TOKENS, *, context_mode="full", context_trace=None):
-    from kplasma_agent.v2_local_llm.core.d1_context import VERSION, project_state
+    from kplasma_agent.v2_local_llm.core.d1_context import VERSION, project_check
     if context_mode not in {"full", "per_check"}:
         raise ValueError("LOCAL_D1_CONTEXT_CONFIG_INVALID")
     body = canonical_request(body)
@@ -60,7 +60,7 @@ def pack_requests(body, group_size, count, limit=MAX_INPUT_TOKENS, *, context_mo
     for name, question in body["questions"].items():
         state = body["state"]
         if context_mode == "per_check":
-            state, trace = project_state(state, name)
+            state, question, trace = project_check(state, name, question)
         else:
             trace = {"action": "full", "reason": "full_mode", "tool_ids": [], "metric_ids": [],
                      "version": VERSION,

@@ -94,8 +94,18 @@ def test_per_check_packing_counts_selected_state_and_preserves_request():
     pressure = next(b for b, _ in groups if "filter.search.pressure" in b["questions"])
     assert len(pressure["state"]) < len(native["state"])
     projected = json.loads(pressure["state"])
-    assert {k: v for k, v in projected.items() if k != "tool_contracts"} == {
-        k: v for k, v in state.items() if k != "tool_contracts"}
+    original_filter = state["plan"]["steps"][0]["inputs"]["constraints"][0]["value"]
+    filter_value = projected["plan"]["steps"][0]["inputs"]["constraints"][0]["value"]
+    assert filter_value == {**{k: v for k, v in original_filter.items() if k != "source"},
+                            "citation": original_filter["source"]}
+    assert projected["review_view"]["kind"] == "numeric_excerpt"
+    assert projected["check_specs"][0]["name"] == "filter.search.pressure"
+    assert {s["name"]: s for s in projected["check_specs"]} == {s["name"]: s for s in state["check_specs"]}
+    assert projected["question"] == state["question"] and projected["input_history"] == state["input_history"]
+    rules = pressure["questions"]["filter.search.pressure"]
+    assert rules["criteria"] == native["questions"]["filter.search.pressure"]["criteria"]
+    assert "citation.quote" in rules["instructions"] and "latest input_history" in rules["instructions"]
+    assert "future measurements" not in rules["instructions"]
     fixed = next(b for b, _ in groups if "request.tasks" in b["questions"])
     assert len(fixed["state"]) < len(native["state"])
     fixed_state = json.loads(fixed["state"])
@@ -104,6 +114,62 @@ def test_per_check_packing_counts_selected_state_and_preserves_request():
     fields = fixed_state["tool_contracts"]["compare_runs"]["fields"]
     assert set(fields) == set(state["tool_contracts"]["compare_runs"]["fields"])
     assert all("definition" not in item and "definition_ref" not in item for item in fields.values())
+
+
+@pytest.mark.parametrize("has_value", [True, False])
+def test_forward_numeric_review_keeps_the_full_checklist_and_only_the_tested_operand(has_value):
+    import json
+    from kplasma_agent.v2_local_llm.core.d1_input import prepare_d1_input
+    from kplasma_agent.v2_local_llm.core.decisions import native_request
+    from kplasma_agent.v2_local_llm.core.plan_checks import review_questions
+    from .test_numeric_review_view import forward, request
+
+    check = "filter.lookup.source_power"
+    step = forward()
+    if not has_value:
+        step["inputs"]["source_power"] = None
+    original = json.loads(request([step], check)["state"])
+    state, questions = prepare_d1_input(original, review_questions(original),
+                                       role="plan_review", profile="en-compact-no-view")
+    native = native_request({"input": [{"role": "user", "content": [
+        {"type": "input_json", "data": state}]}], "questions": questions})
+    trace = []
+    groups = service().pack_requests(native, 1, lambda _: 100, context_mode="per_check", context_trace=trace)
+    selected = next(group for group, _ in groups if check in group["questions"])
+    excerpt = json.loads(selected["state"])
+    assert len(groups) == len(original["check_specs"]) == len(trace)
+    if not has_value:
+        assert "review_view" not in excerpt and excerpt["plan"] == original["plan"]
+        return
+    inputs = excerpt["plan"]["steps"][0]["inputs"]
+    assert list(inputs) == ["source_power"]
+    assert inputs["source_power"]["citation"] == original["plan"]["steps"][0]["inputs"]["source_power"]["source"]
+    specs = original["check_specs"]
+    assert excerpt["check_specs"] == [s for s in specs if s["name"] == check] + [s for s in specs if s["name"] != check]
+    assert len(selected["questions"]) == 1
+    assert "latest input_history" not in selected["questions"][check]["instructions"]
+
+
+def test_numeric_review_keeps_the_plan_and_rules_for_a_future_value():
+    import json
+    from kplasma_agent.v2_local_llm.core.d1_input import prepare_d1_input
+    from kplasma_agent.v2_local_llm.core.decisions import native_request
+    from kplasma_agent.v2_local_llm.core.plan_checks import review_questions
+    from .test_d1_input import context
+
+    source = context("P07")
+    state, questions = prepare_d1_input(source, review_questions(source),
+                                       role="plan_review", profile="en-compact-no-view")
+    native = native_request({"input": [{"role": "user", "content": [
+        {"type": "input_json", "data": state}]}], "questions": questions})
+    check = next(q["name"] for q in questions if q["name"].startswith("filter."))
+    groups = service().pack_requests(native, 1, lambda _: 100, context_mode="per_check")
+    selected = next(group for group, _ in groups if check in group["questions"])
+    view = json.loads(selected["state"])
+    assert "review_view" not in view and view["plan"] == state["plan"]
+    rules = selected["questions"][check]["instructions"]
+    assert "result_ref reads its source value" in rules and "future measurements" in rules
+    assert "await_input resumes after selection" not in rules
 
 
 def test_per_check_never_changes_valid_non_plan_unit_inputs():

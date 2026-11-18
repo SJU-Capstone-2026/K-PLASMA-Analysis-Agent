@@ -12,7 +12,7 @@ from typing import Any
 
 from kplasma_agent.v2_local_llm.config import Settings
 from kplasma_agent.v2_local_llm.core.budget import make_d1_counter, make_input_guard
-from kplasma_agent.v2_local_llm.core.d1_context import project_state
+from kplasma_agent.v2_local_llm.core.d1_context import project_check
 from kplasma_agent.v2_local_llm.core.d1_input import prepare_d1_input
 from kplasma_agent.v2_local_llm.core.decisions import native_request
 from kplasma_agent.v2_local_llm.core.model_gateway import V2LocalLLMModelGateway, V2LocalLLMSettings
@@ -83,8 +83,8 @@ def selection_preflight(cases, profile):
         native = native_request({"input": [{"role": "user", "content": [
             {"type": "input_json", "data": view}]}], "questions": questions})
         projected = {}
-        for name in native["questions"]:
-            _, trace = project_state(native["state"], name)
+        for name, question in native["questions"].items():
+            _, _, trace = project_check(native["state"], name, question)
             if trace["action"] != "selected":
                 raise ValueError("LOCAL_D1_CONTEXT_NOT_SELECTED")
             projected[name] = trace["state_sha256"]

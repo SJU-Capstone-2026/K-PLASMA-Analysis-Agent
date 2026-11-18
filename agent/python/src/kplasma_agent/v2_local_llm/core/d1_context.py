@@ -8,10 +8,11 @@ from pathlib import Path
 from ..comparison_catalog import FIELD_META
 from .contracts import PlanDraft
 from .d1_input import _fixed_english
+from .d1_plan_view import project_plan_view
 from .plan_checks import KINDS, build_check_specs
 from .plan_review import tool_contracts
 
-VERSION = "d1-context-2"
+VERSION = "d1-context-3"
 _PROCESS = {"pressure", "sourcePower", "biasPower"}
 _OUTPUT = {"ionFlux", "meanIonEnergy", "iedWidth"}
 _KNOWN_METRICS = set("""ionFlux meanIonEnergy iedWidth pressure sourcePower biasPower
@@ -30,7 +31,7 @@ def context_identity(mode: str) -> dict:
     core = Path(__file__).resolve().parent
     dependencies = {name: sha256((core.parent / name).read_bytes()).hexdigest()
                     for name in ("metric_registry.py", "contracts.py", "core/contracts.py",
-                                 "core/plan_checks.py", "core/plan_review.py")}
+                                 "core/plan_checks.py", "core/plan_review.py", "core/d1_plan_view.py")}
     return {"mode": mode, "version": VERSION,
             "selector_sha256": sha256(Path(__file__).read_bytes()).hexdigest(),
             "registry_sha256": sha256((core.parent / "comparison_catalog.py").read_bytes()).hexdigest(),
@@ -218,3 +219,11 @@ def project_state(state: str, check_name: str) -> tuple[str, dict]:
         return result(projected, "selected", "known_contracts", tools - {"bindings"}, metrics)
     except (KeyError, TypeError, IndexError, ValueError):
         return result(state, "fallback", "unsupported_context")
+
+
+def project_check(state: str, name: str, question: dict) -> tuple[str, dict, dict]:
+    state, trace = project_state(state, name)
+    if trace["action"] == "selected" or trace["reason"] == "no_reduction":
+        state, question = project_plan_view(state, name, question)
+        trace["state_sha256"] = sha256(state.encode()).hexdigest()
+    return state, question, trace

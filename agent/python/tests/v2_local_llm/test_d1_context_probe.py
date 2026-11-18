@@ -65,9 +65,9 @@ def test_selected_only_audit_rejects_even_one_full_or_fallback(action):
 
 def test_selected_only_preflight_stops_before_models_if_one_rule_is_missing(monkeypatch):
     from .test_plan_review import example_context
-    def unavailable(state, name):
-        return state, {"action": "full", "reason": "missing_policy"}
-    monkeypatch.setattr(probe, "project_state", unavailable, raising=False)
+    def unavailable(state, name, question):
+        return state, question, {"action": "full", "reason": "missing_policy"}
+    monkeypatch.setattr(probe, "project_check", unavailable)
     with pytest.raises(ValueError, match="LOCAL_D1_CONTEXT_NOT_SELECTED"):
         probe.selection_preflight([{"case": "artificial", "context": example_context()}],
                                   "en-compact-no-view")

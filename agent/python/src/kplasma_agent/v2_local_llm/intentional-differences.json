@@ -357,6 +357,15 @@
       ]
     },
     {
+      "path": "core/d1_plan_view.py",
+      "newFile": true,
+      "selectors": [],
+      "reason": "Limit the compact English d1 review copy to independent literal filter operands and their citations, restore the full check list, and include history and future-input instructions where relevant. The original plan, check outcomes and public contracts retain their existing shapes.",
+      "tests": [
+        "tests/v2_local_llm/test_d1_mlx.py"
+      ]
+    },
+    {
       "path": "core/d1_context.py",
       "newFile": true,
       "selectors": [],

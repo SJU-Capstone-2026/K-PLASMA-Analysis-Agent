@@ -176,7 +176,7 @@ def test_unreviewed_registry_extension_falls_back(monkeypatch):
 
 
 @pytest.mark.parametrize("relative_path", ["metric_registry.py", "contracts.py", "core/contracts.py",
-                                          "core/plan_checks.py", "core/plan_review.py"])
+                                          "core/plan_checks.py", "core/plan_review.py", "core/d1_plan_view.py"])
 def test_identity_changes_when_imported_contract_dependency_changes(monkeypatch, relative_path):
     before = context_identity("per_check")
     original = Path.read_bytes
@@ -265,7 +265,7 @@ def test_all_thirteen_kinds_have_a_selected_policy():
             assert meta["action"] == "selected", spec
             covered.add(spec["kind"])
     assert covered == KINDS.keys()
-    assert VERSION == "d1-context-2"
+    assert VERSION == "d1-context-3"
 
 
 def test_selection_count_needs_no_metric_definitions_or_candidate_execution():
