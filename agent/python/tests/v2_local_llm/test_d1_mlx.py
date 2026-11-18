@@ -60,12 +60,12 @@ def test_invalid_request_is_rejected_before_counting(bad):
         service().pack_requests(bad, 1, lambda _: pytest.fail("counted invalid input"))
 
 
-def test_production_order_and_choice_order_are_deterministic():
+def test_question_order_is_stable_and_choice_order_is_preserved():
     request = body(3)
     request["questions"] = dict(reversed(list(request["questions"].items())))
     groups = service().pack_requests(request, 1, lambda _: 100)
     assert [next(iter(b["questions"])) for b, _ in groups] == sorted(request["questions"])
-    assert all(list(next(iter(b["questions"].values()))["criteria"]) == ["changed", "match"] for b, _ in groups)
+    assert all(list(next(iter(b["questions"].values()))["criteria"]) == ["match", "changed"] for b, _ in groups)
 
 
 def test_per_check_packing_counts_selected_state_and_preserves_request():
@@ -104,6 +104,7 @@ def test_per_check_packing_counts_selected_state_and_preserves_request():
     assert projected["question"] == state["question"] and projected["input_history"] == state["input_history"]
     rules = pressure["questions"]["filter.search.pressure"]
     assert rules["criteria"] == native["questions"]["filter.search.pressure"]["criteria"]
+    assert list(rules["criteria"]) == list(native["questions"]["filter.search.pressure"]["criteria"])
     assert "citation.quote" in rules["instructions"] and "latest input_history" in rules["instructions"]
     assert "future measurements" not in rules["instructions"]
     fixed = next(b for b, _ in groups if "request.tasks" in b["questions"])

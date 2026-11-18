@@ -45,7 +45,8 @@ def canonical_request(body):
             )
         ):
             raise ValueError("LOCAL_D1_REQUEST_INVALID")
-        questions[name] = {**q, "criteria": dict(sorted(q["criteria"].items()))}
+        # Option positions affect d1 scores; preserve the caller's validated order.
+        questions[name] = {**q, "criteria": dict(q["criteria"])}
     return {"state": body["state"], "questions": questions}
 
 
