@@ -70,7 +70,7 @@ def test_runtime_profile_is_independent_of_app_addresses_and_bound_to_thinking()
     assert runtime.runtime_profile(replace(settings,reasoning_effort="none"))!=profile
 
 
-@pytest.mark.parametrize("bad", [None, "batch", "ubatch", "duplicate", "executable"])
+@pytest.mark.parametrize("bad", [None, "batch", "ubatch", "duplicate", "executable", "cache", "cache-wrong", "cache-unexpected"])
 def test_runtime_requires_the_256_batch_profile_and_pinned_executable(tmp_path, monkeypatch, bad):
     import shlex
     key=tmp_path/"key"
@@ -81,6 +81,11 @@ def test_runtime_requires_the_256_batch_profile_and_pinned_executable(tmp_path, 
         "--ubatch-size":"256","--parallel":"1","--sleep-idle-seconds":"1","--device":"MTL0",
         "--gpu-layers":"all","--fit":"off","--timeout":"90","--reasoning":"auto",
         "--reasoning-format":"deepseek","--reasoning-budget":"2048"}
+    if bad in {"cache", "cache-wrong"}:
+        settings=replace(settings,qwen_plan_cache_enabled=True,qwen_plan_cache_dir=str(tmp_path/"cache"))
+        options["--slot-save-path"]=str(tmp_path/("wrong" if bad=="cache-wrong" else "cache"))
+    if bad=="cache-unexpected":
+        options["--slot-save-path"]=str(tmp_path/"cache")
     if bad in {"batch", "ubatch"}:
         options["--batch-size" if bad == "batch" else "--ubatch-size"] = "512"
     binary="/synthetic/other-server" if bad=="executable" else "/synthetic/llama-server"
@@ -95,7 +100,7 @@ def test_runtime_requires_the_256_batch_profile_and_pinned_executable(tmp_path, 
     monkeypatch.setattr(runtime.subprocess,"check_output",output)
     manifest=json.loads(runtime.Path(runtime.__file__).with_name("runtime-manifest.json").read_text())
     monkeypatch.setattr(runtime,"_hash",lambda p:manifest["d1RuntimeFiles"].get(p.name,"wrong-executable"))
-    if bad is None:
+    if bad in {None, "cache"}:
         assert runtime._server_facts(settings,settings.model_url,settings.model_path,qwen=True).startswith("123")
     else:
         with pytest.raises(ValueError):

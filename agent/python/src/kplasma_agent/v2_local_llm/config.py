@@ -49,6 +49,10 @@ class Settings:
     d1_batch_tokens: int = 16000
     d1_ubatch_tokens: int = 16000
     measurement_path: str = ""
+    memory_policy: str = "strict"
+    qwen_plan_cache_enabled: bool = False
+    qwen_plan_cache_dir: str = field(default_factory=lambda: str(
+        Path(__file__).resolve().parents[5] / ".local/cache/v2_localLLM/qwen-plan-cache-KV"))
 
     @classmethod
     def from_env(cls, env_file=None):
@@ -67,6 +71,15 @@ class Settings:
         def get(name, default=""):
             return values.get(PREFIX + name) or default
         timeout = float(get("TIMEOUT_SECONDS", "90"))
+        memory_policy = get("MEMORY_POLICY", "strict").lower()
+        if memory_policy not in {"strict", "development"}:
+            raise ValueError("LOCAL_MEMORY_POLICY_INVALID")
+        cache_enabled = get("QWEN_PLAN_CACHE_ENABLED", "false").lower()
+        if cache_enabled not in {"true", "false", "1", "0"}:
+            raise ValueError("LOCAL_CACHE_CONFIG_INVALID")
+        cache_dir = Path(get("QWEN_PLAN_CACHE_DIR", cls().qwen_plan_cache_dir)).expanduser()
+        if not cache_dir.is_absolute():
+            cache_dir = Path(__file__).resolve().parents[5] / cache_dir
         if timeout != 90 or get("PLAN_REVIEW_ENABLED", "true").lower() not in {"true", "1"}:
             raise ValueError("LOCAL_REQUIRED_BUDGET_OR_REVIEW_CHANGED")
         settings = cls(
@@ -83,6 +96,9 @@ class Settings:
             d1_batch_tokens=int(get("D1_BATCH_TOKENS", "16000")),
             d1_ubatch_tokens=int(get("D1_UBATCH_TOKENS", "16000")),
             measurement_path=get("MEMORY_MEASUREMENT_PATH"),
+            memory_policy=memory_policy,
+            qwen_plan_cache_enabled=cache_enabled in {"true", "1"},
+            qwen_plan_cache_dir=str(cache_dir.absolute()),
         )
         if settings.context_tokens <= 6000 or min(settings.d1_context_tokens, settings.d1_batch_tokens,
                                                 settings.d1_ubatch_tokens) <= 0:
@@ -120,11 +136,14 @@ class Settings:
             "runtimeVersion": self.runtime_version, "d1RuntimeVersion": self.d1_runtime_version,
             "contextTokens": self.context_tokens, "d1ContextTokens": self.d1_context_tokens,
             "modelResidency": "sequential-16k-v2",
-            "planProtocol": "native-submit-plan-chat-v1",
+            "planProtocol": "native-submit-plan-chat-v2",
+            "qwenPlanCache": {"enabled": self.qwen_plan_cache_enabled, "format": 1,
+                              "directoryHash": hashlib.sha256(self.qwen_plan_cache_dir.encode()).hexdigest()},
             "runtimeManifestHash": hashlib.sha256((root / "runtime-manifest.json").read_bytes()).hexdigest(),
             "d1PromptHash": hashlib.sha256((root / "core/d1-prompt.json").read_bytes()).hexdigest(),
             "d1BatchTokens": self.d1_batch_tokens, "d1UbatchTokens": self.d1_ubatch_tokens,
             "timeout": self.timeout, "planReviewEnabled": True,
+            "memoryPolicy": self.memory_policy,
             "cloneManifestHash": hashlib.sha256((root / "clone-manifest.json").read_bytes()).hexdigest(),
             "intentionalDifferencesHash": hashlib.sha256((root / "intentional-differences.json").read_bytes()).hexdigest(),
             "promptHash": hashlib.sha256((PLAN_INSTRUCTIONS + COMPOSE_INSTRUCTIONS).encode()).hexdigest(),

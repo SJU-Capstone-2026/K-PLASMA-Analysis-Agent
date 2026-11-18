@@ -61,7 +61,7 @@ def plan(question, steps):
 def nested(question, energy=False):
     measurement = compare({"kind": "context_ref", "key": "selected_runs"}, ["ionFlux"])
     calculation = {"id": "threshold", "kind": "derive", "operation": "max", "depends_on": ["compare"],
-                   "requires": [{"step_id": "compare", "field": "ionFlux", "count": 2}],
+                   "required_prior_outputs": [{"step_id": "compare", "field": "ionFlux", "count": 2}],
                    "inputs": {"values": {"kind": "result_ref", "step_id": "compare", "field": "ionFlux",
                                           "scope": {"kind": "context_selection", "key": "selected_runs"}}}}
     query = search([{"field": "ionFlux", "operator": "gt", "value": result_ref("threshold", "value", "scalar")},

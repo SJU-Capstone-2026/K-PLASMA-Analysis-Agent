@@ -8,6 +8,7 @@ from pathlib import Path
 from functools import lru_cache
 import hashlib
 import json
+import logging
 import shlex
 import subprocess
 import time
@@ -84,10 +85,20 @@ def verify_artifacts(settings):
 
 def runtime_profile(settings):
     versions = settings.versions()
-    return {**{key: getattr(settings, key) for key in PROFILE_FIELDS},
+    profile = {**{key: getattr(settings, key) for key in PROFILE_FIELDS},
             "qwenRuntimeOptions": dict(QWEN_RUNTIME_OPTIONS),
             **{key: versions[key] for key in ("planner", "writer", "decisions", "quantization",
                 "d1Quantization", "runtimeManifestHash", "qwenGeneration")}}
+    if settings.qwen_plan_cache_enabled:
+        profile["qwenPlanCache"] = versions["qwenPlanCache"]
+    if settings.memory_policy != "strict":
+        profile["memoryPolicy"] = settings.memory_policy
+    return profile
+
+
+def pressure_allowed(pressure, memory_policy="strict"):
+    return (type(pressure) is int and memory_policy in {"strict", "development"}
+            and (pressure == 1 or (memory_policy == "development" and pressure == 2)))
 
 
 def verify_memory_report(settings):
@@ -96,6 +107,8 @@ def verify_memory_report(settings):
         profile = runtime_profile(settings)
         if (report["schema_version"] != 1 or report["synthetic_only"] is not True
                 or report["full_stack"] is not True or report["runtime_profile"] != profile):
+            raise ValueError
+        if settings.memory_policy == "development" and report.get("memory_policy") != "development":
             raise ValueError
         if (not re.fullmatch(r"[a-f0-9]{64}", report["instance_facts_before"])
                 or report["instance_facts_before"] != report["instance_facts_after"]):
@@ -111,10 +124,31 @@ def verify_memory_report(settings):
                                                else row["counted"]) for row in rows)
                 or any(row["reasoning_present"] is not (row["role"] == "qwen_plan")
                        for row in rows if row["role"] != "d1")
-                or any(sample["pressure"] != 1 or type(sample["swap_bytes"]) is not int
+                or any(not pressure_allowed(sample["pressure"], settings.memory_policy) or type(sample["swap_bytes"]) is not int
                        or sample["swap_bytes"] < 0 or sample["resident_bytes"] <= 0 for sample in samples)
-                or max(sample["swap_bytes"] for sample in samples) > samples[0]["swap_bytes"]):
+                or (settings.memory_policy == "strict"
+                    and max(sample["swap_bytes"] for sample in samples) > samples[0]["swap_bytes"])):
             raise ValueError
+        if settings.qwen_plan_cache_enabled:
+            probe = report["qwen_plan_cache"]
+            if settings.memory_policy == "development" and probe.get("memory_policy") != "development":
+                raise ValueError
+            plans = [row for row in probe["rows"] if row.get("kind") == "plan"]
+            reviews = [row for row in probe["rows"] if row.get("kind") == "review"]
+            cached = plans[-1].get("cached_tokens") if plans else None
+            probe_samples = probe["samples"]
+            if (probe.get("synthetic_only") is not True or len(plans) != 2 or len(reviews) != 2
+                    or any(row.get("status") != "PASS" for row in reviews)
+                    or any(row.get("kind") == "error" for row in probe["rows"])
+                    or any(row.get("valid") is not True or row.get("save") != "saved" for row in plans)
+                    or plans[-1].get("restore") != "disk" or type(cached) is not int
+                    or not 0 < cached <= plans[-1]["input_tokens"] or not probe_samples
+                    or any(not pressure_allowed(sample["pressure"], settings.memory_policy)
+                           or type(sample["swap_bytes"]) is not int or sample["swap_bytes"] < 0
+                           or sample["resident_bytes"] <= 0 for sample in probe_samples)
+                    or (settings.memory_policy == "strict"
+                        and max(sample["swap_bytes"] for sample in probe_samples) > probe_samples[0]["swap_bytes"])):
+                raise ValueError
         return hashlib.sha256(json.dumps(report, sort_keys=True).encode()).hexdigest()
     except (OSError, ValueError, KeyError, TypeError):
         raise ValueError("LOCAL_MEMORY_EVIDENCE_INVALID") from None
@@ -142,6 +176,8 @@ def _server_facts(settings, url, model_path, *, qwen=False):
         required.update({"--alias": settings.model, "--reasoning": "auto", "--reasoning-format": "deepseek",
                          "--reasoning-budget": 2048})
         flags.add("--jinja")
+        if settings.qwen_plan_cache_enabled:
+            required["--slot-save-path"] = settings.qwen_plan_cache_dir
     allowed = set(required) | flags | {"--model", "--api-key-file"}
     if (any(args.count(key) != 1 for key in allowed)
             or any(str(value) != args[args.index(key) + 1] for key, value in required.items())
@@ -278,7 +314,7 @@ def wait_for_stability(settings):
                 now = time.monotonic()
                 if now > deadline:
                     raise ValueError("LOCAL_MEMORY_PRESSURE")
-                if idle and pressure == 1:
+                if idle and pressure_allowed(pressure, settings.memory_policy):
                     stable_since = now if stable_since is None else stable_since
                     if now - stable_since >= 5:
                         return
@@ -313,7 +349,7 @@ def check_readiness(settings):
         pressure = memory_sample()["pressure"]
         if pressure == 4:
             raise ValueError("LOCAL_MEMORY_CRITICAL")
-        if pressure != 1:
+        if not pressure_allowed(pressure, settings.memory_policy):
             raise ValueError("LOCAL_MEMORY_PRESSURE")
         key = (assets, measured, facts)
         if key not in _VERIFIED_CONTRACTS:
@@ -327,7 +363,7 @@ def check_readiness(settings):
         pressure = memory_sample()["pressure"]
         if pressure == 4:
             raise ValueError("LOCAL_MEMORY_CRITICAL")
-        if pressure != 1:
+        if not pressure_allowed(pressure, settings.memory_policy):
             raise ValueError("LOCAL_MEMORY_PRESSURE")
         return {"ready": True, "blockers": []}
     except ValueError as error:
@@ -355,6 +391,12 @@ class ModelRuntime:
 
     def prepare(self, role):
         try:
+            if self.settings.memory_policy == "development":
+                pressure = memory_sample()["pressure"]
+                if pressure == 4:
+                    raise ValueError("LOCAL_MEMORY_CRITICAL")
+                if pressure == 2:
+                    logging.getLogger(__name__).warning("development memory pressure=2 before role=%s", role)
             self._models()
             if role in {"plan", "answer"}:
                 client, url, code = self.d1, self.settings.d1_url, "LOCAL_D1_MEMORY_NOT_RELEASED"

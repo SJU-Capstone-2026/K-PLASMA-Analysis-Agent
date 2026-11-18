@@ -108,7 +108,32 @@ def test_selectors_cannot_hide_other_logic_or_an_entire_file():
 def test_instructions_schemas_and_choice_meanings_match_the_frozen_source(frozen):
     gateway = importlib.import_module(NAMESPACE + ".core.model_gateway")
     review = importlib.import_module(NAMESPACE + ".core.plan_review")
-    assert contract_evidence(gateway, review) == frozen["contracts"]
+    current = contract_evidence(gateway, review)
+
+    def original_plan_schema(node):
+        if isinstance(node, list):
+            return [original_plan_schema(item) for item in node]
+        if not isinstance(node, dict):
+            return node
+        # v2.2 changes descriptive metadata and one field name, never its constraints.
+        result = {key: original_plan_schema(value) for key, value in node.items() if key != "description"}
+        if result.get("title") == "Required Prior Outputs":
+            result["title"] = "Requires"
+        properties = result.get("properties", {})
+        if "required_prior_outputs" in properties:
+            properties["requires"] = properties.pop("required_prior_outputs")
+        if "required" in result:
+            result["required"] = ["requires" if key == "required_prior_outputs" else key
+                                  for key in result["required"]]
+        return result
+
+    before, section = gateway.PLAN_INSTRUCTIONS.split("# 선행 출력 조건(required_prior_outputs)\n")
+    _, after = section.split("# 연결·재계획\n")
+    original_instructions = (before + "# 연결·재계획\n" + after).replace("required_prior_outputs", "requires")
+    current["prompts"]["PLAN_INSTRUCTIONS"] = hashlib.sha256(original_instructions.encode()).hexdigest()
+    current["schemas"]["PlanDraft"] = original_plan_schema(current["schemas"]["PlanDraft"])
+    current["tool"]["parameters"] = original_plan_schema(current["tool"]["parameters"])
+    assert current == frozen["contracts"]
 
 
 def test_local_definitions_and_bases_are_owned_objects(manifest):

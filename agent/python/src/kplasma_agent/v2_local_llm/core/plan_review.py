@@ -165,7 +165,7 @@ def execution_view(plan: PlanDraft) -> list[dict]:
         item = step.model_dump(mode="json")
         row = {"step": step.id, "kind": item["kind"],
                "action": item.get("tool", item.get("operation", item.get("confirmation"))),
-               "depends_on": step.depends_on, "requires": item["requires"], "run_if": item["run_if"],
+               "depends_on": step.depends_on, "required_prior_outputs": item["required_prior_outputs"], "run_if": item["run_if"],
                "inputs": item["inputs"]}
         if item.get("tool") == "compare_runs":
             row["computed_outputs"] = {field: FIELD_META[field] for field in item["inputs"]["fields"]}

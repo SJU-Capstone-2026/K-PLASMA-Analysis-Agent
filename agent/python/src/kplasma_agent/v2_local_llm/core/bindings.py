@@ -128,7 +128,7 @@ def resolve_inputs(step: StepSpec, context: dict, results: dict[str, StepResult]
     if isinstance(step, CompareStep):
         entries = resolve_comparison_entries(step, context, results)
 
-    for req in step.requires:
+    for req in step.required_prior_outputs:
         value = _available(results, req.step_id, req.field)
         values = value if isinstance(value, list) else [value]
         if not values or any(v is None for v in values) or (req.count is not None and len(values) != req.count):

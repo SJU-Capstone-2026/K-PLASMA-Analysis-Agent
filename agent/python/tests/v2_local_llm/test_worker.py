@@ -99,7 +99,8 @@ def test_idle_worker_waits_for_transient_readiness_without_claiming_a_request(bl
     assert claims == [True]
 
 
-def test_worker_releases_owned_qwen_after_a_request_while_still_holding_the_model_lease(tmp_path, monkeypatch):
+@pytest.mark.parametrize("cache_enabled", [False, True])
+def test_worker_releases_owned_qwen_after_a_request_while_still_holding_the_model_lease(tmp_path, monkeypatch, cache_enabled):
     from kplasma_agent.v2_local_llm import runtime
 
     module = worker()
@@ -117,10 +118,15 @@ def test_worker_releases_owned_qwen_after_a_request_while_still_holding_the_mode
     monkeypatch.setattr(runtime, "ModelRuntime", lambda *_: SimpleNamespace(prepare=release))
     monkeypatch.setattr(module, "BackendClient", lambda *_: backend)
     monkeypatch.setattr(module, "local_http_client", lambda *a, **kw: object())
-    monkeypatch.setattr(module, "V2LocalLLMModelGateway", lambda *_: object())
+    marker=object()
+    monkeypatch.setattr(module,"QwenPlanCache",lambda *_:marker,raising=False)
+    def gateway(*args,**kwargs):
+        assert (kwargs.get("plan_cache") is marker)==cache_enabled
+        return object()
+    monkeypatch.setattr(module,"V2LocalLLMModelGateway",gateway)
     monkeypatch.setattr(module.signal, "signal", lambda *_: None)
     monkeypatch.setattr(module, "run_claim", lambda *a, **kw: events.append("graph"))
-    module.serve(Settings(worker_token="synthetic"), once=True)
+    module.serve(Settings(worker_token="synthetic",qwen_plan_cache_enabled=cache_enabled), once=True)
     assert events == ["graph", "plan_review"]
 
 

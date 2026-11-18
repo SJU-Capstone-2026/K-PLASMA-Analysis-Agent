@@ -127,3 +127,30 @@ def test_memory_evidence_rejects_mismatched_observed_token_counts(tmp_path, role
     path.write_text(json.dumps(report))
     with pytest.raises(ValueError,match="LOCAL_MEMORY_EVIDENCE_INVALID"):
         runtime.verify_memory_report(replace(settings,measurement_path=str(path)))
+
+
+@pytest.mark.parametrize('probe_kind',['missing','zero','warning','valid'])
+def test_cache_enabled_memory_evidence_requires_real_restore_and_clean_probe_samples(tmp_path,probe_kind):
+    from .test_cache_probe import rows
+    settings=Settings(qwen_plan_cache_enabled=True,measurement_path=str(tmp_path/'memory.json'))
+    samples=[{'pressure':1,'swap_bytes':100,'resident_bytes':1000}]*3
+    report={'schema_version':1,'synthetic_only':True,'full_stack':True,
+            'runtime_profile':runtime.runtime_profile(settings),'instance_facts_before':'a'*64,
+            'instance_facts_after':'a'*64,'samples':samples,
+            'results':[{'role':role,'target':target,'counted':target,'input_tokens':target,
+                        'question_counts':[target],'reasoning_present':False,'passed':True,'seconds':3}
+                       for target in (256,4096,15500) for role in ('qwen','d1')]+
+                       [{'role':'qwen_plan','target':15500,'counted':15500,'input_tokens':15500,
+                         'reasoning_present':True,'passed':True,'seconds':3}]}
+    if probe_kind!='missing':
+        report['qwen_plan_cache']={'synthetic_only':True,'rows':rows(0 if probe_kind=='zero' else 80),
+                                  'samples':[dict(x) for x in samples]}
+        if probe_kind=='warning':
+            report['qwen_plan_cache']['samples'][1]['pressure']=2
+    Path=runtime.Path
+    Path(settings.measurement_path).write_text(json.dumps(report))
+    if probe_kind=='valid':
+        assert runtime.verify_memory_report(settings)
+    else:
+        with pytest.raises(ValueError,match='LOCAL_MEMORY_EVIDENCE_INVALID'):
+            runtime.verify_memory_report(settings)

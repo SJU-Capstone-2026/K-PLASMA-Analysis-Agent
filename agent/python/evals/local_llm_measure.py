@@ -14,7 +14,7 @@ from kplasma_agent.v2_local_llm.core.budget import MAX_INPUT_TOKENS, make_qwen_c
 from kplasma_agent.v2_local_llm.core.decisions import native_request
 from kplasma_agent.v2_local_llm.model_client import ModelClient
 from kplasma_agent.v2_local_llm.network import local_http_client
-from kplasma_agent.v2_local_llm.runtime import runtime_profile, ModelRuntime, memory_sample, model_lease, verify_artifacts, live_facts
+from kplasma_agent.v2_local_llm.runtime import runtime_profile, ModelRuntime, memory_sample, model_lease, verify_artifacts, live_facts, pressure_allowed
 from kplasma_agent.v2_local_llm import tracing
 
 
@@ -34,6 +34,9 @@ def fit_input(build, count, target):
 def measure(settings, stack):
     if stack.get("data") != "artificial-only" or stack.get("graphVersion") != "v2_localLLM":
         raise ValueError("LOCAL_ARTIFICIAL_STACK_REQUIRED")
+    if settings.qwen_plan_cache_enabled:
+        from .local_llm_cache_probe import assert_probe_cache_empty
+        assert_probe_cache_empty(settings)
     verify_artifacts(settings)
     facts_before = live_facts(settings)
     for url in (stack["url"], stack["web"]):
@@ -41,7 +44,7 @@ def measure(settings, stack):
             response = client.get(url + ("/api/health" if url == stack["url"] else "/"))
             response.raise_for_status()
     samples = [memory_sample()]
-    if samples[0]["pressure"] != 1:
+    if not pressure_allowed(samples[0]["pressure"], settings.memory_policy):
         raise ValueError("LOCAL_MEMORY_PRESSURE")
     stop = Event()
 
@@ -55,6 +58,7 @@ def measure(settings, stack):
     monitor = Thread(target=sample, daemon=True)
     monitor.start()
     rows: list[dict[str, object]] = []
+    cache_probe = None
     qwen = None
     schema = {"type": "object", "properties": {"unit": {"type": "string", "const": "m⁻²s⁻¹"}},
               "required": ["unit"], "additionalProperties": False}
@@ -69,11 +73,11 @@ def measure(settings, stack):
             qwen_counter = make_qwen_counter(settings, control)
             guard = make_input_guard(settings, qwen_count=qwen_counter, d1_count=counter, prepare=runtime.prepare)
             for target in (256, 4096, MAX_INPUT_TOKENS - 500):
-                if samples[-1]["pressure"] != 1:
+                if any(not pressure_allowed(s["pressure"], settings.memory_policy) for s in samples):
                     rows.append({"target": target, "passed": False, "error": "LOCAL_MEMORY_PRESSURE"})
                     break
                 for role in ("qwen", "d1"):
-                    if samples[-1]["pressure"] != 1:
+                    if any(not pressure_allowed(s["pressure"], settings.memory_policy) for s in samples):
                         break
                     started = monotonic()
                     row: dict[str, object] = {"role": role, "target": target}
@@ -116,7 +120,7 @@ def measure(settings, stack):
                     row["seconds"] = round(monotonic() - started, 3)
                     rows.append(row)
                     print(json.dumps(row), flush=True)
-            if samples[-1]["pressure"] != 1:
+            if any(not pressure_allowed(s["pressure"], settings.memory_policy) for s in samples):
                 rows.append({"role":"qwen_plan","target":MAX_INPUT_TOKENS - 500,
                              "passed":False,"error":"LOCAL_MEMORY_PRESSURE","seconds":0})
             else:
@@ -145,6 +149,15 @@ def measure(settings, stack):
                 row["seconds"] = round(monotonic() - started, 3)
                 rows.append(row)
                 print(json.dumps(row), flush=True)
+            if (settings.qwen_plan_cache_enabled and len(rows) == 7 and all(row["passed"] for row in rows)
+                    and all(pressure_allowed(sample["pressure"], settings.memory_policy) for sample in samples)):
+                from .local_llm_cache_probe import run_probe
+                try:
+                    cache_probe = run_probe(settings)
+                    samples.extend(cache_probe["samples"])
+                except (ValueError, OSError) as error:
+                    cache_probe = {"protocol_passed": False, "memory_passed": False,
+                                   "error": type(error).__name__, "samples": [], "rows": []}
     finally:
         try:
             if qwen is not None and qwen.client is not None:
@@ -159,14 +172,19 @@ def measure(settings, stack):
         facts_after = ""
     swap_growth = max(0, max(s["swap_bytes"] for s in samples) - samples[0]["swap_bytes"])
     return {"schema_version": 1, "synthetic_only": True, "created_at": time(), "full_stack": True,
+            "memory_policy": settings.memory_policy,
             "runtime_profile": runtime_profile(settings),
             "instance_facts_before": hashlib.sha256(facts_before.encode()).hexdigest(),
             "instance_facts_after": hashlib.sha256(facts_after.encode()).hexdigest(),
             "results": rows, "samples": samples,
+            **({"qwen_plan_cache": cache_probe} if settings.qwen_plan_cache_enabled else {}),
             "peak_resident_bytes": max(s["resident_bytes"] for s in samples), "swap_growth_bytes": swap_growth,
             "passed": len(rows) == 7 and all(row["passed"] for row in rows)
-                      and all(s["pressure"] == 1 for s in samples) and swap_growth == 0
-                      and facts_before == facts_after}
+                      and all(pressure_allowed(s["pressure"], settings.memory_policy) for s in samples)
+                      and (settings.memory_policy == "development" or swap_growth == 0)
+                      and facts_before == facts_after
+                      and (not settings.qwen_plan_cache_enabled or bool(cache_probe
+                           and cache_probe["protocol_passed"] and cache_probe["memory_passed"]))}
 
 
 def main():
@@ -187,7 +205,9 @@ def main():
     with os.fdopen(fd, "w") as file:
         os.fchmod(file.fileno(), 0o600)
         json.dump(result, file, indent=2)
-    print(json.dumps({key: result[key] for key in ("passed", "peak_resident_bytes", "swap_growth_bytes")}), flush=True)
+    print(json.dumps({"memory_policy": settings.memory_policy,
+                      "warning_samples": sum(s["pressure"] == 2 for s in result["samples"]),
+                      **{key: result[key] for key in ("passed", "peak_resident_bytes", "swap_growth_bytes")}}), flush=True)
     return 0 if result["passed"] else 2
 
 

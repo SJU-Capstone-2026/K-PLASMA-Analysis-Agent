@@ -21,7 +21,7 @@ def test_no_search_or_calculation_is_reserved_after_a_required_value_is_missing(
         "id": "max", "kind": "derive", "operation": "max",
         "inputs": {"values": {"kind": "result_ref", "step_id": "compare", "field": "ionFlux",
                              "scope": {"kind": "context_selection", "key": "selected_runs"}}},
-        "requires": [{"step_id": "compare", "field": "ionFlux", "count": 2}],
+        "required_prior_outputs": [{"step_id": "compare", "field": "ionFlux", "count": 2}],
     })
     result = StepResult(executionId="e", stepId="compare", status="partial", outputs={"ionFlux": [None, None]})
     assert executor.execute(1, step, {}, {"compare": result}).reason == "MISSING_INPUT:ionFlux"

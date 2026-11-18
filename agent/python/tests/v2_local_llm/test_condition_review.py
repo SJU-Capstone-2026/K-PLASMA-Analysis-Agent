@@ -163,7 +163,7 @@ def test_trend_axis_and_conditional_execution_are_reviewed_as_distinct_condition
     payload = build_plan_review_context(PlanDraft.model_validate(raw), 1, case.question, [], case.context, {})
     specs = {s['name']: s for s in payload['check_specs']}
     assert specs['trend_axis.compare']['paths'] == [['steps', 0, 'inputs', 'trend_axis']]
-    assert specs['execution_guards.threshold']['paths'] == [['steps', 1, 'run_if'], ['steps', 1, 'requires']]
+    assert specs['execution_guards.threshold']['paths'] == [['steps', 1, 'run_if'], ['steps', 1, 'required_prior_outputs']]
     result = parse_plan_review(reply(payload, 'trend_axis.compare', 'direction_changed'), payload)
     failed = next(c.issue for c in result.checks if c.issue)
     assert failed['plan_values'][0]['value']['value'] == 'sourcePower'

@@ -42,3 +42,18 @@ def test_default_backend_and_qwen_clients_do_not_use_ambient_proxies(monkeypatch
     assert str(model.client.base_url) == "http://127.0.0.1:8082/v1/"
     assert model.client._client.trust_env is False
     model.client.close()
+
+
+def test_native_planner_timings_are_numeric_and_do_not_copy_extra_content():
+    from types import SimpleNamespace
+    def respond(request):
+        return httpx.Response(200,json={'id':'synthetic','object':'chat.completion','created':0,'model':'synthetic',
+         'choices':[{'index':0,'finish_reason':'tool_calls','message':{'role':'assistant','content':None,
+          'tool_calls':[{'id':'call','type':'function','function':{'name':'submit_plan','arguments':'{}'}}]}}],
+         'usage':{'prompt_tokens':12,'completion_tokens':2,'total_tokens':14},
+         'timings':{'cache_n':10,'prompt_n':2,'prompt_ms':3.5,'predicted_n':2,'predicted_ms':1.5,'private':'secret'}})
+    span=SimpleNamespace(attribute=lambda *_:None,json_attribute=lambda *_:None)
+    with httpx.Client(transport=httpx.MockTransport(respond),trust_env=False) as client:
+        model=ModelClient(Settings(api_key='synthetic'),http_client=client)
+        _,usage=model._tool_request('인공','{}',{'type':'function','name':'submit_plan','parameters':{}},span)
+    assert usage['nativeTimings']=={'cache_n':10,'prompt_n':2,'prompt_ms':3.5,'predicted_n':2,'predicted_ms':1.5}

@@ -13,7 +13,7 @@ def test_verified_result_with_one_missing_value_blocks_downstream():
         "id": "max", "kind": "derive", "operation": "max",
         "inputs": {"values": {"kind": "result_ref", "step_id": "compare", "field": "ionFlux",
                               "scope": {"kind": "context_selection", "key": "selected_runs"}}},
-        "requires": [{"step_id": "compare", "field": "ionFlux", "count": 2}],
+        "required_prior_outputs": [{"step_id": "compare", "field": "ionFlux", "count": 2}],
     })
     with pytest.raises(BlockedInput, match="ionFlux"):
         resolve_inputs(step, {"selected_runs": []}, {"compare": compare})

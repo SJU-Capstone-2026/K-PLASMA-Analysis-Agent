@@ -81,3 +81,37 @@ def test_gateway_uses_only_the_selected_local_models_and_keeps_review_enabled(mo
     assert selected.decisions_model == "LiquidAI/d1-2B-GGUF:Q8_0"
     assert selected.decisions_url == "http://127.0.0.1:8081/v1/systemone"
     assert selected.plan_review_enabled is True
+
+
+def test_plan_cache_defaults_off_and_anchors_paths_to_the_checkout(tmp_path, monkeypatch):
+    clean_env(monkeypatch)
+    path=tmp_path/'private.env'
+    path.write_text('')
+    before=Settings.from_env(path)
+    monkeypatch.chdir(tmp_path)
+    after=Settings.from_env(path)
+    assert before.qwen_plan_cache_enabled is False
+    assert before.qwen_plan_cache_dir == after.qwen_plan_cache_dir
+    assert Path(after.qwen_plan_cache_dir).is_absolute()
+    assert Path(after.qwen_plan_cache_dir).parts[-4:] == ('.local','cache','v2_localLLM','qwen-plan-cache-KV')
+
+
+def test_plan_cache_settings_are_explicit_and_fingerprinted(tmp_path, monkeypatch):
+    from dataclasses import replace
+    clean_env(monkeypatch)
+    path=tmp_path/'private.env'
+    cache=tmp_path/'private-cache'
+    path.write_text(f'AGENT_V2_LOCAL_LLM_QWEN_PLAN_CACHE_ENABLED=true\nAGENT_V2_LOCAL_LLM_QWEN_PLAN_CACHE_DIR={cache}\n')
+    settings=Settings.from_env(path)
+    assert settings.qwen_plan_cache_enabled is True
+    assert settings.qwen_plan_cache_dir == str(cache)
+    assert settings.versions()['configFingerprint'] != replace(settings,qwen_plan_cache_enabled=False).versions()['configFingerprint']
+    assert not cache.exists(), 'reading settings must not create cache files'
+
+
+def test_plan_cache_rejects_unrecognized_boolean(tmp_path, monkeypatch):
+    clean_env(monkeypatch)
+    path=tmp_path/'private.env'
+    path.write_text('AGENT_V2_LOCAL_LLM_QWEN_PLAN_CACHE_ENABLED=maybe\n')
+    with pytest.raises(ValueError,match='LOCAL_CACHE_CONFIG_INVALID'):
+        Settings.from_env(path)

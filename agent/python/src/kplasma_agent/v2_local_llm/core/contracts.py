@@ -2,7 +2,7 @@
 
 from typing import Annotated, Literal, Union
 
-from pydantic import BaseModel, ConfigDict, Field, JsonValue
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, JsonValue
 
 from ..comparison_catalog import ComparisonField, PlotId
 from ..contracts import MetricId, OutputMetric
@@ -18,15 +18,15 @@ class ClosedModel(BaseModel):
 
 
 class SourceQuote(ClosedModel):
-    message_key: Identifier
-    quote: Annotated[str, Field(min_length=1)]
+    message_key: Identifier = Field(description="제공된 messages에서 인용한 메시지의 키.")
+    quote: Annotated[str, Field(min_length=1)] = Field(description="해당 메시지에 실제로 있는 원문 구절.")
 
 
 class Requirement(ClosedModel):
-    id: Identifier
-    sources: Annotated[list[SourceQuote], Field(min_length=1)]
-    text: Annotated[str, Field(min_length=1)]
-    handled_by: list[Identifier]
+    id: Identifier = Field(description="사용자가 요청한 작업의 식별자. 단계의 requirement_ids에서 참조한다.")
+    sources: Annotated[list[SourceQuote], Field(min_length=1)] = Field(description="이 작업을 요구한 원문 인용.")
+    text: Annotated[str, Field(min_length=1)] = Field(description="원문이 요구한 작업. 실행 전 출력 조건과 구별한다.")
+    handled_by: list[Identifier] = Field(description="이 요구사항을 실제로 수행하는 steps의 ID 목록.")
 
 
 class LiteralInput(ClosedModel):
@@ -83,11 +83,13 @@ AxisBinding = Annotated[Union[LiteralInput, ContextRef, ChoiceResultRef], Field(
 
 
 class OutputRequirement(ClosedModel):
-    step_id: Identifier
-    field: Identifier
-    count: Annotated[int, Field(ge=1)] | None = None
-    value_type: Literal["quantity", "quantities", "run_refs"] | None = None
-    unit: str | None = None
+    step_id: Identifier = Field(description="depends_on으로 연결된 선행 단계의 ID. 자기 자신이나 후속 단계는 금지한다.")
+    field: Identifier = Field(description="선행 단계가 실제로 만드는 출력 키. 조회·검색은 candidates, 계산은 value다.")
+    count: Annotated[int, Field(ge=1)] | None = Field(
+        default=None, description="필요한 출력 값의 정확한 개수. 최소 개수나 검색 제한이 아니다. 개수 조건이 없으면 null.")
+    value_type: Literal["quantity", "quantities", "run_refs"] | None = Field(
+        default=None, description="선행 출력의 형태: 단일 수치 quantity, 수치 목록 quantities, Run 참조 목록 run_refs. 미지정은 null.")
+    unit: str | None = Field(default=None, description="선행 출력 값에 필요한 단위. 단위 조건이 없으면 null.")
 
 
 class RunCondition(ClosedModel):
@@ -98,11 +100,18 @@ class RunCondition(ClosedModel):
 
 
 class StepBase(ClosedModel):
-    id: Identifier
-    requirement_ids: list[Identifier] = Field(default_factory=list)
-    depends_on: list[Identifier] = Field(default_factory=list)
-    requires: list[OutputRequirement] = Field(default_factory=list)
-    run_if: list[RunCondition] = Field(default_factory=list)
+    model_config = ConfigDict(loc_by_alias=False)
+
+    id: Identifier = Field(description="계획 안에서 고유한 단계 ID.")
+    requirement_ids: list[Identifier] = Field(
+        default_factory=list, description="이 단계가 처리하는 사용자 작업의 requirements[].id 목록.")
+    depends_on: list[Identifier] = Field(
+        default_factory=list, description="이 단계보다 먼저 실행해야 하는 단계 ID 목록. 입력 값은 inputs의 result_ref로 연결한다.")
+    required_prior_outputs: list[OutputRequirement] = Field(
+        default_factory=list, validation_alias=AliasChoices("required_prior_outputs", "requires"),
+        description="실행 전에 필요한 선행 단계 출력의 조건. 이번 단계가 만들거나 표시할 지표 목록이 아니다. 없으면 [].")
+    run_if: list[RunCondition] = Field(
+        default_factory=list, description="선행 결과에 따라 이번 단계의 실행 여부를 정하는 조건. 조건부 요청이 아니면 [].")
 
 
 class ForwardInputs(ClosedModel):
@@ -195,11 +204,13 @@ StepSpec = Union[ForwardStep, ReverseStep, CompareStep, DeriveStep, AwaitInputSt
 
 
 class PlanDraft(ClosedModel):
-    schema_version: Literal[2]
-    request_mode: Literal["general_only", "data_request"]
-    base_revision: Annotated[int, Field(ge=1)] | None
-    requirements: list[Requirement]
-    steps: Annotated[list[StepSpec], Field(max_length=16)]
+    schema_version: Literal[2] = Field(description="계획 계약 버전. 항상 2.")
+    request_mode: Literal["general_only", "data_request"] = Field(
+        description="순수 개념 설명은 general_only, 실제 Run 정보가 필요한 요청·혼합 요청은 data_request.")
+    base_revision: Annotated[int, Field(ge=1)] | None = Field(
+        description="최초 계획은 null, 재계획은 제공된 승인 계획 revision.")
+    requirements: list[Requirement] = Field(description="원문에서 요청한 작업 목록. 단계의 선행 출력 조건과 구별한다.")
+    steps: Annotated[list[StepSpec], Field(max_length=16)] = Field(description="요구사항을 수행할 전체 실행 단계. 최대 16개.")
 
 
 class RunRef(ClosedModel):

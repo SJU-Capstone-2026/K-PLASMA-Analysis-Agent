@@ -2,6 +2,7 @@
 
 import copy
 import json
+import math
 import httpx
 from openai import OpenAI, APIError, APIConnectionError, APIStatusError, APITimeoutError
 from . import tracing
@@ -116,6 +117,13 @@ class ModelClient:
                     "outputTokens": usage.completion_tokens if usage else None,
                     "usageAvailable": usage is not None, "rawUsage": usage.model_dump(mode="json") if usage else None,
                     "maxOutputTokens": 6000, "responseId": result.id, "status": "incomplete"}
+        timings = getattr(result, "timings", None)
+        if isinstance(timings, dict):
+            measured = {key: value for key, value in timings.items()
+                        if key in {"cache_n", "prompt_n", "prompt_ms", "predicted_n", "predicted_ms"}
+                        and type(value) in {int, float} and math.isfinite(value) and value >= 0}
+            if measured:
+                metadata["nativeTimings"] = measured
         if (not isinstance(result.choices, list) or len(result.choices) != 1
                 or result.choices[0] is None or result.choices[0].index != 0):
             raise ModelError("MODEL_OUTPUT_INVALID", usage=metadata)

@@ -45,14 +45,20 @@
         "import:kplasma_agent.v2_local_llm.network:validate_endpoint",
         "class:Settings/assign:measurement_path",
         "class:Settings/assign:reasoning_effort",
-        "class:Settings/function:generation_options"
+        "class:Settings/function:generation_options",
+        "class:Settings/assign:qwen_plan_cache_dir",
+        "class:Settings/assign:qwen_plan_cache_enabled",
+        "class:Settings/assign:memory_policy"
       ],
-      "reason": "Require pinned local artifacts, live native model contracts and matching full-stack memory measurements; preserve local-only destinations and recovery identity without OS outbound-filter requirements. Follow-up: pinned llama.cpp GGUF profile, role-specific thinking, native token counting and measured sequential residency; unchanged graph/tool/final answer contracts.",
+      "reason": "Require pinned local artifacts, live native model contracts and matching full-stack memory measurements; preserve local-only destinations and recovery identity without OS outbound-filter requirements. Follow-up: pinned llama.cpp GGUF profile, role-specific thinking, native token counting and measured sequential residency; unchanged graph and final answer contracts. LocalLLM_v2.2 names prerequisite guards required_prior_outputs, reads legacy requires without rewriting records, and explains predecessor-only semantics; dependency, execution and final answer rules are preserved. Explicit development memory policy permits recorded warnings without weakening the strict default; policy is bound to evidence and recovery identity.",
       "tests": [
         "tests/v2_local_llm/test_config.py",
         "tests/v2_local_llm/test_worker.py",
         "tests/v2_local_llm/test_llamacpp_profile.py",
-        "tests/v2_local_llm/test_llamacpp_runtime.py"
+        "tests/v2_local_llm/test_llamacpp_runtime.py",
+        "tests/v2_local_llm/test_prior_outputs.py",
+        "tests/v2_local_llm/test_prompt_cache.py",
+        "tests/v2_local_llm/test_memory_policy.py"
       ]
     },
     {
@@ -69,7 +75,8 @@
         "class:ModelClient/function:select_tool",
         "class:ModelClient/function:answer",
         "class:ModelClient/function:stream_answer",
-        "class:ModelClient/function:generate"
+        "class:ModelClient/function:generate",
+        "import:math"
       ],
       "reason": "Use Qwen through the owned loopback transport, native submit_plan tool calls for planning and JSON Schema for answer drafts; preserve real native call provenance, validation, failure handling, budgets, usage and answer streaming. Follow-up: pinned llama.cpp GGUF profile, role-specific thinking, native token counting and measured sequential residency; unchanged graph/tool/final answer contracts. LocalLLM_v2.1 removes unused inherited Responses and v1 tool-selection/continuation methods; active native planning, strict answer generation and streaming stay unchanged.",
       "tests": [
@@ -78,7 +85,8 @@
         "tests/v2_local_llm/test_model_gateway.py",
         "tests/v2_local_llm/test_native_plan.py",
         "tests/v2_local_llm/test_llamacpp_profile.py",
-        "tests/v2_local_llm/test_llamacpp_runtime.py"
+        "tests/v2_local_llm/test_llamacpp_runtime.py",
+        "tests/v2_local_llm/test_prompt_cache.py"
       ]
     },
     {
@@ -140,16 +148,22 @@
         "function:_decisions_response",
         "function:call_submit_plan",
         "import:pydantic:ValidationError",
-        "import:os"
+        "import:os",
+        "assign:PLAN_INSTRUCTIONS",
+        "function:_plan_defaults",
+        "class:V2LocalLLMModelGateway/function:__init__",
+        "class:V2LocalLLMModelGateway/function:compose"
       ],
-      "reason": "Receive exactly one native submit_plan call with the frozen tool schema, decode only nullable revision and JSON-encoded list representations, preserve strict validation and its error paths for the existing replan loop; retain mandatory d1 review and unchanged graph nodes, edges and answer contracts without content JSON fallback. Follow-up: pinned llama.cpp GGUF profile, role-specific thinking, native token counting and measured sequential residency; unchanged graph/tool/final answer contracts.",
+      "reason": "Receive exactly one native submit_plan call with the local tool schema, decode only nullable revision and JSON-encoded list representations, preserve strict validation and its error paths for the existing replan loop; retain mandatory d1 review and unchanged graph nodes, edges and answer contracts without content JSON fallback. Follow-up: pinned llama.cpp GGUF profile, role-specific thinking, native token counting and measured sequential residency; unchanged graph and final answer contracts. LocalLLM_v2.2 names prerequisite guards required_prior_outputs, reads legacy requires without rewriting records, and explains predecessor-only semantics; dependency, execution and final answer rules are preserved.",
       "tests": [
         "tests/v2_local_llm/test_config.py",
         "tests/v2_local_llm/test_decisions.py",
         "tests/v2_local_llm/test_model_gateway.py",
         "tests/v2_local_llm/test_native_plan.py",
         "tests/v2_local_llm/test_llamacpp_profile.py",
-        "tests/v2_local_llm/test_llamacpp_runtime.py"
+        "tests/v2_local_llm/test_llamacpp_runtime.py",
+        "tests/v2_local_llm/test_prior_outputs.py",
+        "tests/v2_local_llm/test_prompt_cache.py"
       ]
     },
     {
@@ -188,7 +202,8 @@
       "reason": "Physically derive the private single-version worker from the pinned v2 worker (worker-source.json); directly construct the owned graph/saver/gateway and block unverified real execution.",
       "tests": [
         "tests/v2_local_llm/test_worker.py",
-        "tests/v2_local_llm/test_checkpoint_adapter.py"
+        "tests/v2_local_llm/test_checkpoint_adapter.py",
+        "tests/v2_local_llm/test_prompt_cache.py"
       ]
     },
     {
@@ -201,7 +216,93 @@
         "tests/v2_local_llm/test_config.py",
         "tests/v2_local_llm/test_worker.py",
         "tests/v2_local_llm/test_llamacpp_profile.py",
-        "tests/v2_local_llm/test_llamacpp_runtime.py"
+        "tests/v2_local_llm/test_llamacpp_runtime.py",
+        "tests/v2_local_llm/test_prompt_cache.py"
+      ]
+    },
+    {
+      "path": "core/plan_validation.py",
+      "selectors": [
+        "function:_uses_builtin_difference",
+        "function:validate_plan"
+      ],
+      "reason": "LocalLLM_v2.2 names prerequisite guards required_prior_outputs, reads legacy requires without rewriting records, and explains predecessor-only semantics; dependency, execution and final answer rules are preserved.",
+      "tests": [
+        "tests/v2_local_llm/test_prior_outputs.py"
+      ]
+    },
+    {
+      "path": "core/plan_review.py",
+      "selectors": [
+        "function:execution_view"
+      ],
+      "reason": "LocalLLM_v2.2 names prerequisite guards required_prior_outputs, reads legacy requires without rewriting records, and explains predecessor-only semantics; dependency, execution and final answer rules are preserved.",
+      "tests": [
+        "tests/v2_local_llm/test_prior_outputs.py"
+      ]
+    },
+    {
+      "path": "core/plan_checks.py",
+      "selectors": [
+        "assign:RULES",
+        "function:build_check_specs"
+      ],
+      "reason": "LocalLLM_v2.2 names prerequisite guards required_prior_outputs, reads legacy requires without rewriting records, and explains predecessor-only semantics; dependency, execution and final answer rules are preserved.",
+      "tests": [
+        "tests/v2_local_llm/test_prior_outputs.py"
+      ]
+    },
+    {
+      "path": "core/bindings.py",
+      "selectors": [
+        "function:resolve_inputs"
+      ],
+      "reason": "LocalLLM_v2.2 names prerequisite guards required_prior_outputs, reads legacy requires without rewriting records, and explains predecessor-only semantics; dependency, execution and final answer rules are preserved.",
+      "tests": [
+        "tests/v2_local_llm/test_prior_outputs.py"
+      ]
+    },
+    {
+      "path": "core/contracts.py",
+      "selectors": [
+        "class:OutputRequirement/assign:count",
+        "class:OutputRequirement/assign:field",
+        "class:OutputRequirement/assign:step_id",
+        "class:OutputRequirement/assign:unit",
+        "class:OutputRequirement/assign:value_type",
+        "class:PlanDraft/assign:base_revision",
+        "class:PlanDraft/assign:request_mode",
+        "class:PlanDraft/assign:requirements",
+        "class:PlanDraft/assign:schema_version",
+        "class:PlanDraft/assign:steps",
+        "class:Requirement/assign:handled_by",
+        "class:Requirement/assign:id",
+        "class:Requirement/assign:sources",
+        "class:Requirement/assign:text",
+        "class:SourceQuote/assign:message_key",
+        "class:SourceQuote/assign:quote",
+        "class:StepBase/assign:depends_on",
+        "class:StepBase/assign:id",
+        "class:StepBase/assign:required_prior_outputs",
+        "class:StepBase/assign:requirement_ids",
+        "class:StepBase/assign:requires",
+        "class:StepBase/assign:run_if",
+        "import:pydantic:AliasChoices,BaseModel,ConfigDict,Field,JsonValue",
+        "import:pydantic:BaseModel,ConfigDict,Field,JsonValue",
+        "class:StepBase/assign:model_config"
+      ],
+      "reason": "LocalLLM_v2.2 names prerequisite guards required_prior_outputs, reads legacy requires without rewriting records, and explains predecessor-only semantics; dependency, execution and final answer rules are preserved.",
+      "tests": [
+        "tests/v2_local_llm/test_prior_outputs.py"
+      ]
+    },
+    {
+      "path": "prompt_cache.py",
+      "newFile": true,
+      "selectors": [],
+      "reason": "Optional loopback-only Qwen planner disk KV cache with private bounded files and unchanged graph, writer and d1 judgments.",
+      "tests": [
+        "tests/v2_local_llm/test_prompt_cache.py"
       ]
     }
   ]

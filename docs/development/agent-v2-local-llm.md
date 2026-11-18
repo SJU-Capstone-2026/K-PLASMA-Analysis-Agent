@@ -2,11 +2,75 @@
 
 `v2_localLLM`은 보존한 v2를 별도 Python namespace로 복제한 그래프다.
 
-현재 코드 체크포인트는 [LocalLLM_v2.1](../verification/2026-11-13-local-llm-v2.1.md)이다. 그래프 식별자와 응답 양식은 유지하며, 메모리 경고에 따른 시작 제한은 남아 있다.
+현재 구현은 [LocalLLM_v2.1](../verification/2026-11-13-local-llm-v2.1.md)을 기준으로 v2.2의 선행 출력 조건 이름·지침을 개선한 상태다.
+그래프 식별자와 최종 응답 양식은 유지하며, 메모리 경고에 따른 시작 제한은 남아 있다. [v2.2 변경·검증](../verification/2026-11-14-local-llm-v2.2-prior-outputs.md).
 정확한 wire ID는 `v2_localLLM`, Python 패키지는 `kplasma_agent.v2_local_llm`이다.
 v2·v3 구현이나 공통 cloud worker를 실행 중에 빌려 쓰지 않는다.
 현재 코드는 계획·답변에 Qwen3.5-9B GGUF Q4_K_M, 두 의미 검토에 d1-2B GGUF Q8_0를 사용한다.
 학습·fine-tuning은 필요하지 않다.
+
+## v2.2 계획 필드
+
+로컬 `submit_plan`은 `requires` 대신 `required_prior_outputs`를 생성한다.
+뜻은 **이번 단계를 실행하기 전에 필요한 앞 단계 출력의 조건**이다. 이번 조회에서 보여줄 지표를 쓰는 칸이 아니다.
+
+| 필드 | 의미 |
+|---|---|
+| `requirements` / `requirement_ids` | 사용자가 요청한 작업 / 그 작업을 담당하는 단계의 연결 |
+| `depends_on` | 먼저 실행할 단계의 ID |
+| `inputs`의 `result_ref` | 앞 단계 출력 중 실제 입력으로 읽을 값의 출처 |
+| `required_prior_outputs` | 선행 출력이 있어야 한다는 조건과 필요한 형태·정확한 개수·단위 |
+| `run_if` | 선행 결과에 따라 이번 단계를 실행할지 결정하는 조건 |
+
+원문에 적힌 압력·전력만으로 처음 조회한다면 `depends_on: []`, `required_prior_outputs: []`다.
+조회가 반환할 `ionFlux` 등을 조회 자신의 선행 출력으로 요구하지 않는다.
+검색 다음 비교가 검색 후보를 필요로 한다면 비교 단계에서 `step_id: "search"`, `field: "candidates"`를 참조한다.
+`count`는 정확한 개수이며 검색 제한·최소 개수가 아니다. `count`, `value_type`, `unit`의 추가 조건이 없으면 각각 `null`이다.
+
+[로컬 계획 schema](../contracts/agent-v2-local-llm.plan.schema.json)는 새 이름과 필드 설명을 제공한다.
+과거 저장 계획의 `requires`는 읽을 수 있고 새 직렬화는 새 이름을 사용한다. 두 이름을 동시에 보낸 입력은 거부한다.
+기존 DB·대화·완료 기록은 일괄 변환하지 않는다. 버전 fingerprint가 다른 미완료 checkpoint의 자동 재개는 기존처럼 거부한다.
+PlanDraft 버전2는 유지하고 native 계약 식별자는 `native-submit-plan-chat-v2`로 구분한다.
+캐시·생각 예산·모델·메모리 준비 기준은 이 변경에 포함하지 않는다.
+
+## Qwen 계획 디스크 캐시
+
+### 개발용 메모리 정책 — Docker2GiB
+
+사용자 지시에 따라 현재 개발 환경의 Docker VM은2048MiB다. 동일 DB 컨테이너·볼륨과150 Run·150 version을 보존했다.
+`AGENT_V2_LOCAL_LLM_MEMORY_POLICY=development`를 명시하면 OS pressure1/2를 허용하고 경고와 swap 변화를 기록한다.
+기본값 `strict`는 기존 정상 압력·추가 swap0 기준을 유지한다. 정책은 fingerprint·메모리 프로필에 포함되며 개발 보고서를 strict 증거로 사용할 수 없다.
+심각 압력4는 개발 모드에서도 준비 판정과 다음 모델 단계 전에 거부한다. 모델·계약·시간제한·d1 검토는 그대로다.
+개발 정책의 통과는 무경고 안정성 인증을 뜻하지 않는다. [변경 계획](../plans/2026-11-14-003-local-llm-development-memory.md).
+
+후속 캐시 기능은 기본 OFF다. Qwen 계획·재계획만 파일 저장·복원을 사용하고, d1 검토와 답변 작성은 기존 방식으로 실행한다.
+`AGENT_V2_LOCAL_LLM_QWEN_PLAN_CACHE_ENABLED=true`와
+`AGENT_V2_LOCAL_LLM_QWEN_PLAN_CACHE_DIR=.local/cache/v2_localLLM/qwen-plan-cache-KV`로 설정한다.
+상대 경로는 현재 코드가 속한 프로젝트 루트 기준이다. 명령을 실행한 디렉터리가 달라도 같다.
+Qwen 서버에는 동일한 절대 디렉터리를 `--slot-save-path`로 지정한다. d1 옵션은 변경하지 않는다.
+
+비어 있거나 `.qwen-plan-cache` 소유 표식이 있는 전용 폴더만 사용한다. 기존 파일이 있는 다른 폴더는 권한 변경·덮어쓰기 전에 거부한다.
+폴더는0700, 파일은 native 쓰기 전부터0600으로 관리한다. 기존 `/.local/` Git 제외 규칙을 유지하고 파일 동기화 대상에서도 제외한다.
+캐시 파일에는 질문·생성 계획이 포함될 수 있으므로 내용이나 원문을 로그·Git에 게시하지 않는다.
+완료 파일2GiB·관리 파일4GiB의 보관 정책을 적용하며, 서버의 임시 쓰기 피크는 별도로 관측한다.
+저장·복원 제어 요청은5초로 제한한다. 실패·손상·설정 변경은 캐시 miss로 처리하고 기존 전체 입력을 계산한다.
+복원 실패 후 슬롯 초기화까지 실패하면 모델 오류로 중단한다. cache miss를 이유로 모델을 재호출하거나 d1 검토를 생략하지 않는다.
+
+캐시가 켜진 프로필은 기존7개 인공 메모리 검사와 캐시 왕복의 새 증거가 있어야 시작할 수 있다.
+Docker VM3GiB, Qwen24K·batch/ubatch256·생각ON, 1초 sleep, 입력16K와 기존 정상 압력·추가 swap0 기준을 유지한다.
+인공 검사는 `evals.local_llm_cache_probe`와 기존 `scripts/agent/measure-local-llm.mjs`에서 수행한다.
+캐시 OFF 메모리 프로필은 이전과 같은 자원 설정을 유지하지만, ON 보고서는 OFF 보고서로 대신할 수 없다.
+실제 재사용 토큰 수가 없으면 미확인으로 보고한다. API 복원 성공만을 적중으로 표시하지 않는다.
+인공 검사는 기존 `cache.json`이나 KV 본문이 있으면 모델 호출 전에 중단한다. 사용자 캐시를 인공 입력으로 덮지 않는다.
+다시 검사할 때는 별도의 빈 전용 경로와 일치하는 서버 인자를 사용한다.
+
+2026-11-14 구현 검사에서는 로컬449개·공통28개와 Ruff·mypy가 통과했다.
+정식 메모리 검사는 캐시 왕복 전 기본 Qwen 추론에서 경고가 발생해 중단됐다(관측 피크20.130GiB, 추가 swap0).
+유휴 도구29개 정리 후의 정식 재검사도 같은 단계에서 중단됐다(피크19.626GiB, 추가 swap0, normal2·warning2).
+Q01~Q05 OFF/ON 웹 비교는 미실행이며 캐시는 OFF로 유지한다. [구현·검증 기록](../verification/2026-11-14-local-llm-v2.2-qwen-plan-cache.md).
+
+되돌릴 때는 설정을 OFF로 바꾸고 Qwen의 `--slot-save-path` 옵션을 제거해 기존 준비 검사로 확인한다.
+이전 fingerprint의 진행 중 checkpoint를 강제로 재개하지 않는다. 모델 파일·DB·대화는 변경하지 않는다.
 
 ## 2026-11-13 실행 환경 전환
 
@@ -19,7 +83,7 @@ Q03 결측 사유 안내와 mobile 표 가독성은 수동 보완 사항으로 �
 Qwen은 별도 llama.cpp b12317 Metal 서버의 `127.0.0.1:8082/v1`에 연결한다.
 모델 alias는 `unsloth/Qwen3.5-9B-GGUF:Q4_K_M`이며 계획·재계획은 생각 ON,
 답변·재작성은 OFF다. 입력 16K·Qwen context 24K(24,576)·전체 출력 계획 6,000/답변 3,000·생각 예산 2,048·호출 90초를 사용한다. d1 context 32K는 유지하며 24K 프로필의 메모리 증거는 별도로 검증한다.
-생각 문자열은 최종 응답·SSE에 합치지 않는다. native `submit_plan`과 원래 스키마·그래프를 유지한다.
+생각 문자열은 최종 응답·SSE에 합치지 않는다. native `submit_plan`·그래프·최종 응답 schema를 유지한다.
 Qwen batch/ubatch는 256/256이며 d1 batch/ubatch 16,000/16,000은 유지한다. 실행 인자·메모리 증거도 이 설정과 일치해야 한다.
 
 Qwen도 `--sleep-idle-seconds 1`을 사용한다. 반대쪽 모델의 sleep 확인 뒤에만 다음 모델을 깨우며,
