@@ -29,6 +29,7 @@ from kplasma_agent.v2_local_llm.runtime import (
     memory_sample,
     model_lease,
     pressure_allowed,
+    valid_cache_review,
     verify_artifacts,
 )
 
@@ -41,7 +42,7 @@ def assess_probe(rows, samples, *, memory_policy="strict"):
         len(plans) == 2
         and all(row.get("valid") is True and row.get("save") == "saved" for row in plans)
         and len(reviews) == 2
-        and all(row.get("status") == "PASS" for row in reviews)
+        and all(valid_cache_review(row) for row in reviews)
         and not any(row.get("kind") == "error" for row in rows)
         and plans[-1].get("restore") == "disk"
         and type(reused) is int
@@ -55,6 +56,8 @@ def assess_probe(rows, samples, *, memory_policy="strict"):
     )
     return {
         "protocol_passed": protocol,
+        "semantic_review_passed": (len(reviews) == 2 and all(
+            valid_cache_review(row) and row["status"] == "PASS" for row in reviews)),
         "memory_passed": memory and (memory_policy == "development" or growth == 0),
         "swap_growth_bytes": growth,
         "peak_resident_bytes": max(sample["resident_bytes"] for sample in samples) if samples else None,
@@ -189,7 +192,7 @@ def run_probe(settings):
                 reviewed, _ = models.review_plan(
                     build_plan_review_context(valid, 1, question, [], {"comparison_entries": []}, {})
                 )
-                rows.append({"kind": "review", "status": reviewed["status"]})
+                rows.append({"kind": "review", "status": reviewed["status"], "result": reviewed})
                 runtime.prepare("plan")
     except Exception as error:
         rows.append({"kind": "error", "code": getattr(error, "code", type(error).__name__)})
@@ -217,7 +220,8 @@ def main():
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n")
     output.chmod(0o600)
-    print(json.dumps({key: result[key] for key in ("protocol_passed", "memory_passed", "swap_growth_bytes")}))
+    print(json.dumps({key: result[key] for key in (
+        "protocol_passed", "memory_passed", "semantic_review_passed", "swap_growth_bytes")}))
     return 0 if result["protocol_passed"] and result["memory_passed"] else 2
 
 

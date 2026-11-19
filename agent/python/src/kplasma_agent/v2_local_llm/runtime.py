@@ -152,6 +152,18 @@ def pressure_allowed(pressure, memory_policy="strict"):
             and (pressure == 1 or (memory_policy == "development" and pressure == 2)))
 
 
+def valid_cache_review(row):
+    from .core.plan_review import PlanReviewResult
+
+    try:
+        result = PlanReviewResult.model_validate(row["result"])
+        # Readiness verifies the review protocol; its semantic verdict remains unchanged.
+        return (result.schema_version == 2 and result.status in {"PASS", "ISSUE", "UNCLEAR"}
+                and row.get("status") == result.status)
+    except (ValueError, TypeError, KeyError):
+        return False
+
+
 def verify_memory_report(settings):
     try:
         report = json.loads(Path(settings.measurement_path).read_text())
@@ -203,7 +215,7 @@ def verify_memory_report(settings):
             cached = plans[-1].get("cached_tokens") if plans else None
             probe_samples = probe["samples"]
             if (probe.get("synthetic_only") is not True or len(plans) != 2 or len(reviews) != 2
-                    or any(row.get("status") != "PASS" for row in reviews)
+                    or any(not valid_cache_review(row) for row in reviews)
                     or any(row.get("kind") == "error" for row in probe["rows"])
                     or any(row.get("valid") is not True or row.get("save") != "saved" for row in plans)
                     or plans[-1].get("restore") != "disk" or type(cached) is not int

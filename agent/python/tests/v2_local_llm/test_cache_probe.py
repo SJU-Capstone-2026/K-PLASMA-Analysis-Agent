@@ -1,5 +1,18 @@
 import importlib
 
+import pytest
+
+
+def review_row(choice="match"):
+    from kplasma_agent.v2_local_llm.core.plan_review import parse_plan_review
+    from .test_plan_review import answers, example_context
+
+    context = example_context()
+    data = answers(context=context)
+    data[0]["choice"] = choice
+    result = parse_plan_review({"answers": data}, context).model_dump(mode="json")
+    return {"kind": "review", "status": result["status"], "result": result}
+
 
 def assessment(rows, samples):
     assert importlib.util.find_spec("evals.local_llm_cache_probe") is not None, (
@@ -11,7 +24,7 @@ def assessment(rows, samples):
 def rows(cached=80):
     return [
         {"kind": "plan", "valid": True, "input_tokens": 100, "cached_tokens": 0, "save": "saved"},
-        {"kind": "review", "status": "PASS"},
+        review_row(),
         {
             "kind": "plan",
             "valid": True,
@@ -20,7 +33,7 @@ def rows(cached=80):
             "restore": "disk",
             "save": "saved",
         },
-        {"kind": "review", "status": "PASS"},
+        review_row(),
     ]
 
 
@@ -42,6 +55,35 @@ def test_cache_probe_does_not_accept_missing_samples_warning_or_swap_growth():
     ):
         result = assessment(rows(), [{"pressure": 1, "swap_bytes": 100, "resident_bytes": 1000}, second])
         assert result["memory_passed"] is False
+
+
+@pytest.mark.parametrize("choice", ["match", "missing", "unclear"])
+def test_cache_protocol_accepts_valid_review_without_hiding_its_semantic_verdict(choice):
+    from copy import deepcopy
+
+    values = rows()
+    values[-1] = review_row(choice)
+    before = deepcopy(values)
+    result = assessment(values, [{"pressure": 1, "swap_bytes": 100, "resident_bytes": 1000}])
+    assert result["protocol_passed"] is True
+    assert result["semantic_review_passed"] is (choice == "match")
+    assert values == before
+
+
+@pytest.mark.parametrize("corruption", ["missing", "incomplete", "conflict", "unavailable", "skipped"])
+def test_cache_protocol_still_rejects_missing_or_invalid_d1_review(corruption):
+    values = rows()
+    review = values[-1]
+    if corruption == "missing":
+        review.pop("result")
+    elif corruption == "incomplete":
+        review["result"]["checks"].pop()
+    elif corruption == "conflict":
+        review["result"]["status"] = "ISSUE"
+    else:
+        review["status"] = review["result"]["status"] = corruption.upper()
+    result = assessment(values, [{"pressure": 1, "swap_bytes": 100, "resident_bytes": 1000}])
+    assert result["protocol_passed"] is False
 
 
 def test_probe_refuses_existing_application_cache_before_contacting_models(tmp_path, monkeypatch):

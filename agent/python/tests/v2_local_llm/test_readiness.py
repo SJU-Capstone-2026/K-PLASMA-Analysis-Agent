@@ -146,9 +146,9 @@ def test_memory_evidence_rejects_mismatched_observed_token_counts(tmp_path, role
         runtime.verify_memory_report(replace(settings,measurement_path=str(path)))
 
 
-@pytest.mark.parametrize('probe_kind',['missing','zero','warning','valid'])
+@pytest.mark.parametrize('probe_kind',['missing','zero','warning','valid','issue','unclear','invalid_review'])
 def test_cache_enabled_memory_evidence_requires_real_restore_and_clean_probe_samples(tmp_path,probe_kind):
-    from .test_cache_probe import rows
+    from .test_cache_probe import rows, review_row
     settings=Settings(qwen_plan_cache_enabled=True,measurement_path=str(tmp_path/'memory.json'))
     samples=[{'pressure':1,'swap_bytes':100,'resident_bytes':1000}]*3
     report={'schema_version':2,'synthetic_only':True,'full_stack':True,
@@ -160,9 +160,13 @@ def test_cache_enabled_memory_evidence_requires_real_restore_and_clean_probe_sam
                                   'samples':[dict(x) for x in samples]}
         if probe_kind=='warning':
             report['qwen_plan_cache']['samples'][1]['pressure']=2
+        if probe_kind in {'issue','unclear'}:
+            report['qwen_plan_cache']['rows'][-1]=review_row('missing' if probe_kind=='issue' else 'unclear')
+        if probe_kind=='invalid_review':
+            report['qwen_plan_cache']['rows'][-1]['result']['checks'].pop()
     Path=runtime.Path
     Path(settings.measurement_path).write_text(json.dumps(report))
-    if probe_kind=='valid':
+    if probe_kind in {'valid','issue','unclear'}:
         assert runtime.verify_memory_report(settings)
     else:
         with pytest.raises(ValueError,match='LOCAL_MEMORY_EVIDENCE_INVALID'):

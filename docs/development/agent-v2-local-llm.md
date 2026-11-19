@@ -136,7 +136,11 @@ v2.2의 `required_prior_outputs`는 **이번 단계 전에 필요한 앞 단계 
 
 과거 `requires`는 읽을 수 있지만 새 계획은 새 이름으로 직렬화한다. 두 이름을 동시에 보내면 거부한다. 기존 DB·대화·완료 기록을 일괄 변환하지 않고 fingerprint가 다른 미완료 checkpoint도 강제 재개하지 않는다. PlanDraft 버전2와 `native-submit-plan-chat-v2` 계약을 유지한다.
 
-Qwen 계획 디스크 KV 캐시는 기본 OFF다. 켜려면 `QWEN_PLAN_CACHE_ENABLED=true`, `QWEN_PLAN_CACHE_DIR=.local/cache/v2_localLLM/qwen-plan-cache-KV`와 같은 실제 서버의 `--slot-save-path`를 함께 설정하고 새 메모리·캐시 왕복 증거를 확보한다. 상대 경로는 프로젝트 루트 기준이다. d1과 답변 작성에는 이 캐시를 적용하지 않는다.
+공용 웹의 활성 로컬 개발 실행은 Qwen 계획 디스크 KV 캐시와 d1 계획 검토를 기본 ON으로 사용한다. 새 설치 예시에서 Qwen 캐시의 초기값은 OFF다. 켜려면 `QWEN_PLAN_CACHE_ENABLED=true`, `QWEN_PLAN_CACHE_DIR=.local/cache/v2_localLLM/qwen-plan-cache-KV`와 같은 실제 서버의 `--slot-save-path`를 함께 설정하고 새 메모리·캐시 왕복 증거를 확보한다. 상대 경로는 프로젝트 루트 기준이다. 이 캐시의 적용 범위는 Qwen 계획과 재계획이다.
+
+캐시 준비 검사는 저장·복원·실제 토큰 재사용·수치 보존·메모리와 d1 응답 계약을 확인한다. 인공 계획의 d1 `PASS`/`ISSUE`/`UNCLEAR`와 검사별 판정·점수는 원문 그대로 기록하고, 두 계획의 통과 여부는 `semantic_review_passed`로 별도 표시한다. 정상적인 반려 응답 자체를 캐시 고장으로 취급하지 않으며, 누락·불완전·잘못된 응답과 `UNAVAILABLE`/`SKIPPED`는 계속 준비 실패다. 실제 요청의 d1 반려·재계획 규칙은 유지한다.
+
+활성 환경 파일과 모델 서버의 저장 경로를 함께 보존하고, ON으로 사용하기로 한 개발 실행을 평가 종료 후 OFF로 되돌리지 않는다. 사용자 승인 후 실제 ON 실행과 앞 5문항을 확인한 수치는 [캐시 ON 웹 비교](../verification/2026-11-18-local-llm-cache-on-web5.md)에 기록했다.
 
 전용 폴더는 0700, 파일은 0600으로 관리하며 `.local/` Git 제외를 유지한다. 캐시에는 질문·계획이 포함될 수 있어 파일 동기화·로그·Git 공개 대상에서 제외한다. 완료 파일 2GiB·관리 파일 4GiB 보관 정책을 유지하고 임시 쓰기 피크는 따로 관측한다. 저장·복원 제한은 5초이며 손상·설정 불일치는 cache miss로 처리한다. 슬롯 초기화까지 실패하면 중단한다. miss를 이유로 모델 재호출이나 검토 생략을 추가하지 않는다. 이전 OFF/ON 결과는 [v2.2 기록](../verification/2026-11-14-local-llm-v2.2-qwen-plan-cache.md)을 따른다.
 
