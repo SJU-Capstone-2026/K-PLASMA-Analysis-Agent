@@ -1,3 +1,5 @@
+import pytest
+
 from kplasma_agent.v2.contracts import DeriveStep, ReverseStep, StepResult
 from kplasma_agent.v2.executor import SequentialExecutor
 
@@ -12,6 +14,32 @@ class Port:
 
     def save_result(self, result):
         return {"result": result.model_dump(mode="json")}
+
+
+@pytest.mark.parametrize(("offset", "literal_first", "expected"), [
+    (5, False, 145.125),
+    (-5, False, 155.125),
+    (-5, True, 155.125),
+])
+def test_energy_bound_can_subtract_a_literal_offset_from_a_verified_mean(offset, literal_first, expected):
+    mean = StepResult(executionId="e", stepId="mean", status="verified", outputs={
+        "value": {"value": 150.125, "field": "meanIonEnergy", "unit": "eV", "evidence_ids": ["mean-evidence"]},
+    })
+    ref = {"kind": "result_ref", "step_id": "mean", "field": "value", "scope": {"kind": "scalar"}}
+    literal = {"kind": "literal", "value": offset, "unit": "eV",
+               "source": {"message_key": "question", "quote": "+- 5 ev"}}
+    step = DeriveStep.model_validate({
+        "id": "bound", "kind": "derive", "operation": "difference", "depends_on": ["mean"],
+        "inputs": {"values": [literal, ref] if literal_first else [ref, literal],
+                   "direction": "second_minus_first" if literal_first else "first_minus_second"},
+    })
+
+    result = SequentialExecutor(Port()).execute(1, step, {}, {"mean": mean})
+
+    assert result.status == "verified"
+    bound = result.outputs["value"]
+    assert (bound["field"], bound["unit"], bound["value"]) == ("meanIonEnergy", "eV", expected)
+    assert bound["evidence_ids"] == ["mean-evidence"]
 
 
 def test_no_search_or_calculation_is_reserved_after_a_required_value_is_missing():
