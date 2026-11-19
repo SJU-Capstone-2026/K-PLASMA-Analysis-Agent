@@ -67,6 +67,25 @@ def test_normal_plan_passes_one_review_then_executes_without_writer():
     assert len(port.steps) == 1 and state.get("replans", 0) == 0
 
 
+def test_restored_citations_reach_d1_and_execute_on_the_initial_plan():
+    plan = correct_plan()
+    quote = QUESTION.replace("Run을", "Run  을")
+    plan["requirements"][0]["sources"][0]["quote"] = quote
+    plan["steps"][0]["inputs"]["constraints"][0]["min"]["source"]["quote"] = quote
+    models = Models([plan])
+
+    state, port = invoke(models)
+
+    assert [attempt["kind"] for attempt in port.models.values()] == ["PLAN_INITIAL", "PLAN_REVIEW"]
+    reviewed = models.reviews[0]["plan"]
+    assert reviewed["requirements"][0]["sources"][0]["quote"] == QUESTION
+    operand = reviewed["steps"][0]["inputs"]["constraints"][0]["min"]
+    assert operand["source"]["quote"] == QUESTION
+    assert operand["value"] == 150 and operand["unit"] == "eV"
+    assert state["answer"]["answerSnapshot"]["executionStatus"] == "COMPLETE"
+    assert state.get("replans", 0) == 0
+
+
 @pytest.mark.parametrize("choice", ["mismatch", "unclear"])
 def test_rejected_plan_is_never_executed_and_corrected_plan_is_reviewed(choice):
     models = Models([example_plan().model_dump(mode="json"), correct_plan()], (choice, "match"))

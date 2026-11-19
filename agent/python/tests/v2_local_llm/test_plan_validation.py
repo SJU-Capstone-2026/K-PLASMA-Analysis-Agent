@@ -4,6 +4,7 @@ from pydantic import ValidationError
 from kplasma_agent.v2_local_llm.core.bindings import BlockedInput, resolve_inputs
 from kplasma_agent.v2_local_llm.core.contracts import PlanDraft, StepResult
 from kplasma_agent.v2_local_llm.core.plan_validation import InvalidPlan, validate_plan
+from .plan_review_cases import constraint, plan, search
 
 
 def draft(*steps):
@@ -19,6 +20,51 @@ def draft(*steps):
 def comparison():
     return {"id": "compare", "kind": "tool", "tool": "compare_runs",
             "inputs": {"runs": {"kind": "context_ref", "key": "selected_runs"}, "fields": ["ionFlux"]}}
+
+
+@pytest.mark.parametrize("message_key", ["question", "input_0"])
+def test_plan_validation_restores_original_quote_spans_without_changing_the_draft(message_key):
+    original = "압력 7.25 mTorr인 Run의 결과와 선택한 Run을 비교해줘."
+    quote = "압력 7.25  mTorr인 Run  의 결과와 선택한 Run   을 비교해줘."
+    candidate = plan(quote, [search([constraint("pressure", "eq", 7.25, "mTorr", "7.25   mTorr")])])
+    candidate.requirements[0].sources[0].message_key = message_key
+    candidate.steps[0].inputs.constraints[0].value.source.message_key = message_key
+    submitted = candidate.model_dump(mode="json")
+
+    accepted = validate_plan(candidate, messages={message_key: original}, context_keys=set())
+
+    assert accepted.requirements[0].sources[0].model_dump() == {"message_key": message_key, "quote": original}
+    accepted_filter = accepted.steps[0].inputs.constraints[0]
+    assert accepted_filter.value.source.model_dump() == {"message_key": message_key, "quote": "7.25 mTorr"}
+    assert (accepted_filter.operator, accepted_filter.value.value, accepted_filter.value.unit) == ("eq", 7.25, "mTorr")
+    assert candidate.model_dump(mode="json") == submitted
+
+
+@pytest.mark.parametrize(("original", "quote"), [
+    ("압력 7.25 mTorr", "압력 7 .25  mTorr"),
+    ("압력 17 mTorr", "7  mTorr"),
+    ("압력 1.7 mTorr", "7  mTorr"),
+    ("출력 -17 W", "17  W"),
+    ("압력 7.25 mTorr", "압력  7"),
+    ("압력 7.25 mTorr", "7.25  m Torr"),
+    ("압력 7.25 mTorr", "압력  7.25 Torr"),
+    ("압력 7.25 mTorr 이상", "압력 7.25  mTorr 초과"),
+    ("Run의 표, Run의 표", "Run  의 표"),
+    ("Run의 Run의 Run의", "Run  의 Run  의"),
+    ("Run의사결정", "Run  의"),
+    ("압력\n7.25 mTorr", "압력 7.25  mTorr"),
+])
+def test_plan_validation_rejects_changed_or_ambiguous_quotes(original, quote):
+    candidate = plan(original, [search([constraint("pressure", "eq", 7.25, "mTorr", quote)])])
+    with pytest.raises(InvalidPlan, match="unrecognized original text at question"):
+        validate_plan(candidate, messages={"question": original}, context_keys=set())
+
+
+def test_plan_validation_cannot_restore_quote_from_a_different_message():
+    candidate = plan("Run  의 표", [search([])])
+    candidate.requirements[0].sources[0].message_key = "input_0"
+    with pytest.raises(InvalidPlan, match="unrecognized original text at input_0"):
+        validate_plan(candidate, messages={"question": "Run의 표", "input_0": "선택 확인"}, context_keys=set())
 
 
 @pytest.mark.parametrize("scope", [

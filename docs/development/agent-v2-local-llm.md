@@ -134,6 +134,8 @@ planner는 `/v1/chat/completions`에 `tools=[submit_plan]`, `tool_choice=require
 
 v2.2의 `required_prior_outputs`는 **이번 단계 전에 필요한 앞 단계 출력의 조건**이다. 표시할 조회 지표가 아니다. 처음 하는 조회는 `depends_on: []`, `required_prior_outputs: []`다. `count`는 정확한 개수이며 추가 조건이 없으면 `count`·`value_type`·`unit`은 각각 `null`이다. [로컬 계획 schema](../contracts/agent-v2-local-llm.plan.schema.json).
 
+v2.6.1은 `submit_plan` 인용의 제한된 공백 차이를 원문 구절 한 곳으로 확인할 수 있을 때 복원한다. 지정 메시지에서 복원한 인용은 기존 d1 검토에 들어간다. [인용 복원과 캐시 적중 웹 검증](../verification/2026-11-19-local-llm-v2.6.1-qwen-citation.md).
+
 과거 `requires`는 읽을 수 있지만 새 계획은 새 이름으로 직렬화한다. 두 이름을 동시에 보내면 거부한다. 기존 DB·대화·완료 기록을 일괄 변환하지 않고 fingerprint가 다른 미완료 checkpoint도 강제 재개하지 않는다. PlanDraft 버전2와 `native-submit-plan-chat-v2` 계약을 유지한다.
 
 공용 웹의 활성 로컬 개발 실행은 Qwen 계획 디스크 KV 캐시와 d1 계획 검토를 기본 ON으로 사용한다. 새 설치 예시에서 Qwen 캐시의 초기값은 OFF다. 켜려면 `QWEN_PLAN_CACHE_ENABLED=true`, `QWEN_PLAN_CACHE_DIR=.local/cache/v2_localLLM/qwen-plan-cache-KV`와 같은 실제 서버의 `--slot-save-path`를 함께 설정하고 새 메모리·캐시 왕복 증거를 확보한다. 상대 경로는 프로젝트 루트 기준이다. 이 캐시의 적용 범위는 Qwen 계획과 재계획이다.

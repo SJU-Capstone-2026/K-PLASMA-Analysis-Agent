@@ -1,5 +1,6 @@
 """Validate the dependency graph and produce its stable execution order."""
 
+import re
 from collections.abc import Iterator, Mapping, Set
 from typing import get_args
 
@@ -162,12 +163,42 @@ def _reuse_builtin_differences(plan: PlanDraft, selected_run_keys: Set[str]) -> 
     return plan.model_copy(update={"steps": steps, "requirements": requirements})
 
 
+def _restore_quote_spacing(original: str, quote: str) -> str | None:
+    if not quote or quote != quote.strip(" "):
+        return None
+
+    # A number in an excerpt must start at the original number's boundary.
+    pattern = [r"(?<![\w.,+\-−±])" if quote[0].isdecimal() else r"(?<!\w)"]
+    end = 0
+    for match in re.finditer(r"(?<!\w)Run *(?P<particle>[은는이가을를의])(?!\w)| +", quote):
+        pattern.append(re.escape(quote[end:match.start()]))
+        particle = match["particle"]
+        pattern.append(rf"(?<!\w)Run *{particle}(?!\w)" if particle else " +")
+        end = match.end()
+    pattern.append(re.escape(quote[end:]))
+
+    if quote[-1].isdecimal():
+        pattern.append(r"(?!\w|[.,]\d)")
+    elif quote[-1].isascii() and quote[-1].isalpha():
+        pattern.append(r"(?![A-Za-z0-9_])")
+    elif quote[-1].isalnum():
+        pattern.append(r"(?!\w)")
+
+    # Count overlapping occurrences too before choosing an original excerpt.
+    matches = re.finditer("(?=(" + "".join(pattern) + "))", original)
+    first = next(matches, None)
+    if first is not None and next(matches, None) is None:
+        return first.group(1)
+    return None
+
+
 def validate_plan(
     plan: PlanDraft, *, messages: Mapping[str, str], context_keys: Set[str],
     base_revision: int | None = None, data_required: bool = False, selected_run_keys: Set[str] = frozenset(),
 ) -> PlanDraft:
     if plan.base_revision != base_revision:
         raise InvalidPlan("plan base revision is stale")
+    plan = plan.model_copy(deep=True)
     explanations = [step for step in plan.steps if isinstance(step, ExplainStep)]
     work = [step for step in plan.steps if not isinstance(step, ExplainStep)]
     if len(explanations) > 1:
@@ -194,15 +225,19 @@ def validate_plan(
     if len(requirements) != len(plan.requirements):
         raise InvalidPlan("duplicate requirement ID")
 
-    def check_quote(key: str, quote: str, path="/") -> None:
-        if key not in messages or quote not in messages[key]:
-            raise InvalidPlan(f"unrecognized original text at {key}", path=path, actual=quote,
-                              allowed={"message_key": key, "original_text": messages.get(key)})
+    def check_quote(key: str, quote: str, path="/") -> str:
+        original = messages.get(key)
+        if original is not None:
+            excerpt = quote if quote in original else _restore_quote_spacing(original, quote)
+            if excerpt is not None:
+                return excerpt
+        raise InvalidPlan(f"unrecognized original text at {key}", path=path, actual=quote,
+                          allowed={"message_key": key, "original_text": original})
 
     for req_index, req in enumerate(plan.requirements):
         for source_index, source in enumerate(req.sources):
-            check_quote(source.message_key, source.quote,
-                        f"/requirements/{req_index}/sources/{source_index}/quote")
+            source.quote = check_quote(source.message_key, source.quote,
+                                       f"/requirements/{req_index}/sources/{source_index}/quote")
         actual = {s.id for s in plan.steps if req.id in s.requirement_ids}
         if not set(req.handled_by) <= actual or (plan.steps and not req.handled_by):
             raise InvalidPlan(f"requirement mapping does not match its steps: {req.id}",
@@ -291,7 +326,7 @@ def validate_plan(
                     raise InvalidPlan("compare_runs.inputs.runs must read the confirmation step's selection field with scalar scope")
         for binding in _bindings(step.inputs):
             if isinstance(binding, LiteralInput):
-                check_quote(binding.source.message_key, binding.source.quote)
+                binding.source.quote = check_quote(binding.source.message_key, binding.source.quote)
             elif isinstance(binding, ContextRef):
                 if binding.key not in context_keys:
                     raise InvalidPlan(f"unknown context key: {binding.key}")

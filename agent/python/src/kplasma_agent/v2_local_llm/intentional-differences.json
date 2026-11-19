@@ -253,12 +253,16 @@
     {
       "path": "core/plan_validation.py",
       "selectors": [
+        "import:re",
+        "function:_restore_quote_spacing",
         "function:_uses_builtin_difference",
         "function:validate_plan"
       ],
-      "reason": "LocalLLM_v2.2 names prerequisite guards required_prior_outputs, reads legacy requires without rewriting records, and explains predecessor-only semantics; dependency, execution and final answer rules are preserved.",
+      "reason": "LocalLLM_v2.2 names prerequisite guards required_prior_outputs, reads legacy requires without rewriting records, and explains predecessor-only semantics; dependency, execution and final answer rules are preserved. LocalLLM_v2.6 restores a unique original citation span for permitted spacing differences before plan review.",
       "tests": [
-        "tests/v2_local_llm/test_prior_outputs.py"
+        "tests/v2_local_llm/test_prior_outputs.py",
+        "tests/v2_local_llm/test_plan_validation.py",
+        "tests/v2_local_llm/test_plan_review_graph.py"
       ]
     },
     {
