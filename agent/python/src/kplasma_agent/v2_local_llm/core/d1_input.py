@@ -10,7 +10,7 @@ from .plan_checks import build_check_specs, review_questions
 from .plan_review import tool_contracts
 
 PROFILES = ("ko-full", "en-full", "en-compact", "en-compact-no-view")
-VERSION = "d1-wire-en-compact-1"
+VERSION = "d1-wire-en-compact-2"
 
 _COMMON_EN = (
     "Compare the original question and latest input_history with the actual plan inputs and dependencies. "
@@ -115,6 +115,24 @@ _CHOICES_EN = {
     "direction_changed": "The requested sorting/calculation direction or operation differs",
     "target_changed": "The target set, baseline, input source or wiring differs",
     "unclear": "The provided context cannot establish agreement for this item",
+}
+_ORDERING_CHOICES_EN = {
+    "match": "The planned sorting matches all sorting metrics and directions requested by the user and adds none. "
+             "If the user requested no sorting and the plan has no sorting, choose match.",
+    "direction_changed": "The plan sorts by the metric the user requested, but in the opposite direction.",
+    "missing": "The user's request identifies a sorting metric, but the plan has no sorting goal for that metric. "
+               "This includes sorting by a different metric instead.",
+    "unexpected": "The plan fulfills the user's requested sorting, if any, and adds a sorting goal the user did not "
+                  "request. This includes adding sorting to a filter-only lookup.",
+    "unclear": "The provided excerpt is insufficient to determine whether the user requested sorting or which "
+               "metric or direction they requested. Numeric bounds alone do not establish missing sorting.",
+}
+_ORDERING_CHOICES_KO = {
+    "match": "요청한 정렬 지표와 방향이 모두 정확하며 정렬을 추가하지 않았다. 요청과 계획에 정렬이 모두 없으면 match다.",
+    "direction_changed": "요청한 지표로 정렬하지만 방향이 반대다.",
+    "missing": "요청한 정렬 지표가 확인되지만 그 지표의 정렬 목표가 계획에 없다. 다른 지표로 정렬한 경우도 포함한다.",
+    "unexpected": "요청한 정렬을 충족하면서 요청하지 않은 정렬을 추가했다. 범위 조회에 정렬을 추가한 경우도 포함한다.",
+    "unclear": "인용문만으로 정렬 요청의 유무·지표·방향을 판단할 수 없다. 숫자 범위만 보고 정렬 누락을 단정하지 않는다.",
 }
 _ANSWER_EN = (
     "Compare each user-visible interpretations.text and assumption with the evidence linked by its evidence_ids. "
@@ -268,18 +286,23 @@ def _fixed_english(value):
     return value
 
 
-def _plan_questions(payload, questions):
+def _plan_questions(payload, questions, *, english):
     if (payload["tool_contracts"] != tool_contracts()
             or payload["check_specs"] != build_check_specs(payload["plan"])
             or questions != review_questions(payload)):
         raise ValueError("LOCAL_D1_INPUT_CONTRACT_MISMATCH")
     translated = deepcopy(questions)
     for spec, question in zip(payload["check_specs"], translated, strict=True):
-        focus = {"plan_paths": spec["paths"], "step_ids": spec["step_ids"], "metric": spec["metric"]}
-        question["instructions"] = (_COMMON_EN + _RULES_EN[spec["kind"]]
-                                    + "\nCheck location: " + json.dumps(focus, ensure_ascii=False))
-        for choice in question["choices"]:
-            choice["description"] = _CHOICES_EN[choice["value"]]
+        if english:
+            focus = {"plan_paths": spec["paths"], "step_ids": spec["step_ids"], "metric": spec["metric"]}
+            question["instructions"] = (_COMMON_EN + _RULES_EN[spec["kind"]]
+                                        + "\nCheck location: " + json.dumps(focus, ensure_ascii=False))
+        descriptions = _CHOICES_EN if english else None
+        if spec["kind"] == "ordering":
+            descriptions = _ORDERING_CHOICES_EN if english else _ORDERING_CHOICES_KO
+        if descriptions is not None:
+            for choice in question["choices"]:
+                choice["description"] = descriptions[choice["value"]]
     return translated
 
 
@@ -299,19 +322,101 @@ def _answer_questions(questions):
     return translated
 
 
+_CITATION_METRICS = {field: FIELD_META[field]["label"] for field in (
+    "pressure", "sourcePower", "biasPower", "meanIonEnergy", "ionFlux", "iedWidth",
+)}
+_FORWARD_METRICS = {"pressure": "pressure", "source_power": "sourcePower", "bias_power": "biasPower"}
+_CLAUSE_END = re.compile(r"[,;.!?]\s+|[\r\n]+")
+_LOOKUP_START = re.compile(r"(?:인|의)\s+(?=(?:실제|등록된|저장된)\s+Run)|\s+조건의\s+(?=실제\s+)")
+_NO_EXCERPT = "User citation excerpt unavailable."
+
+
+def _citation_parts(question, metric=None):
+    parts = [part.strip() for part in _CLAUSE_END.split(question) if part.strip()]
+    label = _CITATION_METRICS.get(metric)
+    if label:
+        for part in parts:
+            if part.casefold().startswith((label.casefold(), metric.casefold())):
+                condition = _LOOKUP_START.split(part, maxsplit=1)[0].strip()
+                if condition != question:
+                    return [condition]
+    if len(parts) > 1:
+        if " ".join(parts).rstrip(" .!?") == " ".join(question.split()).rstrip(" .!?"):
+            return [parts[-1]]
+        return parts
+    for label in _CITATION_METRICS.values():
+        # Keep the complete bounds and action when the omitted prefix is just a metric label.
+        prefix = re.match(re.escape(label) + r"(?:은|는|이|가)?\s+(?=[+-]?\d)", question)
+        if prefix:
+            return [question[prefix.end():]]
+    words = question.split(maxsplit=1)
+    return words[1:] or [_NO_EXCERPT]
+
+
+def _citation_view(view):
+    question = view["question"].strip()
+    signature = " ".join(question.split()).rstrip(" .!?")
+    excerpts = _citation_parts(question)
+    replacement = "\n".join(excerpts)
+
+    def includes_question(text):
+        candidate = " ".join(text.split()).rstrip(" .!?")
+        return bool(signature and (candidate == signature or len(signature) >= 12 and signature in candidate))
+
+    def rewrite(value, metric=None):
+        if isinstance(value, list):
+            return [rewrite(item, metric) for item in value]
+        if not isinstance(value, dict):
+            return replacement if len(signature) >= 12 and isinstance(value, str) and includes_question(value) else value
+        if value.get("kind") == "literal":
+            source = value["source"]
+            if includes_question(source["quote"]):
+                return {**value, "source": {**source, "quote": "\n".join(_citation_parts(question, metric))}}
+            return value
+        field = value.get("field")
+        metric = field if isinstance(field, str) else metric
+        return {key: rewrite(item, _FORWARD_METRICS.get(key, metric)) for key, item in value.items()}
+
+    def contains_question(value):
+        if isinstance(value, dict):
+            return any(contains_question(item) for item in value.values())
+        if isinstance(value, list):
+            return any(contains_question(item) for item in value)
+        return isinstance(value, str) and includes_question(value)
+
+    plan = view["plan"]
+    for requirement in plan["requirements"]:
+        sources = []
+        for source in requirement["sources"]:
+            quotes = excerpts if includes_question(source["quote"]) else [source["quote"]]
+            sources.extend({**source, "quote": quote} for quote in quotes)
+        requirement["sources"] = sources
+        requirement["text"] = "\n".join(dict.fromkeys(source["quote"] for source in sources))
+    for key in ("plan", "input_history", "confirmed_context", "completed_steps", "execution_view", "program_effects"):
+        if key in view:
+            view[key] = rewrite(view[key])
+    view["question"] = replacement
+    if len(signature) >= 12 and contains_question(view):
+        raise ValueError("LOCAL_D1_FULL_QUESTION_PRESENT")
+    return view
+
+
 def prepare_d1_input(payload: dict, questions: list[dict], *, role: str, profile: str) -> tuple[dict, list[dict]]:
     """Prepare once for both token counting and POST; never translate user/model data."""
     if (profile not in PROFILES or role not in {"plan_review", "review"}
             or not isinstance(payload, dict) or not isinstance(questions, list) or not questions):
         raise ValueError("LOCAL_D1_INPUT_INVALID")
     try:
-        english_questions = (_plan_questions(payload, questions) if role == "plan_review"
-                             else _answer_questions(questions))
+        english = profile != "ko-full"
+        wire_questions = (_plan_questions(payload, questions, english=english) if role == "plan_review"
+                          else _answer_questions(questions))
         view = deepcopy(payload)
+        if role == "plan_review":
+            view = _citation_view(view)
         if profile == "ko-full":
-            return view, deepcopy(questions)
+            return view, wire_questions if role == "plan_review" else deepcopy(questions)
         if role == "review":
-            return view, english_questions
+            return view, wire_questions
         view["tool_contracts"] = _fixed_english(payload["tool_contracts"])
         view["policy_context"] = _fixed_english(payload["policy_context"])
         for row in view["execution_view"]:
@@ -335,6 +440,6 @@ def prepare_d1_input(payload: dict, questions: list[dict], *, role: str, profile
             del view["plan_digest"], view["input_digest"]
         if profile == "en-compact-no-view":
             del view["execution_view"]
-        return view, english_questions
+        return view, wire_questions
     except (KeyError, TypeError, IndexError, ValueError):
         raise ValueError("LOCAL_D1_INPUT_INVALID") from None

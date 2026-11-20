@@ -143,7 +143,8 @@ def test_plan_review_has_condition_questions_in_one_request_and_preserves_low_co
     def transport(request):
         body = json.loads(request.content)
         assert request.url.path == "/v1/systemone"
-        assert json.loads(body["state"]) == review_context
+        assert payload["question"] not in body["state"]
+        assert json.loads(body["state"])["check_specs"] == review_context["check_specs"]
         assert list(body["questions"]) == [s["name"] for s in review_context["check_specs"]]
         assert all({"match", "unclear"} <= set(q["criteria"]) for q in body["questions"].values())
         rows = answers(context=review_context)

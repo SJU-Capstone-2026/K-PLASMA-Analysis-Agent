@@ -94,6 +94,7 @@ def test_gateway_sends_all_condition_questions_once_with_rejection_evidence():
     from kplasma_agent.v2_local_llm.core.contracts import PlanDraft
     from kplasma_agent.v2_local_llm.core.model_gateway import V2LocalLLMModelGateway, V2LocalLLMSettings
     from kplasma_agent.v2_local_llm.core.plan_checks import review_questions
+    from kplasma_agent.v2_local_llm.core.d1_input import prepare_d1_input
 
     payload = context(bad=True)
     reviewed = deepcopy(payload["plan"])
@@ -109,14 +110,17 @@ def test_gateway_sends_all_condition_questions_once_with_rejection_evidence():
                                                payload["question"], [], payload["confirmed_context"], {})
     calls = []
     guarded = []
+    wire_state, wire_questions = prepare_d1_input(
+        review_context, review_questions(review_context), role="plan_review", profile="ko-full")
 
     def transport(request):
         body = json.loads(request.content)
         calls.append(body)
         assert request.url.path == '/v1/systemone'
-        questions = review_questions(review_context)
+        questions = wire_questions
         assert list(body['questions']) == [q['name'] for q in questions]
-        assert json.loads(body['state']) == review_context
+        assert json.loads(body['state']) == wire_state
+        assert payload['question'] not in body['state']
         for question in questions:
             native = body['questions'][question['name']]
             assert native['type'] == 'choice'
@@ -133,7 +137,7 @@ def test_gateway_sends_all_condition_questions_once_with_rejection_evidence():
                                        lambda body, role: guarded.append((body, role)))
         result, usage = gateway.review_plan(payload)
     assert len(calls) == 1
-    assert guarded == [({'input': review_context, 'questions': review_questions(review_context)}, 'plan_review')]
+    assert guarded == [({'input': wire_state, 'questions': wire_questions}, 'plan_review')]
     assert usage is None
     assert result['status'] == 'ISSUE'
     assert result['plan_digest'] == payload['plan_digest']

@@ -101,7 +101,8 @@ def test_per_check_packing_counts_selected_state_and_preserves_request():
     assert projected["review_view"]["kind"] == "numeric_excerpt"
     assert projected["check_specs"][0]["name"] == "filter.search.pressure"
     assert {s["name"]: s for s in projected["check_specs"]} == {s["name"]: s for s in state["check_specs"]}
-    assert projected["question"] == state["question"] and projected["input_history"] == state["input_history"]
+    assert projected["question"] == original_filter["source"]["quote"]
+    assert projected["input_history"] == state["input_history"]
     rules = pressure["questions"]["filter.search.pressure"]
     assert rules["criteria"] == native["questions"]["filter.search.pressure"]["criteria"]
     assert list(rules["criteria"]) == list(native["questions"]["filter.search.pressure"]["criteria"])
@@ -140,11 +141,11 @@ def test_forward_numeric_review_keeps_the_full_checklist_and_only_the_tested_ope
     excerpt = json.loads(selected["state"])
     assert len(groups) == len(original["check_specs"]) == len(trace)
     if not has_value:
-        assert "review_view" not in excerpt and excerpt["plan"] == original["plan"]
+        assert "review_view" not in excerpt and excerpt["plan"] == state["plan"]
         return
     inputs = excerpt["plan"]["steps"][0]["inputs"]
     assert list(inputs) == ["source_power"]
-    assert inputs["source_power"]["citation"] == original["plan"]["steps"][0]["inputs"]["source_power"]["source"]
+    assert inputs["source_power"]["citation"] == state["plan"]["steps"][0]["inputs"]["source_power"]["source"]
     specs = original["check_specs"]
     assert excerpt["check_specs"] == [s for s in specs if s["name"] == check] + [s for s in specs if s["name"] != check]
     assert len(selected["questions"]) == 1

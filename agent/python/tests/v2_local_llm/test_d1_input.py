@@ -7,10 +7,12 @@ import re
 import pytest
 
 from kplasma_agent.v2_local_llm.core.d1_input import PROFILES, prepare_d1_input
+from kplasma_agent.v2_local_llm.core.d1_context import project_check
+from kplasma_agent.v2_local_llm.core.decisions import native_request
 from kplasma_agent.v2_local_llm.core.model_gateway import QUESTIONS
 from kplasma_agent.v2_local_llm.core.plan_checks import review_questions
 from kplasma_agent.v2_local_llm.core.plan_review import build_plan_review_context
-from v2_local_llm.plan_review_cases import cases
+from v2_local_llm.plan_review_cases import cases, interval, literal, plan, search
 
 
 def context(case_id="P13"):
@@ -37,12 +39,23 @@ def restored_fields(contracts):
     return fields
 
 
-def test_korean_baseline_is_equal_but_does_not_alias_original():
+def without_citation_text(value):
+    if isinstance(value, list):
+        return [without_citation_text(item) for item in value]
+    if isinstance(value, dict):
+        ignored = {"text", "sources"} if "handled_by" in value else {"quote"}
+        return {key: without_citation_text(item) for key, item in value.items() if key not in ignored}
+    return value
+
+
+def test_korean_view_preserves_instruction_language_and_source_snapshot():
     source = context()
     questions = review_questions(source)
     before = deepcopy((source, questions))
     payload, wire_questions = prepare_d1_input(source, questions, role="plan_review", profile="ko-full")
-    assert (payload, wire_questions) == before
+    assert source["question"] not in json.dumps(payload, ensure_ascii=False)
+    assert payload["tool_contracts"] == source["tool_contracts"]
+    assert [q["instructions"] for q in wire_questions] == [q["instructions"] for q in questions]
     assert payload is not source and wire_questions is not questions
     assert (source, questions) == before
 
@@ -53,8 +66,10 @@ def test_wire_views_preserve_user_data_original_plan_and_question_identity(profi
     questions = review_questions(source)
     before = deepcopy((source, questions))
     payload, wire_questions = prepare_d1_input(source, questions, role="plan_review", profile=profile)
-    for key in ("question", "input_history", "confirmed_context", "plan", "completed_steps", "check_specs"):
+    for key in ("input_history", "confirmed_context", "completed_steps", "check_specs"):
         assert payload[key] == source[key]
+    assert without_citation_text(payload["plan"]) == without_citation_text(source["plan"])
+    assert source["question"] not in json.dumps(payload, ensure_ascii=False)
     assert [(q["name"], q["type"], [c["value"] for c in q["choices"]]) for q in wire_questions] == [
         (q["name"], q["type"], [c["value"] for c in q["choices"]]) for q in questions
     ]
@@ -118,11 +133,11 @@ def test_execution_metadata_and_effect_labels_are_translated_without_rewriting_s
     source = context("P02")
     payload, _ = prepare_d1_input(source, review_questions(source), role="plan_review", profile="en-full")
     for old, new in zip(source["execution_view"], payload["execution_view"], strict=True):
-        assert new["inputs"] == old["inputs"]
+        assert without_citation_text(new["inputs"]) == without_citation_text(old["inputs"])
         if "computed_outputs" in new:
             assert not re.search("[가-힣]", json.dumps(new["computed_outputs"], ensure_ascii=False))
     assert not re.search("[가-힣]", "\n".join(payload["program_effects"]))
-    assert payload["plan"] == source["plan"]
+    assert without_citation_text(payload["plan"]) == without_citation_text(source["plan"])
 
 
 @pytest.mark.parametrize("case", cases(), ids=lambda case: case.id)
@@ -132,7 +147,8 @@ def test_every_existing_semantic_pair_keeps_all_checks_and_original_operands(cas
     questions = review_questions(source)
     payload, translated = prepare_d1_input(
         source, questions, role="plan_review", profile="en-compact-no-view")
-    assert payload["plan"] == source["plan"]
+    assert without_citation_text(payload["plan"]) == without_citation_text(source["plan"])
+    assert source["question"] not in json.dumps(payload, ensure_ascii=False)
     assert payload["confirmed_context"] == source["confirmed_context"]
     assert [q["name"] for q in translated] == [q["name"] for q in questions]
     for original, actual in zip(questions, translated, strict=True):
@@ -179,3 +195,58 @@ def test_unknown_role_and_profile_do_not_silently_fall_back(role, profile):
     source = context()
     with pytest.raises(ValueError, match="LOCAL_D1_INPUT"):
         prepare_d1_input(source, review_questions(source), role=role, profile=profile)
+
+
+def plan_wire(question, draft):
+    source = build_plan_review_context(draft, 1, question, [], {}, {})
+    view, questions = prepare_d1_input(
+        source, review_questions(source), role="plan_review", profile="en-compact-no-view")
+    return native_request({"input": [{"role": "user", "content": [{"type": "input_json", "data": view}]}],
+                           "questions": questions})
+
+
+def test_forward_filter_uses_its_own_original_citation_without_full_question():
+    question = "압력 7 mTorr, 소스 전력 123 W, 바이어스 전력 456 W의 실제 Run을 조회해줘."
+    draft = plan(question, [{"id": "s_forward", "kind": "tool", "tool": "forward_lookup",
+                            "inputs": {"pressure": literal(7, "mTorr", question),
+                                       "source_power": literal(125, "W", question),
+                                       "bias_power": literal(456, "W", question)}}])
+    wire = plan_wire(question, draft)
+    name = "filter.s_forward.source_power"
+    assert question not in wire["state"]
+    state, _, trace = project_check(wire["state"], name, wire["questions"][name])
+    assert trace["action"] == "selected"
+    view = json.loads(state)
+    assert view["question"] == "소스 전력 123 W"
+    binding = view["plan"]["steps"][0]["inputs"]["source_power"]
+    assert binding["value"] == 125
+    assert binding["citation"]["quote"] == "소스 전력 123 W"
+    assert draft.steps[0].inputs.source_power.source.quote == question
+
+
+def test_reverse_ordering_citation_keeps_the_range_and_lookup_request():
+    question = "평균 이온 에너지가 128 eV 이상 145 eV 이하인 실제 Run을 모두 찾아줘."
+    draft = plan(question, [search([interval(128, 145, question)], id="s_search")])
+    wire = plan_wire(question, draft)
+    name = "ordering.s_search"
+    assert question not in wire["state"]
+    state, _, _ = project_check(wire["state"], name, wire["questions"][name])
+    view = json.loads(state)
+    quote = view["question"]
+    assert quote == "128 eV 이상 145 eV 이하인 실제 Run을 모두 찾아줘."
+    assert view["plan"]["requirements"][0]["sources"] == [{"message_key": "question", "quote": quote}]
+    assert view["plan"]["steps"][0]["inputs"]["goals"] == []
+
+
+def test_ordering_uses_specific_choice_descriptions_in_the_previous_order():
+    question = "평균 이온 에너지가 128 eV 이상 145 eV 이하인 실제 Run을 모두 찾아줘."
+    wire = plan_wire(question, plan(question, [search([interval(128, 145, question)], id="s_search")]))
+    order = wire["questions"]["ordering.s_search"]["criteria"]
+    assert list(order) == ["match", "direction_changed", "missing", "unexpected", "unclear"]
+    assert "requested no sorting and the plan has no sorting" in order["match"]
+    assert "sorts by the metric the user requested" in order["direction_changed"]
+    assert "no sorting goal for that metric" in order["missing"]
+    assert "filter-only lookup" in order["unexpected"]
+    assert "Numeric bounds alone do not establish missing sorting" in order["unclear"]
+    assert wire["questions"]["request.tasks"]["criteria"]["missing"] == (
+        "The plan omits this item requested in the original")

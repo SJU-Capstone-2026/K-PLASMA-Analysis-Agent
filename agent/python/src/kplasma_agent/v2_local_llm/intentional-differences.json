@@ -381,7 +381,7 @@
       "path": "core/d1_input.py",
       "newFile": true,
       "selectors": [],
-      "reason": "Project only trusted fixed review instructions into English, factor duplicate field metadata and omit execution_view and tracking hashes from d1 wire input without modifying source snapshots or check coverage.",
+      "reason": "Translate fixed instructions and specialize ordering choices without changing their order. Send verified user excerpts instead of the complete question, compact duplicate metadata, and retain the source snapshots and check coverage.",
       "tests": [
         "tests/v2_local_llm/test_d1_input.py",
         "tests/v2_local_llm/test_d1_v23_gateway.py"
@@ -391,7 +391,7 @@
       "path": "core/d1_plan_view.py",
       "newFile": true,
       "selectors": [],
-      "reason": "Limit the compact English d1 review copy to independent literal filter operands and their citations, restore the full check list, and include history and future-input instructions where relevant. The original plan, check outcomes and public contracts retain their existing shapes.",
+      "reason": "Limit independent literal filter checks to the relevant operands and their source excerpts, restore the full check list, and include history and future-input instructions where relevant. The original plan, check outcomes and public contracts retain their existing shapes.",
       "tests": [
         "tests/v2_local_llm/test_d1_mlx.py"
       ]

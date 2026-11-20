@@ -66,6 +66,18 @@ def _cited_operand(value):
     return {("citation" if key == "source" else key): item for key, item in value.items()}
 
 
+def _question_citations(value):
+    if isinstance(value, list):
+        for item in value:
+            yield from _question_citations(item)
+    elif isinstance(value, dict):
+        citation = value.get("citation")
+        if citation and citation["message_key"] == "question":
+            yield citation["quote"]
+        for item in value.values():
+            yield from _question_citations(item)
+
+
 def _excerpt(payload: dict, spec: dict) -> str:
     plan = payload["plan"]
     index, = {path[1] for path in spec["paths"]}
@@ -84,6 +96,9 @@ def _excerpt(payload: dict, spec: dict) -> str:
         if not isinstance(operand, dict):
             raise ValueError("missing filter operand")
         selected[field] = _cited_operand(operand)
+    quotes = list(dict.fromkeys(_question_citations(selected)))
+    if quotes:
+        payload["question"] = "\n".join(quotes)
     plan["requirements"] = [{key: item[key] for key in ("id", "handled_by")} for item in plan["requirements"]]
     for i, item in enumerate(plan["steps"]):
         if i == index:

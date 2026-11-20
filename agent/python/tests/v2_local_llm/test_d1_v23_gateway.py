@@ -13,6 +13,7 @@ from kplasma_agent.v2_local_llm.core.model_gateway import (
 )
 from kplasma_agent.v2_local_llm.core.plan_review import build_plan_review_context
 from .plan_review_cases import compare, literal, plan, result_ref, search
+from .test_d1_input import without_citation_text
 from .test_plan_review import example_context
 
 
@@ -58,7 +59,8 @@ def test_final_plan_review_counts_exact_wire_and_preserves_original_snapshot():
     state = json.loads(sent[0]["state"])
     assert "execution_view" not in state
     assert "plan_digest" not in state and "input_digest" not in state
-    assert state["plan"] == example_context("s_search")["plan"] and state["question"] == snapshot["question"]
+    assert without_citation_text(state["plan"]) == without_citation_text(example_context("s_search")["plan"])
+    assert snapshot["question"] not in sent[0]["state"]
     assert state == counted[0]["input"]
     qs = {q["name"]: q for q in counted[0]["questions"]}
     for name, native in sent[0]["questions"].items():
@@ -81,7 +83,7 @@ def test_module_level_plan_review_uses_same_final_profile():
     assert result["status"] == "PASS"
     state = json.loads(sent[0]["state"])
     assert "execution_view" not in state
-    assert state["plan"] == example_context("s_search")["plan"]
+    assert without_citation_text(state["plan"]) == without_citation_text(example_context("s_search")["plan"])
 
 
 def test_review_names_cover_all_steps_and_feedback_uses_original_ids():
@@ -114,11 +116,11 @@ def test_review_names_cover_all_steps_and_feedback_uses_original_ids():
         state = json.loads(body["state"])
         expected_ids = ["s_forward", "s_forward_2", "s_search", "s_confirm", "s_compare", "s_derive", "s_explain"]
         assert [step["id"] for step in state["plan"]["steps"]] == expected_ids
-        assert state["plan"]["requirements"] == [{**saved["plan"]["requirements"][0], "handled_by": expected_ids}]
+        assert without_citation_text(state["plan"]["requirements"]) == [{"id": "r", "handled_by": expected_ids}]
         assert state["completed_steps"] == {"s_forward": {"status": "verified", "execution_id": "run-1"}}
-        assert state["question"] == question
+        assert question not in body["state"]
         _, lookup, _, confirmation, comparison, calculation, explanation = state["plan"]["steps"]
-        assert lookup["inputs"]["pressure"] == pressure
+        assert without_citation_text(lookup["inputs"]["pressure"]) == without_citation_text(pressure)
         assert confirmation["inputs"]["target_step_id"] == "s_compare"
         assert confirmation["inputs"]["candidates"]["step_id"] == "s_search"
         assert comparison["depends_on"] == ["s_search", "s_confirm"]

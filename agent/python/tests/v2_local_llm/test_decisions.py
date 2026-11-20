@@ -91,17 +91,16 @@ def test_dynamic_plan_questions_and_digests_survive_native_ordering(profile):
     payload = example_context()
     original = deepcopy(payload)
     review_context = example_context("s_search")
-    questions = review_questions(review_context)
+    from kplasma_agent.v2_local_llm.core.d1_input import prepare_d1_input
+
+    expected, questions = prepare_d1_input(
+        review_context, review_questions(review_context), role="plan_review", profile=profile)
 
     def transport(request):
         body = json.loads(request.content)
         state = json.loads(body["state"])
-        if profile == "ko-full":
-            assert state == review_context
-        else:
-            assert not {"execution_view", "plan_digest", "input_digest"} & state.keys()
-            for key in ("question", "input_history", "confirmed_context", "plan", "check_specs"):
-                assert state[key] == review_context[key]
+        assert state == expected
+        assert payload["question"] not in body["state"]
         assert list(body["questions"]) == [question["name"] for question in questions]
         for question in questions:
             wire = body["questions"][question["name"]]
