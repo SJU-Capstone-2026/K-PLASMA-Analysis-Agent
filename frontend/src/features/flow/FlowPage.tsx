@@ -1,6 +1,6 @@
 import type {View} from '../../App';
 export function FlowPage({decisionCount=0,onNavigate}:{decisionCount?:number;onNavigate:(view:View)=>void}){
-return <><div className="page-header"><div><span className="eyebrow">QUICK GUIDE</span><h1>세 단계로 사용하는 K-PLASMA</h1><p>정방향·역방향을 별도 메뉴로 고르지 않아도, Agent가 질문 의도를 구분해 실제 Run 근거로 답합니다.</p></div><div className="page-actions"><button className="button button--primary" type="button" data-action="flow-start" onClick={()=>onNavigate("agent")}>분석 Agent 시작</button></div></div>
+return <><div className="page-header"><div><span className="eyebrow">QUICK GUIDE</span><h1>세 단계로 사용하는 PLASMATE</h1><p>정방향·역방향을 별도 메뉴로 고르지 않아도, Agent가 질문 의도를 구분해 실제 Run 근거로 답합니다.</p></div><div className="page-actions"><button className="button button--primary" type="button" data-action="flow-start" onClick={()=>onNavigate("agent")}>분석 Agent 시작</button></div></div>
       <section className="flow-hero"><div className="flow-path">
         <article><span className="flow-number">01</span><div className="flow-icon" aria-hidden="true">⌁</div><span className="section-kicker">ASK</span><h2>자연어 질문</h2><p>공정 조건, 원하는 특성, 관찰된 변화 중 무엇을 묻는지 Agent가 구분합니다.</p><ul><li>조건 조회</li><li>후보 탐색</li><li>변화 설명</li></ul><button className="text-button" type="button" data-action="go-agent" onClick={()=>onNavigate("agent")}>분석 Agent 열기 →</button></article>
         <div className="flow-connector" aria-hidden="true"><span>해석을 확인하고</span>→</div>

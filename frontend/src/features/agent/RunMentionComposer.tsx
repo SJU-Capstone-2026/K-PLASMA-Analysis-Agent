@@ -3,19 +3,21 @@ import type {RunRef, RunSummary} from 'agent';
 import {fetchRuns} from '../../api/runs';
 
 function mentionAt(text: string, caret: number) {
-  const match = /(?:^|\s)@(RUN(?:-[A-Z0-9-]*)?)$/i.exec(text.slice(0, caret));
+  const match = /(?:^|\s)@([A-Z0-9-]*)$/i.exec(text.slice(0, caret));
   if (!match) return null;
   const start = caret - match[1].length - 1;
   const end = caret + (/^[A-Z0-9-]*/i.exec(text.slice(caret))?.[0].length ?? 0);
   return {query: match[1].toUpperCase(), start, end};
 }
 
-export function RunMentionComposer({text, onText, add, disabled, onStop}: {
+export function RunMentionComposer({text, onText, add, disabled, onStop, inputId='agent-query', runs}: {
   text: string;
   onText: (update: (current: string) => string) => void;
   add: (ref: RunRef) => Promise<boolean>;
   disabled: boolean;
   onStop?: () => Promise<void>;
+  inputId?: string;
+  runs?: RunSummary[];
 }) {
   const input = useRef<HTMLTextAreaElement>(null);
   const suggestions = useRef<HTMLElement>(null);
@@ -31,7 +33,7 @@ export function RunMentionComposer({text, onText, add, disabled, onStop}: {
   const open = Boolean(mention);
 
   useEffect(() => {
-    if (!open) return;
+    if (!open || runs) return;
     const controller = new AbortController();
     fetchRuns(controller.signal).then(runs => {
       if (!controller.signal.aborted) setCatalog(runs);
@@ -43,10 +45,11 @@ export function RunMentionComposer({text, onText, add, disabled, onStop}: {
       setCatalog(null);
       setFailed(false);
     };
-  }, [open]);
+  }, [open,runs]);
 
+  const available=runs??catalog;
   const matches = mention
-    ? (catalog ?? []).filter(run => run.runId.toUpperCase().startsWith(mention.query))
+    ? (available ?? []).filter(run => run.runId.toUpperCase().startsWith(mention.query))
     : [];
   const highlighted = Math.min(index, matches.length - 1);
 
@@ -92,14 +95,14 @@ export function RunMentionComposer({text, onText, add, disabled, onStop}: {
           <strong>@{run.runId}</strong>
           <span>{run.pressure} mTorr · Source {run.sourcePower} W · Bias {run.biasPower} W</span>
         </li>)}
-      </ul> : <p role="status">{failed ? 'Run 목록을 불러오지 못했습니다.' : catalog ? '일치하는 Run이 없습니다.' : 'Run 목록을 불러오는 중입니다.'}</p>}
+      </ul> : <p role="status">{failed ? 'Run 목록을 불러오지 못했습니다.' : available ? '일치하는 Run이 없습니다.' : 'Run 목록을 불러오는 중입니다.'}</p>}
     </section>}
     <div className="agent-composer-input">
-      <textarea ref={input} id="agent-query" name="queryText" rows={1} required
+      <textarea ref={input} id={inputId} name="queryText" rows={1} required
         aria-label="공정 데이터에 질문하기" aria-autocomplete="list"
         aria-controls={matches.length ? listId : undefined}
         aria-activedescendant={highlighted >= 0 ? `${listId}-${highlighted}` : undefined}
-        placeholder="조건, 목표, 변화 이유를 질문하거나 @RUN으로 실험을 추가하세요"
+        placeholder="공정 질문을 입력하거나 @로 Run 추가"
         value={text}
         onFocus={event => {setFocused(true);setCaret(event.currentTarget.selectionStart);}}
         onBlur={() => {setFocused(false);setDismissed(false);}}

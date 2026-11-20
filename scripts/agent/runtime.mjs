@@ -7,7 +7,7 @@ import {once} from 'node:events';
 import {repo,startBackend,syntheticFolder,upload,terminalBatch,sleep} from '../reference/runtime.mjs';
 
 /** Owns only its freshly created synthetic DB, storage and child processes. */
-export async function startV1Environment(output,mode='stub'){
+export async function startV1Environment(output,mode='stub',{decisionDemo=false}={}){
   await mkdir(output,{recursive:true});
   const token=randomUUID();const previous=process.env.AGENT_WORKER_TOKEN;
   let backend,worker;
@@ -18,7 +18,7 @@ export async function startV1Environment(output,mode='stub'){
   try{
     try{process.env.AGENT_WORKER_TOKEN=token;backend=await startBackend(output,'2026-10-05T00:00:00Z');}
     finally{if(previous===undefined)delete process.env.AGENT_WORKER_TOKEN;else process.env.AGENT_WORKER_TOKEN=previous;}
-    const folder=await syntheticFolder(output);
+    const folder=await syntheticFolder(output,{decisionDemo});
     for(const pressure of [4,6]){
       const path=join(folder,`artificial-${pressure}/0d_result/log/solver.log`);
       const text=await readFile(path,'utf8');
