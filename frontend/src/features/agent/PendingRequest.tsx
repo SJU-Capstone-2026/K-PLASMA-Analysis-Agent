@@ -30,7 +30,7 @@ export function PendingRequest({request,sending,onResume,onCancel,onError,hideQu
    return typeof input?.text==='string'?<p key={index} className="v1-user-input">추가 입력: {input.text}</p>:null;
   })}
   {running&&<>
-   <AgentProgress progress={request.progress} stage={request.stage} queued={request.status==='QUEUED'}/>
+   <AgentProgress events={request.progress?.activities} stage={request.stage} queued={request.status==='QUEUED'}/>
    <StreamPreview request={request} resultPreview={resultPreview}/>
   </>}
   {(request.status==='FAILED'||request.status==='CANCELLED')&&<CompletedAgentProgress summary={request.executionSummary} status={request.status}/>}

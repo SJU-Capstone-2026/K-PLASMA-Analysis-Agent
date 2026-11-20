@@ -9,7 +9,7 @@ const AnswerMarkdown=lazy(()=>import('./GeneralAnswerCard').then(module=>({defau
 type MarkdownNode={type:string;children?:MarkdownNode[];position?:{start:{offset?:number};end:{offset?:number}}};
 
 /** Keep an unfinished formula out of KaTeX without adding model text or closing delimiters. */
-function completeMathPrefix(markdown:string){
+export function completeMathPrefix(markdown:string){
  const protectedRanges:Array<{start:number;end:number}>=[];
  function visit(node:MarkdownNode){
   if(['code','inlineCode','html','link','image','definition'].includes(node.type)){

@@ -383,7 +383,7 @@ paths:
   /api/workspace/new-conversation:
     post:
       operationId: postApiWorkspaceNewConversation
-      description: Preserve the current conversation and its exact Run references, then create and activate an empty conversation with a fresh conversationEpoch. Existing requests continue in their original conversation.
+      description: Preserve the current conversation and activate an empty one with a fresh conversationEpoch. Existing requests continue in their original conversation. A decision demo conversation is pinned to standard v2.
       responses:
         '200':
           description: Success
@@ -410,7 +410,12 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/StateToken'
+              type: object
+              required: [stateToken]
+              properties:
+                stateToken:
+                  $ref: '#/components/schemas/StateToken'
+                decisionDemo: { type: boolean, default: false }
   /api/decisions:
     get:
       operationId: getApiDecisions
@@ -1104,6 +1109,9 @@ components:
           anyOf:
           - $ref: '#/components/schemas/RunRef'
           - type: 'null'
+        agentGraphVersion:
+          type: [string, 'null']
+          description: Graph pinned to this conversation. A decision demo conversation starts pinned to v2.
         turns:
           type: array
           items:
@@ -1140,6 +1148,7 @@ components:
               title: { type: string }
               createdAt: { type: string, format: date-time }
               updatedAt: { type: string, format: date-time }
+              decisionDemo: { type: boolean, description: Present and true for a decision demo conversation. }
         agentMessages: { type: array, items: { $ref: '#/components/schemas/AgentMessage' }, description: Single compact projection for the current workspace/conversation epochs. }
         stateToken:
           $ref: '#/components/schemas/StateToken'

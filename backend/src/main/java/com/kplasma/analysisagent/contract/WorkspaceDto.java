@@ -24,7 +24,8 @@ public final class WorkspaceDto {
         @JsonInclude(JsonInclude.Include.NON_NULL) Map<String,Object> executionSummary) {
         public AgentMessage(String requestId,String clientMessageId,String createdAt,String question,List<RunRef> refs,String status,String turnId){this(requestId,clientMessageId,createdAt,question,refs,status,turnId,null);}
     }
-    public record ConversationSummary(long conversationEpoch, String title, String createdAt, String updatedAt) {}
+    public record ConversationSummary(long conversationEpoch, String title, String createdAt, String updatedAt,
+            @JsonInclude(JsonInclude.Include.NON_DEFAULT) boolean decisionDemo) {}
     public record WorkspaceView(StateToken stateToken, Conversation conversation, ReferenceState candidateReference,
             Map<String,Object> activeAgentRequest,Map<String,Object> failedAgentRequest,List<AgentMessage> agentMessages,
             List<ConversationSummary> conversations) {
@@ -35,6 +36,7 @@ public final class WorkspaceDto {
     public record TurnWrite(@JsonProperty(required=true) StateToken stateToken, @JsonProperty(required=true) TurnSnapshot turn) {}
     public record UiWrite(@JsonProperty(required=true) StateToken stateToken, @JsonProperty(required=true) Map<String,Object> ui) {}
     public record TokenWrite(@JsonProperty(required=true) StateToken stateToken) {}
+    public record ConversationWrite(@JsonProperty(required=true) StateToken stateToken, Boolean decisionDemo) {}
     /** Both contexts are explicit, independently nullable, and persisted in one token-checked mutation. */
     public record ReferenceWrite(@JsonProperty(required=true) StateToken stateToken,
             @JsonProperty(required=true) ReferenceState candidateReference, @JsonProperty(required=true) RunRef activeRun) {}
