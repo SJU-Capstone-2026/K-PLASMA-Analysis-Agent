@@ -136,7 +136,7 @@ export function DecisionAgentPage({active,conversation}:{active:boolean;conversa
         return;
       }
       if(/RUN-|다시\s*(?:찾|검색)|조건.*변경해/i.test(text)){
-        setError('현재 후보를 선택할 때의 장단점을 물어보세요. 기준 Run이나 검색 조건을 바꾸려면 새 시연을 시작해 주세요.');
+        setError('현재 후보를 선택할 때의 장단점을 물어보세요. 기준 Run이나 검색 조건을 바꾸려면 시연을 초기화해 주세요.');
         return;
       }
       setError('');
@@ -180,7 +180,7 @@ export function DecisionAgentPage({active,conversation}:{active:boolean;conversa
 
   return <div className="agent-page agent-page--wide decision-agent">
     {question&&<header className="agent-page-header">
-      <button className="button button--ghost button--small" type="button" disabled={pending} onClick={reset}>새 시연</button>
+      <button className="button button--ghost button--small" type="button" disabled={pending} onClick={reset}>초기화</button>
     </header>}
 
     <section className="agent-conversation agent-conversation--wide">
@@ -252,7 +252,7 @@ export function DecisionAgentPage({active,conversation}:{active:boolean;conversa
       {request?.status==='CANCELLED'&&<CompletedAgentProgress summary={request.executionSummary} status="CANCELLED"/>}
       {followupSearch&&!pending&&!sameCandidates&&(followupTurn||failed||followupSearch.error||conversation.error)&&
         <DecisionCard title="후속 답변을 확인하지 못했습니다">
-          <p role="alert">{followupSearch.error||conversation.error||(followupRuns?'후보가 바뀌었습니다. 새 시연에서 기준을 다시 확인해 주세요.':'승인한 후보에 대한 분석을 확인하지 못했습니다.')}</p>
+          <p role="alert">{followupSearch.error||conversation.error||(followupRuns?'후보가 바뀌었습니다. 초기화한 뒤 기준을 다시 확인해 주세요.':'승인한 후보에 대한 분석을 확인하지 못했습니다.')}</p>
           {!followupRuns&&<button type="button" className="button button--ghost" onClick={()=>void findCandidates(followup)}>다시 분석</button>}
         </DecisionCard>}
       {!showingFinalSteps&&followup&&baseline&&candidates?.length&&sameCandidates&&followupTurn&&<div className="decision-result" ref={resultStart}>

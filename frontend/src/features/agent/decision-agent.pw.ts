@@ -212,6 +212,6 @@ test('Decision Agent approves criteria, compares the nominated Run and stays sep
   await page.getByRole('heading',{name:'다음 실험에서 확인할 조건'}).scrollIntoViewIfNeeded();
   await page.screenshot({path:info.outputPath(`decision-${width}.png`),animations:'disabled'});
  }
- await page.getByRole('button',{name:'새 시연'}).click();
+ await page.getByRole('button',{name:'초기화',exact:true}).click();
  await expect(welcome).toBeInViewport();
 });
