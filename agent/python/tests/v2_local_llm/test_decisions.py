@@ -90,17 +90,18 @@ def test_missing_usage_and_confidence_stay_unavailable_instead_of_becoming_zero_
 def test_dynamic_plan_questions_and_digests_survive_native_ordering(profile):
     payload = example_context()
     original = deepcopy(payload)
-    questions = review_questions(payload)
+    review_context = example_context("s_search")
+    questions = review_questions(review_context)
 
     def transport(request):
         body = json.loads(request.content)
         state = json.loads(body["state"])
         if profile == "ko-full":
-            assert state == payload
+            assert state == review_context
         else:
             assert not {"execution_view", "plan_digest", "input_digest"} & state.keys()
             for key in ("question", "input_history", "confirmed_context", "plan", "check_specs"):
-                assert state[key] == payload[key]
+                assert state[key] == review_context[key]
         assert list(body["questions"]) == [question["name"] for question in questions]
         for question in questions:
             wire = body["questions"][question["name"]]
@@ -118,7 +119,7 @@ def test_dynamic_plan_questions_and_digests_survive_native_ordering(profile):
     with local_http_client(URL, timeout=1, transport=httpx.MockTransport(transport)) as client:
         outcome, usage = review_plan(client, settings(profile), payload)
     assert outcome["status"] == "PASS" and usage is None
-    assert [item["name"] for item in outcome["checks"]] == [question["name"] for question in questions]
+    assert [item["name"] for item in outcome["checks"]] == [spec["name"] for spec in payload["check_specs"]]
     assert outcome["plan_digest"] == payload["plan_digest"]
     assert outcome["input_digest"] == payload["input_digest"] and payload == original
 

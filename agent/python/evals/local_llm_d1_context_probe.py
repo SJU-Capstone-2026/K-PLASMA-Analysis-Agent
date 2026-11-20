@@ -15,7 +15,7 @@ from kplasma_agent.v2_local_llm.core.budget import make_d1_counter, make_input_g
 from kplasma_agent.v2_local_llm.core.d1_context import project_check
 from kplasma_agent.v2_local_llm.core.d1_input import prepare_d1_input
 from kplasma_agent.v2_local_llm.core.decisions import native_request
-from kplasma_agent.v2_local_llm.core.model_gateway import V2LocalLLMModelGateway, V2LocalLLMSettings
+from kplasma_agent.v2_local_llm.core.model_gateway import V2LocalLLMModelGateway, V2LocalLLMSettings, _d1_plan_context
 from kplasma_agent.v2_local_llm.core.plan_checks import review_questions
 from kplasma_agent.v2_local_llm.network import local_http_client
 from kplasma_agent.v2_local_llm.runtime import (
@@ -78,8 +78,8 @@ def selection_preflight(cases, profile):
     """Require every real plan check to select before making any model request."""
     manifests = {}
     for case in cases:
-        view, questions = prepare_d1_input(case["context"], review_questions(case["context"]),
-                                           role="plan_review", profile=profile)
+        context = _d1_plan_context(case["context"])
+        view, questions = prepare_d1_input(context, review_questions(context), role="plan_review", profile=profile)
         native = native_request({"input": [{"role": "user", "content": [
             {"type": "input_json", "data": view}]}], "questions": questions})
         projected = {}
@@ -233,7 +233,7 @@ def run(settings, corpus_path, output):
                 result, usage = gateway.review_plan(case["context"])
                 elapsed = time.monotonic() - started
                 measured = audit_request(report["audit"][before:],
-                    [q["name"] for q in review_questions(case["context"])],
+                    [q["name"] for q in review_questions(_d1_plan_context(case["context"]))],
                     require_selected=settings.d1_context_mode == "per_check")
                 if settings.d1_context_mode == "per_check" and {
                     c["question_id"]: c["state_sha256"] for c in measured["context"]

@@ -61,7 +61,7 @@ def test_native_mlx_counter_and_inference_receive_identical_compact_english_inpu
     assert sent[0][1] == sent[1][1]
     wire = json.loads(sent[0][1]["state"])
     assert not {"execution_view", "plan_digest", "input_digest"} & wire.keys()
-    assert wire["question"] == original["question"] and wire["plan"] == original["plan"]
+    assert wire["question"] == original["question"] and wire["plan"] == example_context("s_search")["plan"]
     for question in sent[0][1]["questions"].values():
         assert not any("가" <= char <= "힣" for char in question["instructions"])
     assert original == snapshot

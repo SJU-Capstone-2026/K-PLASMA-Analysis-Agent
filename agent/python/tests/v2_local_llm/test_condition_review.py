@@ -91,10 +91,22 @@ def test_gateway_sends_all_condition_questions_once_with_rejection_evidence():
     import json
     import httpx
     from kplasma_agent.v2_local_llm.config import Settings
+    from kplasma_agent.v2_local_llm.core.contracts import PlanDraft
     from kplasma_agent.v2_local_llm.core.model_gateway import V2LocalLLMModelGateway, V2LocalLLMSettings
     from kplasma_agent.v2_local_llm.core.plan_checks import review_questions
 
     payload = context(bad=True)
+    reviewed = deepcopy(payload["plan"])
+    comparison, calculation, search = reviewed["steps"]
+    comparison["id"] = "s_compare"
+    calculation.update(id="s_derive", depends_on=["s_compare"])
+    calculation["required_prior_outputs"][0]["step_id"] = "s_compare"
+    calculation["inputs"]["values"]["step_id"] = "s_compare"
+    search.update(id="s_search", depends_on=["s_derive"])
+    search["inputs"]["constraints"][0]["value"]["step_id"] = "s_derive"
+    reviewed["requirements"][0]["handled_by"] = ["s_compare", "s_derive", "s_search"]
+    review_context = build_plan_review_context(PlanDraft.model_validate(reviewed), payload["plan_revision"],
+                                               payload["question"], [], payload["confirmed_context"], {})
     calls = []
     guarded = []
 
@@ -102,15 +114,15 @@ def test_gateway_sends_all_condition_questions_once_with_rejection_evidence():
         body = json.loads(request.content)
         calls.append(body)
         assert request.url.path == '/v1/systemone'
-        questions = review_questions(payload)
+        questions = review_questions(review_context)
         assert list(body['questions']) == [q['name'] for q in questions]
-        assert json.loads(body['state']) == payload
+        assert json.loads(body['state']) == review_context
         for question in questions:
             native = body['questions'][question['name']]
             assert native['type'] == 'choice'
             assert native['instructions'] == question['instructions']
             assert native['criteria'] == {c['value']: c['description'] for c in question['choices']}
-        answers = reply(payload, 'filter.search.meanIonEnergy')['answers']
+        answers = reply(review_context, 'filter.s_search.meanIonEnergy')['answers']
         native = {answer['name']: {'type': answer['type'], 'choice': answer['choice'],
                                    'probabilities': {p['value']: p['probability'] for p in answer['probabilities']},
                                    'confidence': answer['confidence']} for answer in answers}
@@ -121,13 +133,15 @@ def test_gateway_sends_all_condition_questions_once_with_rejection_evidence():
                                        lambda body, role: guarded.append((body, role)))
         result, usage = gateway.review_plan(payload)
     assert len(calls) == 1
-    assert guarded == [({'input': payload, 'questions': review_questions(payload)}, 'plan_review')]
+    assert guarded == [({'input': review_context, 'questions': review_questions(review_context)}, 'plan_review')]
     assert usage is None
     assert result['status'] == 'ISSUE'
     assert result['plan_digest'] == payload['plan_digest']
     assert result['input_digest'] == payload['input_digest']
     assert all(c['confidence'] == 0.01 for c in result['checks'])
-    assert next(c for c in result['checks'] if c['issue'])['issue']['plan_values'][0]['value']['value']['value'] == 0
+    issue = next(c['issue'] for c in result['checks'] if c['issue'])
+    assert issue['condition_id'] == 'filter.search.meanIonEnergy'
+    assert issue['plan_values'][0]['value']['value']['value'] == 0
 
 
 def test_unknown_saved_condition_kind_is_validation_failure_not_unhandled_keyerror():

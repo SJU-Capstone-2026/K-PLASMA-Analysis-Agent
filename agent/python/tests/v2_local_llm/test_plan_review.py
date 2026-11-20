@@ -9,22 +9,22 @@ from kplasma_agent.v2_local_llm.core.contracts import PlanDraft
 QUESTION = "평균 이온 에너지가 150–160 eV인 실제 Run을 찾아줘."
 
 
-def example_plan():
+def example_plan(step_id="search"):
     return PlanDraft.model_validate({
         "schema_version": 2, "request_mode": "data_request", "base_revision": None,
         "requirements": [{"id": "r", "text": QUESTION,
                           "sources": [{"message_key": "question", "quote": "150–160 eV"}],
-                          "handled_by": ["search"]}],
-        "steps": [{"id": "search", "kind": "tool", "tool": "reverse_search", "requirement_ids": ["r"],
+                          "handled_by": [step_id]}],
+        "steps": [{"id": step_id, "kind": "tool", "tool": "reverse_search", "requirement_ids": ["r"],
                    "inputs": {"constraints": [{"field": "meanIonEnergy", "operator": "gt", "value": {
                        "kind": "literal", "value": 0, "unit": "eV",
                        "source": {"message_key": "question", "quote": "150–160 eV"}}}]}}],
     })
 
 
-def example_context():
+def example_context(step_id="search"):
     from kplasma_agent.v2_local_llm.core.plan_review import build_plan_review_context
-    return build_plan_review_context(example_plan(), 1, QUESTION, [], {
+    return build_plan_review_context(example_plan(step_id), 1, QUESTION, [], {
         "selected_runs": [{"runId": "SYN-A", "runVersionId": "fixed-a"}],
         "R1": {"runId": "SYN-A", "runVersionId": "fixed-a"},
     }, {})

@@ -127,7 +127,14 @@ def test_instructions_schemas_and_choice_meanings_match_the_frozen_source(frozen
                                   for key in result["required"]]
         return result
 
-    before, _ = gateway.PLAN_INSTRUCTIONS.split("# 선행 출력 조건(required_prior_outputs)\n")
+    single_plan_draft = (
+        "생각에서는 요청 범위, 조건의 수치·단위·경계와 필요한 단계 연결을 확인한다. "
+        "생각 구간에는 JSON을 쓰지 않는다. "
+        "계획 JSON은 submit_plan 호출의 인자로만 한 번 작성한다.\n"
+    )
+    assert gateway.PLAN_INSTRUCTIONS.count(single_plan_draft) == 1
+    before, _ = gateway.PLAN_INSTRUCTIONS.replace(single_plan_draft, "", 1).split(
+        "# 선행 출력 조건(required_prior_outputs)\n")
     # Prerequisite and replan guidance evolve; the remaining cloned contracts stay pinned.
     after = """각 단계의 requirement_ids는 requirements[].id를, requirements[].handled_by는 steps[].id를 참조한다.
 이전 단계에서 만든 값을 쓰는 경우 depends_on에 그 단계의 ID를 넣는다.

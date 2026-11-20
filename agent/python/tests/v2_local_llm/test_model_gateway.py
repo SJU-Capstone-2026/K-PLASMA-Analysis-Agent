@@ -138,15 +138,16 @@ def test_plan_review_has_condition_questions_in_one_request_and_preserves_low_co
 
     guarded = []
     payload = example_context()
+    review_context = example_context("s_search")
 
     def transport(request):
         body = json.loads(request.content)
         assert request.url.path == "/v1/systemone"
-        assert json.loads(body["state"]) == payload
-        assert list(body["questions"]) == [s["name"] for s in payload["check_specs"]]
+        assert json.loads(body["state"]) == review_context
+        assert list(body["questions"]) == [s["name"] for s in review_context["check_specs"]]
         assert all({"match", "unclear"} <= set(q["criteria"]) for q in body["questions"].values())
-        rows = answers()
-        rows[1] = answers("missing")[1]
+        rows = answers(context=review_context)
+        rows[1] = answers("missing", context=review_context)[1]
         native = {row["name"]: {"type": "choice", "choice": row["choice"], "confidence": row["confidence"],
                                "probabilities": {p["value"]: p["probability"] for p in row["probabilities"]}}
                   for row in rows}

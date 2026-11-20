@@ -109,6 +109,7 @@ def test_runner_has_exactly_ten_calls_or_preserves_transport_failure_attempt(tmp
              for i in range(10)]
     monkeypatch.setattr(probe, "load_corpus", lambda _: cases)
     monkeypatch.setattr(probe, "source_identity", lambda: "fixed")
+    monkeypatch.setattr(probe, "_d1_plan_context", lambda context: context)
     monkeypatch.setattr(probe, "review_questions", lambda _: [{"name": "x"}])
     monkeypatch.setattr(probe, "graph_review_state", lambda _: {"plan_review_enabled": True})
     monkeypatch.setattr(probe, "verify_artifacts", lambda _: None)

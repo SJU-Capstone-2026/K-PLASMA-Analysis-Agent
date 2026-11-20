@@ -1,5 +1,6 @@
 """Bounded local JSON and Decisions calls for the cloned v2 graph."""
 
+from collections import Counter
 from dataclasses import dataclass, replace
 from typing import Literal
 import json
@@ -14,11 +15,12 @@ from ..metric_registry import UNITS
 from ..model_client import ModelClient, ModelError, strict_schema
 from .contracts import DataAnswerDraft as DataAnswerDraft, GeneralAnswerDraft, PlanDraft, ReviewAnswer, ReviewDecision
 from .selected_values import SelectedValues
-from .plan_checks import review_questions
-from .plan_review import parse_plan_review, review_result
+from .plan_checks import build_check_specs, review_questions
+from .plan_review import execution_view, parse_plan_review, plan_digest, program_effects, review_result
 
 PLAN_INSTRUCTIONS = """# 역할과 제출
 원문과 확인된 문맥을 읽고 schema_version=2인 전체 계획을 submit_plan으로 정확히 한 번 제출한다.
+생각에서는 요청 범위, 조건의 수치·단위·경계와 필요한 단계 연결을 확인한다. 생각 구간에는 JSON을 쓰지 않는다. 계획 JSON은 submit_plan 호출의 인자로만 한 번 작성한다.
 최초 계획의 base_revision은 null, 재계획은 제공된 revision을 유지한다.
 코드가 조회·검색·비교·계산·사용자 확인을 순차 처리한다. 설명은 마지막 explain_answer가 담당한다.
 
@@ -370,9 +372,67 @@ def review_answer(client: httpx.Client, settings: V2LocalLLMSettings, payload, *
     return ReviewDecision(status="UNAVAILABLE", answers=[], reason=reason), data.get("usage")
 
 
-def review_plan(client: httpx.Client, settings: V2LocalLLMSettings, payload, *, prepared=None):
-    view, questions = prepared if prepared is not None else _review_input(
-        settings, payload, review_questions(payload), "plan_review")
+_D1_STEP_NAMES = {
+    "forward_lookup": "s_forward",
+    "reverse_search": "s_search",
+    "compare_runs": "s_compare",
+    "explain_answer": "s_explain",
+    "derive": "s_derive",
+    "await_input": "s_confirm",
+}
+
+
+def _rename_step_references(value, names):
+    if isinstance(value, list):
+        return [_rename_step_references(item, names) for item in value]
+    if not isinstance(value, dict):
+        return value
+    renamed = {}
+    for key, item in value.items():
+        if key in {"step_id", "target_step_id"}:
+            renamed[key] = names[item]
+        elif key in {"depends_on", "handled_by"}:
+            renamed[key] = [names[step_id] for step_id in item]
+        else:
+            renamed[key] = _rename_step_references(item, names)
+    return renamed
+
+
+def _d1_plan_context(payload):
+    plan = payload["plan"]
+    if payload["check_specs"] != build_check_specs(plan):
+        raise ValueError("PLAN_REVIEW_INPUT_INVALID")
+    counts = Counter()
+    names = {}
+    for step in plan["steps"]:
+        base = _D1_STEP_NAMES[step.get("tool", step["kind"])]
+        counts[base] += 1
+        names[step["id"]] = base if counts[base] == 1 else f"{base}_{counts[base]}"
+    if len(names) != len(plan["steps"]):
+        raise ValueError("PLAN_REVIEW_INPUT_INVALID")
+    if all(original == alias for original, alias in names.items()):
+        return payload
+
+    renamed = _rename_step_references(plan, names)
+    for step in renamed["steps"]:
+        step["id"] = names[step["id"]]
+    draft = PlanDraft.model_validate(renamed)
+    return {**payload, "plan": renamed, "check_specs": build_check_specs(renamed),
+            "execution_view": execution_view(draft), "program_effects": program_effects(draft),
+            "plan_digest": plan_digest(renamed),
+            "completed_steps": {names[step_id]: result for step_id, result in payload["completed_steps"].items()}}
+
+
+def review_plan(client: httpx.Client, settings: V2LocalLLMSettings, payload, *, input_guard=None):
+    try:
+        context = _d1_plan_context(payload)
+        view, questions = _review_input(settings, context, review_questions(context), "plan_review")
+        original_names = {reviewed["name"]: original["name"] for reviewed, original in
+                          zip(context["check_specs"], payload["check_specs"], strict=True)}
+        if input_guard is not None:
+            input_guard({"input": view, "questions": questions}, "plan_review")
+    except (KeyError, TypeError, ValueError):
+        raise ModelError("PLAN_REVIEW_INPUT_INVALID") from None
     body = {
         "model": settings.decisions_model,
         "input": [{"role": "user", "content": [{"type": "input_json", "data": view}]}],
@@ -381,6 +441,8 @@ def review_plan(client: httpx.Client, settings: V2LocalLLMSettings, payload, *, 
     data = {}
     try:
         data = _decisions_response(client, settings, body)
+        for row in data["answers"]:
+            row["name"] = original_names[row["name"]]
         return parse_plan_review(data, payload).model_dump(mode="json"), data.get("usage")
     except httpx.TimeoutException:
         reason = "DECISIONS_TIMEOUT"
@@ -403,12 +465,7 @@ class V2LocalLLMModelGateway:
         self.plan_cache = plan_cache
 
     def review_plan(self, context):
-        try:
-            prepared = _review_input(self.settings, context, review_questions(context), "plan_review")
-            self.input_guard({"input": prepared[0], "questions": prepared[1]}, "plan_review")
-        except ValueError:
-            raise ModelError("PLAN_REVIEW_INPUT_INVALID") from None
-        return review_plan(self.decisions, self.settings, context, prepared=prepared)
+        return review_plan(self.decisions, self.settings, context, input_guard=self.input_guard)
 
     def submit_plan(self, context):
         tool = submit_plan_tool_schema()
