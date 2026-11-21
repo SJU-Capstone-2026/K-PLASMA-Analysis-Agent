@@ -10,7 +10,7 @@ v2.5의 모델 구성은 **Qwen llama.cpp + d1 MLX 8비트 개별 검토**다. d
 
 | 역할 | 현재 설정 |
 |---|---|
-| 계획·재계획 / 답변·재작성 | Qwen3.5-9B GGUF Q4_K_M, llama.cpp b12317, `127.0.0.1:8082/v1` |
+| 계획·재계획 / 답변·재작성 | Qwen3.5-9B GGUF Q4_K_M, llama.cpp b12317 기반 `llama.cpp-b12317-submit-plan`, `127.0.0.1:8082/v1` |
 | 계획 의미 검토 / 필요한 답변 검토 | LiquidAI/d1-2B, MLX affine8/group64, `127.0.0.1:8083/v1/systemone` |
 | d1 비교 경로 | 같은 MLX 서비스의 BF16, 같은 개별 처리 |
 | 자원 | Docker VM 1536MiB, Qwen context 24576·batch/ubatch 256, d1 context 32768·개별 입력 16000 이하 |
@@ -132,6 +132,8 @@ cd agent/python
 
 planner는 `/v1/chat/completions`에 `tools=[submit_plan]`, `tool_choice=required`, `parallel_tool_calls=false`를 보내고 `message.tool_calls[].function.arguments`에서만 계획을 받는다. 본문의 계획 JSON을 대신 읽는 fallback은 없다. writer JSON schema·SSE projector도 유지한다.
 
+Apple Silicon용 [llama.cpp 패치](../../agent/python/runtimes/llama_cpp/submit-plan-after-thinking.patch)는 Qwen에서 `submit_plan` 단일 호출이 필수일 때 생각 종료와 도구 호출 사이에 공백만 허용한다. 기존 도구 인자 문법과 생각 구간을 사용한다. 회귀 검사는 생각 뒤에 바로 호출하는 입력을 받고 JSON을 앞에 붙인 입력을 거부하는지 검사한다.
+
 v2.2의 `required_prior_outputs`는 **이번 단계 전에 필요한 앞 단계 출력의 조건**이다. 표시할 조회 지표가 아니다. 처음 하는 조회는 `depends_on: []`, `required_prior_outputs: []`다. `count`는 정확한 개수이며 추가 조건이 없으면 `count`·`value_type`·`unit`은 각각 `null`이다. [로컬 계획 schema](../contracts/agent-v2-local-llm.plan.schema.json).
 
 v2.6.1은 `submit_plan` 인용의 제한된 공백 차이를 원문 구절 한 곳으로 확인할 수 있을 때 복원한다. 지정 메시지에서 복원한 인용은 기존 d1 검토에 들어간다. [인용 복원과 캐시 적중 웹 검증](../verification/2026-11-19-local-llm-v2.6.1-qwen-citation.md).
@@ -145,6 +147,24 @@ v2.6.1은 `submit_plan` 인용의 제한된 공백 차이를 원문 구절 한 �
 활성 환경 파일과 모델 서버의 저장 경로를 함께 보존하고, ON으로 사용하기로 한 개발 실행을 평가 종료 후 OFF로 되돌리지 않는다. 사용자 승인 후 실제 ON 실행과 앞 5문항을 확인한 수치는 [캐시 ON 웹 비교](../verification/2026-11-18-local-llm-cache-on-web5.md)에 기록했다.
 
 전용 폴더는 0700, 파일은 0600으로 관리하며 `.local/` Git 제외를 유지한다. 캐시에는 질문·계획이 포함될 수 있어 파일 동기화·로그·Git 공개 대상에서 제외한다. 완료 파일 2GiB·관리 파일 4GiB 보관 정책을 유지하고 임시 쓰기 피크는 따로 관측한다. 저장·복원 제한은 5초이며 손상·설정 불일치는 cache miss로 처리한다. 슬롯 초기화까지 실패하면 중단한다. miss를 이유로 모델 재호출이나 검토 생략을 추가하지 않는다. 이전 OFF/ON 결과는 [v2.2 기록](../verification/2026-11-14-local-llm-v2.2-qwen-plan-cache.md)을 따른다.
+
+### macOS Qwen 엔진 빌드
+
+llama.cpp 태그 `b12317`(`e0949d0`)의 [소스 아카이브](https://codeload.github.com/ggml-org/llama.cpp/tar.gz/refs/tags/b12317)는 SHA-256 `d3607be1788451ae71a138479ea78e4b4b408b82bfae99c01f42b2a3d9357a46`에 고정한다. CMake 4.1.2와 AppleClang 17.0.0.17000603으로 다음 명령을 사용했다. 아카이브와 빌드 결과는 작업 사본의 `.local/`에 둔다.
+
+```sh
+patch -d "$LLAMA_SOURCE" -p1 < "$PROJECT/agent/python/runtimes/llama_cpp/submit-plan-after-thinking.patch"
+GIT_CEILING_DIRECTORIES="$(dirname "$LLAMA_SOURCE")" cmake -S "$LLAMA_SOURCE" -B "$LLAMA_BUILD" \
+  -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES=arm64 -DBUILD_SHARED_LIBS=OFF \
+  -DLLAMA_BUILD_NUMBER=12317 -DLLAMA_BUILD_COMMIT=e0949d0 -DLLAMA_BUILD_TESTS=ON \
+  -DLLAMA_BUILD_EXAMPLES=OFF -DLLAMA_BUILD_TOOLS=ON -DLLAMA_BUILD_SERVER=ON \
+  -DLLAMA_BUILD_APP=OFF -DLLAMA_BUILD_UI=OFF -DLLAMA_OPENSSL=OFF \
+  -DGGML_NATIVE=OFF -DGGML_METAL=ON -DGGML_METAL_EMBED_LIBRARY=ON -DGGML_RPC=OFF
+cmake --build "$LLAMA_BUILD" --target test-chat llama-server --parallel 4
+ctest --test-dir "$LLAMA_BUILD" -R '^test-chat$' --output-on-failure
+```
+
+기존 Qwen 서버 시작 명령에 `$LLAMA_BUILD/bin/llama-server`를 사용하고, 환경 파일에 `AGENT_V2_LOCAL_LLM_RUNTIME_VERSION=llama.cpp-b12317-submit-plan`을 설정한다. [런타임 명세](../../agent/python/src/kplasma_agent/v2_local_llm/runtime-manifest.json)가 확인한 macOS 실행 파일의 SHA-256을 고정한다. 컴파일 환경이 달라 새 바이너리가 필요하면 배포 전에 그 산출물의 해시와 준비 검사를 함께 검증한다.
 
 ## 준비·메모리·입력 제한
 
