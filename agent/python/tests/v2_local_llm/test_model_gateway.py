@@ -13,8 +13,10 @@ from kplasma_agent.v2_local_llm.core.model_gateway import (
 def test_local_planner_budgets_the_unchanged_native_tool_and_plan_instructions():
     from evals.local_llm_smoke import smoke_plan
 
-    def request(_instructions, _input, tool, _span):
+    def request(instructions, _input, tool, _span):
         assert tool == submit_plan_tool_schema()
+        assert "해당 조건의 의미가 유지되는 가장 짧은 연속 원문 구절" in instructions
+        assert "범위 조건은 양쪽 경계와 해당 그룹을 구분하는 말을 남긴다." in instructions
         return {"output": [{"type": "function_call", "name": "submit_plan", "call_id": "synthetic",
                             "arguments": json.dumps(smoke_plan())}]}, None
 
@@ -145,13 +147,13 @@ def test_plan_review_has_condition_questions_in_one_request_and_preserves_low_co
         assert request.url.path == "/v1/systemone"
         assert payload["question"] not in body["state"]
         assert json.loads(body["state"])["check_specs"] == review_context["check_specs"]
-        assert list(body["questions"]) == [s["name"] for s in review_context["check_specs"]]
+        assert list(body["questions"]) == [s["name"] for s in review_context["check_specs"] if s["kind"] != "ordering"]
         assert all({"match", "unclear"} <= set(q["criteria"]) for q in body["questions"].values())
         rows = answers(context=review_context)
         rows[1] = answers("missing", context=review_context)[1]
         native = {row["name"]: {"type": "choice", "choice": row["choice"], "confidence": row["confidence"],
                                "probabilities": {p["value"]: p["probability"] for p in row["probabilities"]}}
-                  for row in rows}
+                  for row in rows if row["name"] in body["questions"]}
         return httpx.Response(200, json={"answers": native, "usage": {"input_tokens": 100}})
 
     with httpx.Client(transport=httpx.MockTransport(transport), trust_env=False) as client:

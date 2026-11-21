@@ -55,7 +55,7 @@ def test_pressure_filter_preserves_everything_except_selected_contracts(profile)
                 "tool_contracts"]["compare_runs"]["field_definitions"][ref]
 
 
-@pytest.mark.parametrize("name", ["request.tasks", "request.filter_coverage",
+@pytest.mark.parametrize("name", ["request.filter_coverage",
     "request.confirmation_coverage", "outputs.compare", "selection_count.choose"])
 def test_previously_full_checks_are_selected_without_changing_original_fields(name):
     original = wire(payload("P13")) + "\n  "
@@ -215,7 +215,7 @@ def test_existing_pairs_never_change_plan_checks_policy_or_user_text(case, bad):
 
 
 @pytest.mark.parametrize("profile", PROFILES)
-@pytest.mark.parametrize("name", ["request.tasks", "request.filter_coverage",
+@pytest.mark.parametrize("name", ["request.filter_coverage",
                                   "request.confirmation_coverage"])
 def test_global_profiles_are_fixed_even_when_requested_work_is_absent(profile, name):
     source = payload("P06", profile)
@@ -226,14 +226,7 @@ def test_global_profiles_are_fixed_even_when_requested_work_is_absent(profile, n
     assert meta["action"] == "selected"
     assert contracts == json.loads(alternate)["tool_contracts"]
     original = source["tool_contracts"]
-    if name == "request.tasks":
-        assert contracts.keys() == original.keys()
-        assert set(contracts["compare_runs"]["fields"]) == set(FIELD_META)
-        assert "field_definitions" not in contracts["compare_runs"]
-        for field, item in contracts["compare_runs"]["fields"].items():
-            assert item == {k: v for k, v in original["compare_runs"]["fields"][field].items()
-                            if k not in {"definition", "definition_ref"}}
-    elif name == "request.filter_coverage":
+    if name == "request.filter_coverage":
         assert {"forward_lookup", "reverse_search", "bindings"} <= contracts.keys()
         assert set(contracts["compare_runs"]["fields"]) == {
             "pressure", "sourcePower", "biasPower", "ionFlux", "meanIonEnergy", "iedWidth"}
@@ -256,7 +249,7 @@ def test_outputs_keep_all_definitions_including_metrics_omitted_from_plan(profil
     assert set(meta["metric_ids"]) == set(FIELD_META)
 
 
-def test_all_thirteen_kinds_have_a_selected_policy():
+def test_all_active_kinds_have_a_selected_policy():
     covered = set()
     for case in cases():
         source = payload(case.id)
@@ -264,7 +257,7 @@ def test_all_thirteen_kinds_have_a_selected_policy():
             _, meta = project_state(wire(source), spec["name"])
             assert meta["action"] == "selected", spec
             covered.add(spec["kind"])
-    assert covered == KINDS.keys()
+    assert covered == KINDS.keys() - {"tasks"}
     assert VERSION == "d1-context-3"
 
 
@@ -292,5 +285,5 @@ def test_unknown_kind_retains_exact_fallback():
     source = payload()
     source["check_specs"][0]["kind"] = "new_kind"
     original = wire(source)
-    selected, meta = project_state(original, "request.tasks")
+    selected, meta = project_state(original, "request.filter_coverage")
     assert selected == original and meta["action"] == "fallback"

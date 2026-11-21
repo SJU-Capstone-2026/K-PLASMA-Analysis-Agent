@@ -10,9 +10,10 @@ from pydantic import ValidationError
 
 from .. import tracing
 from ..answer_stream import AnswerStreamProjector
-from ..config import Settings
+from ..config import REVIEW_MODELS, Settings
 from ..metric_registry import UNITS
 from ..model_client import ModelClient, ModelError, strict_schema
+from .code_plan_checks import code_plan_checks
 from .contracts import DataAnswerDraft as DataAnswerDraft, GeneralAnswerDraft, PlanDraft, ReviewAnswer, ReviewDecision
 from .selected_values import SelectedValues
 from .plan_checks import build_check_specs, review_questions
@@ -54,7 +55,10 @@ compare_runs는 두 개 이상 Run 사이의 비교를 수행한다. 단일 Run 
 meanIonEnergy between 150–160 eV와 ionFlux maximize다. 범위 밖 후보를 포함하지 않는다.
 between 제약은 min과 max만 채우고 value는 반드시 null로 둔다.
 eq·gt·gte·lt·lte 제약은 value만 채운다. “적어도 1”의 gte 경계값은 value에 둔다.
-리터럴 source.quote에는 해당 수치와 명시된 단위가 들어 있는 원문 구절을 인용한다.
+각 실행값의 source.quote에는 해당 조건의 의미가 유지되는 가장 짧은 연속 원문 구절을 그대로 인용한다.
+숫자 조건은 숫자, 원문에 명시된 단위, 이상·이하·초과·미만처럼 비교의 뜻을 정하는 말을 포함한다. 지표명이 같은 구절에 있으면 함께 넣는다.
+범위 조건은 양쪽 경계와 해당 그룹을 구분하는 말을 남긴다. 제외·정정처럼 조건의 뜻을 바꾸는 표현도 함께 남긴다.
+조건을 이해하는 데 필요 없는 다른 조건이나 조회 요청 문구는 덜어낸다.
 unit은 스키마의 단위 중 같은 배율의 표준 표기를 사용한다. 예: mtorr → mTorr, 와트 → W.
 Torr를 mTorr로, m⁻²s⁻¹를 10¹⁸ m⁻²s⁻¹로 바꾸지 않는다. value도 원문 수치를 유지한다.
 단위가 명시됐지만 지원되지 않으면 unsupported, 단위가 생략됐으면 null을 사용한다.
@@ -424,11 +428,21 @@ def _d1_plan_context(payload):
 
 
 def review_plan(client: httpx.Client, settings: V2LocalLLMSettings, payload, *, input_guard=None):
+    from .d1_plan_view import OMISSION_QUESTION
+
     try:
         context = _d1_plan_context(payload)
         view, questions = _review_input(settings, context, review_questions(context), "plan_review")
+        if (settings.planner.d1_context_mode == "per_check"
+                and settings.planner.d1_input_profile == "en-compact-no-view"):
+            view[OMISSION_QUESTION] = context["question"]
         original_names = {reviewed["name"]: original["name"] for reviewed, original in
                           zip(context["check_specs"], payload["check_specs"], strict=True)}
+        code_checks = code_plan_checks(payload["question"], payload["plan"], payload["confirmed_context"],
+                                       payload["input_history"], flash=settings.decisions_model == REVIEW_MODELS["q4"][0])
+        pending = [(spec, question) for spec, question in zip(context["check_specs"], questions, strict=True)
+                   if original_names[spec["name"]] not in code_checks]
+        questions = [question for _, question in pending]
         if input_guard is not None:
             input_guard({"input": view, "questions": questions}, "plan_review")
     except (KeyError, TypeError, ValueError):
@@ -444,7 +458,7 @@ def review_plan(client: httpx.Client, settings: V2LocalLLMSettings, payload, *, 
         unclear = {row["name"] for row in data["answers"] if row["choice"] == "unclear"}
         retry_questions = [
             {**question, "choices": [choice for choice in question["choices"] if choice["value"] != "unclear"]}
-            for spec, question in zip(context["check_specs"], questions, strict=True)
+            for spec, question in pending
             if spec["kind"] == "ordering" and question["name"] in unclear
         ]
         if retry_questions:
@@ -464,7 +478,7 @@ def review_plan(client: httpx.Client, settings: V2LocalLLMSettings, payload, *, 
         for row in data["answers"]:
             row["name"] = original_names[row["name"]]
         rechecked_ordering = frozenset(original_names[question["name"]] for question in retry_questions)
-        result = parse_plan_review(data, payload, rechecked_ordering=rechecked_ordering)
+        result = parse_plan_review(data, payload, rechecked_ordering=rechecked_ordering, code_checks=code_checks)
         return result.model_dump(mode="json"), data.get("usage")
     except httpx.TimeoutException:
         reason = "DECISIONS_TIMEOUT"

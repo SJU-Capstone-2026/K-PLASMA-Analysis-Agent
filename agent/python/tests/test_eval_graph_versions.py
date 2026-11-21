@@ -68,7 +68,8 @@ def test_harness_detects_an_accidentally_routed_v2_builder(monkeypatch):
     runtime = v2_harness.runtime_for_version("v2_localLLM")
     runtime.builder = v2_harness.runtime_for_version("v2").builder
     monkeypatch.setattr(v2_harness, "runtime_for_version", lambda _: runtime)
-    fixture = import_module("v2_local_llm.test_graph")
+    # Give the misrouted v2 graph valid v2 responses so scoring reaches the identity check.
+    fixture = import_module("v2.test_graph")
     row = v2_harness.evaluate_case(Case("synthetic", "IED가 뭐야?", ()),
                                   fixture.GeneralModel(), graph_version="v2_localLLM")
     assert row["pass"] is False

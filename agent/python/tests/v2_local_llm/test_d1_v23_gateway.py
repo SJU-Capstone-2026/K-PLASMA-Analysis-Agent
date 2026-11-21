@@ -15,7 +15,7 @@ from kplasma_agent.v2_local_llm.core.model_gateway import (
 from kplasma_agent.v2_local_llm.core.plan_review import build_plan_review_context
 from .plan_review_cases import compare, literal, plan, result_ref, search
 from .test_d1_input import without_citation_text
-from .test_plan_review import example_context
+from .test_plan_review import QUESTION, example_context
 
 
 def native_answer(request):
@@ -91,7 +91,7 @@ def test_module_level_plan_review_uses_same_final_profile():
     ("match", "PASS"), ("missing", "ISSUE"), ("unexpected", "ISSUE"), ("direction_changed", "ISSUE"),
 ])
 def test_unclear_ordering_rechecks_only_the_same_plan_with_the_original_question(retry_choice, status):
-    original = example_context()
+    original = example_context(question=QUESTION + " 보기 좋은 순서로 정렬해줘.")
     snapshot = deepcopy(original)
     sent = []
     counted = []

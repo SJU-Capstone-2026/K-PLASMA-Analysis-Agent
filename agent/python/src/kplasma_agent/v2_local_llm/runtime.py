@@ -17,6 +17,7 @@ from dataclasses import replace
 
 import httpx
 
+from .config import REVIEW_MODELS
 from .network import local_http_client, validate_endpoint
 from .core.budget import MAX_INPUT_TOKENS
 from . import runtime_integrity
@@ -71,7 +72,7 @@ def _single_profile(settings):
             or settings.d1_group_size != 1 or type(settings.d1_independent_batch_size) is not int
             or settings.d1_independent_batch_size != 1):
         raise ValueError("LOCAL_D1_GROUP_CONFIG_INVALID")
-    if settings.d1_precision not in {"q8", "bf16"}:
+    if settings.d1_precision not in REVIEW_MODELS:
         raise ValueError("LOCAL_D1_PRECISION_CONFIG_INVALID")
     if settings.d1_input_profile not in {"ko-full", "en-full", "en-compact", "en-compact-no-view"}:
         raise ValueError("LOCAL_D1_INPUT_CONFIG_INVALID")
@@ -295,7 +296,7 @@ def _mlx_server_facts(settings, client):
     expected = {"engine": "mlx-decision", "runtime_version": settings.d1_runtime_version,
                 "source_commit": common["sourceCommit"], "model": settings.d1_model,
                 "revision": settings.d1_revision, "precision": settings.d1_precision,
-                "dtype": "mixed-affine8-bf16" if settings.d1_precision == "q8" else "bfloat16",
+                "dtype": selected["dtype"],
                 "offline": True, "device": "gpu", "group_size": 1,
                 "context": context_identity(settings.d1_context_mode),
                 "group_policy": "sorted-greedy-full-pack-v1", "independent_batch_size": 1,

@@ -68,7 +68,22 @@ def test_bf16_single_remains_an_explicit_comparison_profile(tmp_path, monkeypatc
     assert settings.d1_input_profile == "ko-full"
 
 
-@pytest.mark.parametrize("key,value", [("D1_PRECISION","q4"),("D1_INPUT_PROFILE","english"),
+def test_flash_mlx4_is_a_pinned_singleton_review_profile(tmp_path, monkeypatch):
+    clean_env(monkeypatch)
+    path = tmp_path / "local.env"
+    path.write_text("AGENT_V2_LOCAL_LLM_D1_PRECISION=q4\n")
+    settings = Settings.from_env(path)
+    assert settings.d1_model == "perplexity-ai/pplx-decider-flash-v1.2:MLX4"
+    assert settings.d1_group_size == settings.d1_independent_batch_size == 1
+    assert settings.versions()["d1Quantization"] == "MLX-affine4-g64"
+
+    with path.open("a") as env:
+        env.write("AGENT_V2_LOCAL_LLM_D1_MODEL=LiquidAI/d1-2B:MLX8\n")
+    with pytest.raises(ValueError, match="LOCAL_D1_PRECISION_CONFIG_INVALID"):
+        Settings.from_env(path)
+
+
+@pytest.mark.parametrize("key,value", [("D1_PRECISION","q6"),("D1_INPUT_PROFILE","english"),
                                         ("D1_PRECISION","BF16-bad"),("D1_MODEL","LiquidAI/d1-2B-GGUF:Q8_0")])
 def test_unsupported_d1_precision_and_input_profiles_fail_closed(tmp_path, monkeypatch, key, value):
     clean_env(monkeypatch)

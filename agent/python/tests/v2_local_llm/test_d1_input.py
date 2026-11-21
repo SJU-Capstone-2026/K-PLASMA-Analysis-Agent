@@ -217,7 +217,8 @@ def test_forward_filter_uses_its_own_original_citation_without_full_question():
     state, _, trace = project_check(wire["state"], name, wire["questions"][name])
     assert trace["action"] == "selected"
     view = json.loads(state)
-    assert view["question"] == "소스 전력 123 W"
+    assert set(view) == {"plan"}
+    assert question not in state
     binding = view["plan"]["steps"][0]["inputs"]["source_power"]
     assert binding["value"] == 125
     assert binding["citation"]["quote"] == "소스 전력 123 W"
@@ -248,5 +249,5 @@ def test_ordering_uses_specific_choice_descriptions_in_the_previous_order():
     assert "no sorting goal for that metric" in order["missing"]
     assert "filter-only lookup" in order["unexpected"]
     assert "Numeric bounds alone do not establish missing sorting" in order["unclear"]
-    assert wire["questions"]["request.tasks"]["criteria"]["missing"] == (
-        "The plan omits this item requested in the original")
+    assert "request.tasks" not in wire["questions"]
+    assert "request.filter_coverage" in wire["questions"]

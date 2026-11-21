@@ -791,6 +791,28 @@
       }
     },
     "variants": {
+      "q4": {
+        "model": "perplexity-ai/pplx-decider-flash-v1.2:MLX4",
+        "revision": "9ff7cf9838e59df461c276b7699d56b244d2af58",
+        "dtype": "mlx-affine4-g64",
+        "sourceManifestSha256": "b92d6898a1a0cebeec8573c3ba34cfbb810a2920fc49da60097f3a8e2de24ebc",
+        "manifestSha256": "9bc39078811f2df39f7b3205fd19c18055c414ee0874a3e9b9a398c856d0d0f4",
+        "files": {
+          "LICENSE": "bbedc3fda3305820b977265f01b8619d87570a6739de3a5582c3464840f1e57a",
+          "NOTICE": "381fb81e814716a5ef8e5eae26a08607d052cf12f019dba9da9e81298ef5cb75",
+          "config.json": "0e8cdd93d6dbfe77df170c71b1adbb5f2ce421246dfdd98371f82b9bba9140ef",
+          "decision_config.json": "6d59a4e66f459596cad6f3ff932c635e379f1dc1c49819357869de8abe01722f",
+          "joint_config.json": "ecc88efc2a8ebd81ddf93f7d722e35b2829fd7526b5ce754db53395aa49fb510",
+          "mlx_decision.json": "e4cae3cf5b1626efd1cfc039da65471316f42c06fc73b003f1be154661b3d968",
+          "model-00001-of-00001.safetensors": "272ebc98502420fb887e18225fb91c5ab3b9237414abaf3bd1b06d6cbcada38c",
+          "model-vision.safetensors": "1d03712ea58f58429fe0760765f85b22ffddc9a8f96ce44824ca6b3bec7e82f8",
+          "model.safetensors.index.json": "b84581cb0480d5b8f88e2cdac4214de8ce699e1e02c3fba39671cb69903ef513",
+          "processor_config.json": "b4b905eee2d1cf96dcbdac1c68b35113c8151958a4c1f76667242b01168572cd",
+          "readout.safetensors": "6751578171026190d4db8078e97162b404fd984646e0e9aec13844e4dd5b1711",
+          "tokenizer.json": "6f32ce20dc35f57a7f9ad1eac03525bd7d30f9df8cea6507e958279cc3657706",
+          "tokenizer_config.json": "188cf0b9db5cfd6e92f1b63c646f5975be6f8383c6c9a2fa5dc2b48a8b229402"
+        }
+      },
       "bf16": {
         "revision": "a6bce774e6dde338dcc3036ceb5d91f78bf4c19e",
         "files": {

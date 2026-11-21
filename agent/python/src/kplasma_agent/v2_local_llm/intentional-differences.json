@@ -17,6 +17,7 @@
       "path": "config.py",
       "selectors": [
         "assign:PREFIX",
+        "assign:REVIEW_MODELS",
         "class:Settings/assign:context_tokens",
         "class:Settings/assign:d1_batch_tokens",
         "class:Settings/assign:d1_context_tokens",
@@ -168,6 +169,9 @@
         "import:kplasma_agent.v2_local_llm.core.contracts:DataAnswerDraft,GeneralAnswerDraft,PlanDraft,ReviewAnswer,ReviewDecision",
         "import:kplasma_agent.v2_local_llm.core.contracts:DataAnswerDraft as DataAnswerDraft,GeneralAnswerDraft,PlanDraft,ReviewAnswer,ReviewDecision",
         "import:kplasma_agent.v2_local_llm.core.selected_values:SelectedValues",
+        "import:kplasma_agent.v2_local_llm.config:REVIEW_MODELS,Settings",
+        "import:kplasma_agent.v2_local_llm.config:Settings",
+        "import:kplasma_agent.v2_local_llm.core.code_plan_checks:code_plan_checks",
         "import:kplasma_agent.v2_local_llm.core.plan_checks:review_questions",
         "import:kplasma_agent.v2_local_llm.core.plan_checks:build_check_specs,review_questions",
         "import:kplasma_agent.v2_local_llm.core.plan_review:parse_plan_review,review_result",
@@ -204,6 +208,8 @@
     {
       "path": "graph.py",
       "selectors": [
+        "import:kplasma_agent.v2_local_llm.config:REVIEW_MODELS",
+        "import:kplasma_agent.v2_local_llm.core.code_plan_checks:code_plan_checks",
         "function:_generation_failure",
         "function:build_v2_local_llm_graph"
       ],
@@ -212,6 +218,7 @@
         "tests/v2_local_llm/test_native_plan.py",
         "tests/v2_local_llm/test_clone_parity.py",
         "tests/v2_local_llm/test_plan_review_graph.py",
+        "tests/v2_local_llm/test_code_plan_review.py",
         "tests/v2_local_llm/test_round3_recovery.py"
       ]
     },
@@ -288,12 +295,15 @@
     {
       "path": "core/plan_review.py",
       "selectors": [
+        "import:kplasma_agent.v2_local_llm.core.code_plan_checks:CodeCheck,code_plan_checks",
         "function:_check_choices",
         "function:parse_plan_review",
+        "function:matches_review_context",
         "class:PlanReviewResult/function:consistent_verdict"
       ],
-      "reason": "Validate the four scored choices only for ordering rechecks and keep existing five-choice review records readable.",
+      "reason": "Keep existing scored reviews readable and verify unscored code matches against the bound plan and user context.",
       "tests": [
+        "tests/v2_local_llm/test_code_plan_review.py",
         "tests/v2_local_llm/test_d1_v23_gateway.py",
         "tests/v2_local_llm/test_condition_review.py"
       ]
@@ -402,12 +412,31 @@
       ]
     },
     {
+      "path": "core/code_plan_checks.py",
+      "newFile": true,
+      "selectors": [],
+      "reason": "Compare explicit search ordering and Run target requests with executable inputs before d1 review.",
+      "tests": [
+        "tests/v2_local_llm/test_code_plan_review.py"
+      ]
+    },
+    {
       "path": "core/d1_plan_view.py",
       "newFile": true,
       "selectors": [],
       "reason": "Limit independent literal filter checks to the relevant operands and their source excerpts, restore the full check list, and include history and future-input instructions where relevant. The original plan, check outcomes and public contracts retain their existing shapes.",
       "tests": [
         "tests/v2_local_llm/test_d1_mlx.py"
+      ]
+    },
+    {
+      "path": "core/flash_review.py",
+      "newFile": true,
+      "selectors": [],
+      "reason": "Give Flash focused evidence for optional baseline/trend, numerical bounds, selection and Run targets while keeping the native verdict contract.",
+      "tests": [
+        "tests/v2_local_llm/test_flash_review.py",
+        "tests/v2_local_llm/test_code_plan_review.py"
       ]
     },
     {

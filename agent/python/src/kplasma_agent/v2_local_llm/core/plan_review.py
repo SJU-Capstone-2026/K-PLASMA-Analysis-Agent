@@ -9,6 +9,7 @@ from pydantic import Field, model_validator
 from ..comparison_catalog import FIELD_META, PlotId
 from ..contracts import MetricId
 from ..metric_registry import UNITS, normalize_value
+from .code_plan_checks import CodeCheck, code_plan_checks
 from .contracts import ClosedModel, Operation, PlanDraft
 from .plan_checks import build_check_specs, choices_for, rejection_evidence
 
@@ -72,6 +73,12 @@ class PlanReviewResult(ClosedModel):
             if not expected_names or len(names) != len(expected_names) or set(names) != expected_names:
                 raise ValueError("incomplete plan review checks")
             for check in self.checks:
+                if (self.schema_version == 2 and not check.probabilities
+                        and check.kind in {"ordering", "targets", "execution_guards", "confirmation_coverage"}
+                        and check.choice != "unclear"
+                        and check.choice in choices_for(check.kind) and check.confidence is None
+                        and ((check.choice == "match") == (check.issue is None))):
+                    continue
                 allowed = ({"match", "mismatch", "unclear"} if self.schema_version == 1 else
                            _check_choices(check.kind, rechecked="unclear" not in check.probabilities))
                 if set(check.probabilities) != allowed or check.choice not in allowed:
@@ -255,14 +262,25 @@ def program_effects(plan: PlanDraft) -> list[str]:
 
 
 def parse_plan_review(data: dict, context: PlanReviewContext, *,
-                      rechecked_ordering: frozenset[str] = frozenset()) -> PlanReviewResult:
+                      rechecked_ordering: frozenset[str] = frozenset(),
+                      code_checks: dict[str, CodeCheck] | None = None) -> PlanReviewResult:
     rows = data["answers"]
     by_name = {row["name"]: row for row in rows}
     specs = context["check_specs"]
-    if len(rows) != len(specs) or set(by_name) != {spec["name"] for spec in specs}:
+    code_checks = code_checks or {}
+    expected = {spec["name"] for spec in specs} - code_checks.keys()
+    if len(rows) != len(expected) or set(by_name) != expected:
         raise ValueError("incomplete plan review")
     checks = []
     for spec in specs:
+        if spec["name"] in code_checks:
+            finding = code_checks[spec["name"]]
+            choice = finding["choice"]
+            issue = ({**rejection_evidence(context, spec, choice), "code_check": finding}
+                     if choice != "match" else None)
+            checks.append(PlanReviewCheck(name=spec["name"], choice=choice, kind=spec["kind"],
+                                          issue=issue, probabilities={}, confidence=None))
+            continue
         row = by_name[spec["name"]]
         probabilities = row["probabilities"]
         probs = {item["value"]: item["probability"] for item in probabilities}
@@ -285,14 +303,24 @@ def review_result(context: PlanReviewContext, status, *, checks=None, reason=Non
                             input_digest=context["input_digest"], prompt_version=context["prompt_version"])
 
 
-def matches_review_context(result: PlanReviewResult, context: PlanReviewContext) -> bool:
+def matches_review_context(result: PlanReviewResult, context: PlanReviewContext, *, flash: bool = False) -> bool:
     if result.schema_version != 2 or result.expected_check_names != [s["name"] for s in context["check_specs"]]:
         return False
     if (result.plan_revision, result.plan_digest, result.input_digest, result.prompt_version) != (
             context["plan_revision"], context["plan_digest"], context["input_digest"], context["prompt_version"]):
         return False
+    local: dict[str, CodeCheck] = {}
+    if any(not check.probabilities for check in result.checks):
+        local = code_plan_checks(context["question"], context["plan"], context["confirmed_context"],
+                                 context["input_history"], flash=flash)
     for check, spec in zip(result.checks, context["check_specs"], strict=False):
         expected_issue = rejection_evidence(context, spec, check.choice) if check.choice != "match" else None
+        if not check.probabilities:
+            finding = local.get(check.name)
+            if finding is None or finding["choice"] != check.choice:
+                return False
+            if expected_issue is not None:
+                expected_issue["code_check"] = finding
         if check.name != spec["name"] or check.kind != spec["kind"] or check.issue != expected_issue:
             return False
     return True

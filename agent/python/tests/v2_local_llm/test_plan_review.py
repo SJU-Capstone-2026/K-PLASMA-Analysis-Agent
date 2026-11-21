@@ -22,9 +22,9 @@ def example_plan(step_id="search"):
     })
 
 
-def example_context(step_id="search"):
+def example_context(step_id="search", *, question=QUESTION):
     from kplasma_agent.v2_local_llm.core.plan_review import build_plan_review_context
-    return build_plan_review_context(example_plan(step_id), 1, QUESTION, [], {
+    return build_plan_review_context(example_plan(step_id), 1, question, [], {
         "selected_runs": [{"runId": "SYN-A", "runVersionId": "fixed-a"}],
         "R1": {"runId": "SYN-A", "runVersionId": "fixed-a"},
     }, {})
@@ -126,11 +126,11 @@ def test_target_range_review_effect_matches_the_executed_inclusive_filter():
 def test_choice_drives_verdict_even_when_confidence_is_low_and_answers_arrive_out_of_order(choice, status):
     from kplasma_agent.v2_local_llm.core.plan_review import parse_plan_review, plan_review_feedback
     rows = answers()
-    rows[1] = answers(choice)[1]
+    rows[0] = answers(choice)[0]
     result = parse_plan_review({"answers": list(reversed(rows))}, example_context())
     assert result.status == status
-    assert result.checks[1].choice == choice
-    assert result.checks[1].confidence == 0.05
+    assert result.checks[0].choice == choice
+    assert result.checks[0].confidence == 0.05
     if choice != "match":
         assert plan_review_feedback(result)["failed_checks"] == {"request.filter_coverage": choice}
 

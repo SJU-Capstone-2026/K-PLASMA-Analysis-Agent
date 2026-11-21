@@ -8,6 +8,11 @@ from dotenv import dotenv_values
 from .network import validate_endpoint
 
 PREFIX = "AGENT_V2_LOCAL_LLM_"
+REVIEW_MODELS = {
+    "q8": ("LiquidAI/d1-2B:MLX8", "MLX-affine8-g64/BF16-embedding"),
+    "bf16": ("LiquidAI/d1-2B:BF16", "BF16"),
+    "q4": ("perplexity-ai/pplx-decider-flash-v1.2:MLX4", "MLX-affine4-g64"),
+}
 
 
 def _reject_contamination(values):
@@ -97,10 +102,11 @@ class Settings:
         if d1_engine != "mlx" or group_size != 1 or independent_size != 1:
             raise ValueError("LOCAL_D1_GROUP_CONFIG_INVALID")
         precision = get("D1_PRECISION", "q8")
-        if precision not in {"q8", "bf16"}:
+        if precision not in REVIEW_MODELS:
             raise ValueError("LOCAL_D1_PRECISION_CONFIG_INVALID")
-        d1_model = get("D1_MODEL", "LiquidAI/d1-2B:" + ("MLX8" if precision == "q8" else "BF16"))
-        if d1_model != "LiquidAI/d1-2B:" + ("MLX8" if precision == "q8" else "BF16"):
+        review_model, _ = REVIEW_MODELS[precision]
+        d1_model = get("D1_MODEL", review_model)
+        if d1_model != review_model:
             raise ValueError("LOCAL_D1_PRECISION_CONFIG_INVALID")
         input_profile = get("D1_INPUT_PROFILE", "en-compact-no-view")
         if input_profile not in {"ko-full", "en-full", "en-compact", "en-compact-no-view"}:
@@ -162,7 +168,7 @@ class Settings:
             "planner": self.model, "writer": self.model, "decisions": self.d1_model,
             "modelRevision": self.model_revision, "d1Revision": self.d1_revision,
             "quantization": "Q4_K_M",
-            "d1Quantization": "MLX-affine8-g64/BF16-embedding" if self.d1_precision == "q8" else "BF16",
+            "d1Quantization": REVIEW_MODELS[self.d1_precision][1],
             "qwenGeneration": {"planThinking": self.reasoning_effort not in {"none", "minimal"},
                                "writerThinking": False, "reasoningBudget": 2048,
                                "planMaxOutput": 6000, "writerMaxOutput": 3000,

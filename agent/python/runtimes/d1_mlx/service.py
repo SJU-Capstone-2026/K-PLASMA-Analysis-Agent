@@ -1,4 +1,4 @@
-"""Text-only d1 MLX singleton service, with pinned BF16 and affine8 weights."""
+"""Text-only MLX reviewer service, with pinned models and one check per pass."""
 
 import argparse
 import gc
@@ -50,18 +50,27 @@ def canonical_request(body):
     return {"state": body["state"], "questions": questions}
 
 
-def pack_requests(body, group_size, count, limit=MAX_INPUT_TOKENS, *, context_mode="full", context_trace=None):
+def pack_requests(body, group_size, count, limit=MAX_INPUT_TOKENS, *, context_mode="full", context_trace=None,
+                  flash=False):
     from kplasma_agent.v2_local_llm.core.d1_context import VERSION, project_check
+    from kplasma_agent.v2_local_llm.core.d1_plan_view import OMISSION_QUESTION
     if context_mode not in {"full", "per_check"}:
         raise ValueError("LOCAL_D1_CONTEXT_CONFIG_INVALID")
     body = canonical_request(body)
+    if context_mode == "full":
+        try:
+            state = json.loads(body["state"])
+        except json.JSONDecodeError:
+            state = None
+        if isinstance(state, dict) and OMISSION_QUESTION in state:
+            raise ValueError("LOCAL_D1_CONTEXT_CONFIG_INVALID")
     if group_size != 1 or type(group_size) is not int or not 0 < limit <= MAX_INPUT_TOKENS:
         raise ValueError("LOCAL_D1_GROUP_CONFIG_INVALID")
     groups = []
     for name, question in body["questions"].items():
         state = body["state"]
         if context_mode == "per_check":
-            state, question, trace = project_check(state, name, question)
+            state, question, trace = project_check(state, name, question, flash=flash)
         else:
             trace = {"action": "full", "reason": "full_mode", "tool_ids": [], "metric_ids": [],
                      "version": VERSION,
@@ -100,10 +109,6 @@ class Runtime:
             sysconfig.get_path("purelib"), root / "uv.lock", pins["d1MLX"]["libraries"]
         )
         import mlx.core as mx
-        from mlx_decision.backend import Capabilities
-        from mlx_decision.models.d1lfm3.config import settings
-        from mlx_decision.models.d1lfm3.model import D1Lfm3Backend
-        from tokenizers import Tokenizer
 
         if importlib.metadata.version("mlx-decision") != "1.3.0" or not mx.metal.is_available():
             raise ValueError("LOCAL_D1_MLX_RUNTIME_MISMATCH")
@@ -120,16 +125,22 @@ class Runtime:
         self.context_mode = config.get("context_mode", "full")
         self.context_identity = context_identity(self.context_mode)
         self.path = Path(config["model_path"]).resolve(strict=True)
+        self.precision = config.get("precision", "q8")
+        variant = pins["d1MLX"]["variants"].get(self.precision)
+        if variant is None:
+            raise ValueError("LOCAL_D1_PRECISION_INVALID")
+        self.model_alias = variant["model"]
+        self.dtype = variant["dtype"]
         manifest_path = self.path / "kplasma-manifest.json"
         self.manifest_hash = file_hash(manifest_path)
         manifest = json.loads(manifest_path.read_text())
         files = manifest["files"]
         verify_weights(self.path, files)
-        required = {"config.json", "tokenizer.json", "calibration.json"}
         if (
-            manifest["model"] != "LiquidAI/d1-2B"
-            or not required <= set(files)
-            or not any(name.endswith(".safetensors") for name in files)
+            self.manifest_hash != variant["manifestSha256"]
+            or manifest["model"] != self.model_alias.rsplit(":", 1)[0]
+            or manifest["revision"] != variant["revision"]
+            or files != variant["files"]
         ):
             raise ValueError("LOCAL_MODEL_ARTIFACT_MISMATCH")
         for name, digest in files.items():
@@ -143,32 +154,51 @@ class Runtime:
         self.independent_batch_size = config.get("independent_batch_size", 1)
         if (type(self.independent_batch_size) is not int or self.independent_batch_size != 1):
             raise ValueError("LOCAL_D1_GROUP_CONFIG_INVALID")
-        found = settings(self.path)
-        if found.set_size != 16:
-            raise ValueError("LOCAL_D1_MLX_RUNTIME_MISMATCH")
-        self.encoder = D1Lfm3Backend(
-            "d1-2B",
-            None,
-            Tokenizer.from_file(str(self.path / "tokenizer.json")),
-            found,
-            Capabilities(max_input_tokens=MAX_INPUT_TOKENS),
-            self.path,
-        )
+        if self.precision == "q4":
+            from mlx_decision.backbones.qwen3_5.tokenizer import load_tokenizer
+            from mlx_decision.models.letter import read_decision_config
+            from mlx_decision.models.pplx.backend import JointBackend
+            from mlx_decision.models.pplx.joint import escaped_tokens
+            from mlx_decision.models.pplx.model import JOINT_FORMATS, joint_preset, load
+
+            codes, temperature, _ = read_decision_config(self.path, JOINT_FORMATS)
+            self.encoder = JointBackend(
+                self.model_alias, None, None, load_tokenizer(self.path), codes, temperature,
+                joint_preset(self.path), MAX_INPUT_TOKENS, self.path,
+                escapes=escaped_tokens(self.path),
+            )
+            self.load_backend = lambda: load(self.path, max_input_tokens=MAX_INPUT_TOKENS)
+        else:
+            from mlx_decision.backend import Capabilities
+            from mlx_decision.models.d1lfm3.config import settings
+            from mlx_decision.models.d1lfm3.model import D1Lfm3Backend
+            from tokenizers import Tokenizer
+            from weights import load_backend
+
+            found = settings(self.path)
+            if found.set_size != 16:
+                raise ValueError("LOCAL_D1_MLX_RUNTIME_MISMATCH")
+            self.encoder = D1Lfm3Backend(
+                "d1-2B", None, Tokenizer.from_file(str(self.path / "tokenizer.json")),
+                found, Capabilities(max_input_tokens=MAX_INPUT_TOKENS), self.path,
+            )
+            self.load_backend = lambda: load_backend(self.path, self.precision, MAX_INPUT_TOKENS)
         self.backend = None
-        from weights import load_backend
-        self.load_backend = load_backend
         self.weights_hash = file_hash(root / "weights.py")
-        self.precision = config.get("precision", "q8")
-        if self.precision not in {"bf16", "q8"}:
-            raise ValueError("LOCAL_D1_PRECISION_INVALID")
-        self.model_alias = "LiquidAI/d1-2B:MLX8" if self.precision == "q8" else "LiquidAI/d1-2B:BF16"
-        self.dtype = "mixed-affine8-bf16" if self.precision == "q8" else "bfloat16"
         import mlx.nn as nn
 
         # First module initialization leaves tiny shared MLX state; measure it before any d1 weights.
         warmup = nn.Linear(2, 2)
         mx.eval(warmup.parameters())
         del warmup
+        if self.precision == "q4":
+            from mlx_decision.backbones.qwen3_5.gated_delta import compute_g
+
+            # MLX keeps a BF16 scalar from this compiled gate in process memory.
+            bias = mx.ones((32,), dtype=mx.bfloat16)
+            gates = mx.ones((1, 2, 32), dtype=mx.bfloat16)
+            mx.eval(compute_g(bias, gates, bias))
+            del bias, gates
         mx.synchronize()
         gc.collect()
         mx.clear_cache()
@@ -176,6 +206,8 @@ class Runtime:
         self.last_release = True
 
     def count(self, body):
+        if self.precision == "q4":
+            return len(self.flash_pack(body).input_ids)
         from mlx_decision.models.d1lfm3.model import question_dict
         from mlx_decision.types import parse_request
 
@@ -186,9 +218,19 @@ class Runtime:
             raise ValueError("LOCAL_D1_PACK_MISMATCH")
         return len(packed[0].ids)
 
+    def flash_pack(self, body):
+        from mlx_decision.errors import DecisionError
+        from mlx_decision.types import parse_request
+
+        try:
+            (chunk,) = self.encoder.encode(parse_request(body))
+        except DecisionError:
+            raise ValueError("LOCAL_D1_INPUT_TOO_LARGE") from None
+        return chunk
+
     def groups(self, body, *, context_trace=None):
-        groups = pack_requests(body, self.group_size, self.count,
-                               context_mode=self.context_mode, context_trace=context_trace)
+        groups = pack_requests(body, self.group_size, self.count, context_mode=self.context_mode,
+                               context_trace=context_trace, flash=self.precision == "q4")
         if context_trace is not None:
             for (native, _), trace in zip(groups, context_trace, strict=True):
                 trace["state_tokens"] = len(self.encoder.tokenizer.encode(
@@ -210,10 +252,13 @@ class Runtime:
             from mlx_decision.types import parse_request
 
             for native, _ in groups:
-                encoded = self.encoder.encode(parse_request(native))
-                packed = encoded.sets[0]
-                content = {"ids": packed.ids, "state_length": packed.state_length,
-                           "spans": packed.spans, "ends": packed.ends}
+                if self.precision == "q4":
+                    packed = self.flash_pack(native)
+                    content = {"ids": packed.input_ids, "markers": packed.markers}
+                else:
+                    packed = self.encoder.encode(parse_request(native)).sets[0]
+                    content = {"ids": packed.ids, "state_length": packed.state_length,
+                               "spans": packed.spans, "ends": packed.ends}
                 fingerprints.append({"question_ids": packed.question_ids,
                     "sha256": hashlib.sha256(json.dumps(content, separators=(",", ":")).encode()).hexdigest()})
         return fingerprints
@@ -283,8 +328,8 @@ class Runtime:
         loaded = time.monotonic()
         if self.backend is None:
             self.last_release = False
-            self.backend = self.load_backend(self.path, self.precision, MAX_INPUT_TOKENS)
-            self.mx.eval(self.backend.model.parameters())
+            self.backend = self.load_backend()
+            self.mx.eval(self.backend.network().parameters())
         load_seconds = time.monotonic() - loaded
         answers = {}
         timings = []

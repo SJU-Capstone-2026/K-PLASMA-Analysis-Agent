@@ -1,4 +1,4 @@
-"""Create a local d1 affine8 derivative; no downloads or changes to the BF16 source."""
+"""Convert pinned local reviewer weights without any downloads."""
 
 import argparse
 import json
@@ -81,12 +81,49 @@ def convert_model(source, output):
         raise
 
 
+def convert_flash(source, output):
+    from mlx_decision.models.pplx.convert import JOINT_COPIED, convert
+
+    pins_path = Path(__file__).resolve().parents[2] / "src/kplasma_agent/v2_local_llm/runtime-manifest.json"
+    variant = json.loads(pins_path.read_text())["d1MLX"]["variants"]["q4"]
+    source = Path(source).resolve(strict=True)
+    output = Path(output).absolute()
+    if os.path.lexists(output):
+        raise FileExistsError("output folder already exists")
+    release = source / "release-manifest.json"
+    if file_hash(release) != variant["sourceManifestSha256"]:
+        raise ValueError("LOCAL_MODEL_ARTIFACT_MISMATCH")
+    files = json.loads(release.read_text())["files"]
+    required = {"config.json", "model.safetensors.index.json", *JOINT_COPIED} & files.keys()
+    required.update(name for name in files if name.startswith("model-") and name.endswith(".safetensors"))
+    if (any(path.is_file() and path.name not in files and path.name != release.name for path in source.iterdir())
+            or any((source / name).resolve().parent != source
+                   or file_hash(source / name) != files[name]["sha256"] for name in required)):
+        raise ValueError("LOCAL_MODEL_ARTIFACT_MISMATCH")
+
+    output.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix=".flash-", dir=output.parent) as directory:
+        staged = Path(directory) / "model"
+        model, _ = variant["model"].rsplit(":", 1)
+        convert(source, staged, model, bits=4, group_size=64, revision=variant["revision"])
+        manifest = {
+            "schema_version": 1, "model": model, "revision": variant["revision"], "dtype": variant["dtype"],
+            "files": {file.name: file_hash(file) for file in sorted(staged.iterdir()) if file.is_file()},
+        }
+        (staged / "kplasma-manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
+        if os.path.lexists(output):
+            raise FileExistsError("output folder already exists")
+        staged.rename(output)
+    return output.resolve()
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--source", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
+    parser.add_argument("--flash", action="store_true", help="convert the pinned Flash v1.2 release to MLX4")
     args = parser.parse_args()
-    result = convert_model(args.source, args.output)
+    result = (convert_flash if args.flash else convert_model)(args.source, args.output)
     print(json.dumps({"model_path": str(result), "manifest_sha256": file_hash(result / "kplasma-manifest.json")}))
 
 

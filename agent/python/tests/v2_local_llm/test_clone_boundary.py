@@ -135,6 +135,15 @@ def test_instructions_schemas_and_choice_meanings_match_the_frozen_source(frozen
     assert gateway.PLAN_INSTRUCTIONS.count(single_plan_draft) == 1
     before, _ = gateway.PLAN_INSTRUCTIONS.replace(single_plan_draft, "", 1).split(
         "# 선행 출력 조건(required_prior_outputs)\n")
+    citation_guidance = (
+        "각 실행값의 source.quote에는 해당 조건의 의미가 유지되는 가장 짧은 연속 원문 구절을 그대로 인용한다.\n"
+        "숫자 조건은 숫자, 원문에 명시된 단위, 이상·이하·초과·미만처럼 비교의 뜻을 정하는 말을 포함한다. "
+        "지표명이 같은 구절에 있으면 함께 넣는다.\n"
+        "범위 조건은 양쪽 경계와 해당 그룹을 구분하는 말을 남긴다. 제외·정정처럼 조건의 뜻을 바꾸는 표현도 함께 남긴다.\n"
+        "조건을 이해하는 데 필요 없는 다른 조건이나 조회 요청 문구는 덜어낸다.\n"
+    )
+    before = before.replace(citation_guidance,
+        "리터럴 source.quote에는 해당 수치와 명시된 단위가 들어 있는 원문 구절을 인용한다.\n", 1)
     # Prerequisite and replan guidance evolve; the remaining cloned contracts stay pinned.
     after = """각 단계의 requirement_ids는 requirements[].id를, requirements[].handled_by는 steps[].id를 참조한다.
 이전 단계에서 만든 값을 쓰는 경우 depends_on에 그 단계의 ID를 넣는다.

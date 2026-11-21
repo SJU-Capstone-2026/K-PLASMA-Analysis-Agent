@@ -53,7 +53,7 @@ def test_user_text_that_mentions_source_quote_is_never_rewritten():
     assert view['plan']['steps'][0]['inputs']['source_power']['citation']['quote'] == 'source.quote verbatim'
 
 
-@pytest.mark.parametrize('check',['request.tasks','request.filter_coverage','request.confirmation_coverage'])
+@pytest.mark.parametrize('check', ['request.filter_coverage', 'request.confirmation_coverage'])
 def test_non_excerpt_checks_remain_byte_identical(check):
     native = request([forward()], check)
     renamed, trace = rename_numeric_citations(native)

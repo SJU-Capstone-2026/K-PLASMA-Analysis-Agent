@@ -6,25 +6,44 @@
 
 `v2_localLLM`은 v2를 별도 Python namespace인 `kplasma_agent.v2_local_llm`으로 복제한 독립 그래프다. 기존 5173 웹·8080 backend·DB·storage를 공유하고, 그래프와 모델 워커는 버전별로 분리한다. v2·v3의 구현을 실행 중에 빌려 쓰지 않는다.
 
-v2.5의 모델 구성은 **Qwen llama.cpp + d1 MLX 8비트 개별 검토**다. d1은 검사 하나씩 순서대로 처리하며 MLX BF16 개별 경로도 비교·복구용으로 남긴다. 새 설정의 메모리 준비와 품질 비교 결과는 별도 증거로 확인한다. [v2.3 모델 구성](../plans/2026-11-15-003-local-llm-v2.3-mlx8-single.md), [v2.5 평가](../verification/2026-11-18-local-llm-d1-checklist-10.md).
+v2.7 실행 프로필은 **Qwen llama.cpp + Flash v1.2 MLX 4비트 개별 검토**다. Flash는 검사 하나씩 처리한다. LiquidAI d1 MLX 8비트와 BF16은 비교용 프로필이다. [v2.7 변경과 평가](../verification/2026-11-22-local-llm-flash-review-accuracy.md)
 
 | 역할 | 현재 설정 |
 |---|---|
 | 계획·재계획 / 답변·재작성 | Qwen3.5-9B GGUF Q4_K_M, llama.cpp b12317 기반 `llama.cpp-b12317-submit-plan`, `127.0.0.1:8082/v1` |
-| 계획 의미 검토 / 필요한 답변 검토 | LiquidAI/d1-2B, MLX affine8/group64, `127.0.0.1:8083/v1/systemone` |
-| d1 비교 경로 | 같은 MLX 서비스의 BF16, 같은 개별 처리 |
-| 자원 | Docker VM 1536MiB, Qwen context 24576·batch/ubatch 256, d1 context 32768·개별 입력 16000 이하 |
+| 계획 의미 검토 / 필요한 답변 검토 | Perplexity Decider Flash v1.2, MLX affine4/group64, 로컬 `/v1/systemone` |
+| 이전 검토기 비교 | LiquidAI/d1-2B MLX affine8 또는 BF16, 같은 개별 처리 |
+| 자원 | Docker VM 1536MiB, Qwen context 24576·batch/ubatch 256, 검토 요청당 개별 입력 16000 이하 |
 | 검토·복구 예산 | 계획 검토 ON, 요청 전체 재계획 최대 2회, 필요한 답변 검토·재작성 최대 1회 |
 
 그래프 노드·분기·HITL·최종 응답·SSE·저장 snapshot은 유지한다. d1의 예전 llama.cpp·공동 입력 16개·독립 병렬 4개 경로는 현재 실행 구성에서 제거한다. **Qwen의 llama.cpp는 계속 사용한다.**
 
-## d1 MLX 모델과 서비스
+## Flash v1.2 검토 모델과 서비스
 
 MLX는 Apple Silicon용 별도 Python 환경에서 실행한다. 공유 worker의 가상환경에 MLX를 설치하지 않는다. 고정 버전은 `mlx-decision` 1.3.0, commit `2527a733c97a3fd5e0de54ea19f74fd362ed1ad2`, MLX 0.32.4다.
 
 ```sh
 uv sync --project agent/python/runtimes/d1_mlx --frozen
 ```
+
+Flash는 기준·경향 축, 범위, 확인 요청, 비교 대상·출력에 검사별 입력을 사용한다. 독립 조회의 미요청 확인·비교와 Run 참조 목록에 물리 단위를 요구하는 실행 전제는 코드로 지적한다. 네이티브 선택지와 순서는 유지하며, Flash의 토크나이저로 계수하고 검사 하나씩 추론한다. 계획과 필요한 답변을 같은 네이티브 형식으로 검토한다. [36개 저장 계획 정확도 비교](../verification/2026-11-22-local-llm-flash-review-accuracy.md)
+
+[Flash v1.2 공식 저장소](https://huggingface.co/perplexity-ai/pplx-decider-flash-v1.2/tree/9ff7cf9838e59df461c276b7699d56b244d2af58)의 고정 원본을 Git에서 제외한 폴더에 받는다. 아래 명령에는 모델 파일만 다운로드된다. 변환기는 배포 manifest 및 파일 SHA를 확인하고 원본을 보존한다.
+
+```sh
+flash_revision=9ff7cf9838e59df461c276b7699d56b244d2af58
+flash_source=".local/models/pplx-flash-v1.2-source/$flash_revision"
+hf download perplexity-ai/pplx-decider-flash-v1.2 --revision "$flash_revision" \
+  --local-dir "$flash_source" --include LICENSE NOTICE config.json decision_config.json \
+  joint_config.json model.safetensors.index.json 'model-*-of-*.safetensors' \
+  processor_config.json readout.safetensors release-manifest.json tokenizer.json tokenizer_config.json
+agent/python/runtimes/d1_mlx/.venv/bin/python agent/python/runtimes/d1_mlx/convert.py \
+  --flash --source "$flash_source" --output ".local/models/pplx-flash-v1.2-mlx4/$flash_revision"
+```
+
+서비스 JSON에 `precision: "q4"`와 변환 폴더 `model_path`를 사용한다. [.env.local-llm.example](../../.env.local-llm.example)에 맞춰 worker 모델·revision·폴더·포트·token을 함께 지정한다. 기존 설정에서 Qwen 캐시를 켜 둔 경우 ON을 유지한다. Flash로 바꾼 뒤 새 메모리 증거와 준비 검사를 사용한다.
+
+## 비교용 LiquidAI d1 MLX 모델과 서비스
 
 8비트 파일은 고정한 `LiquidAI/d1-2B` BF16 snapshot에서 로컬 변환한다. 기존 GGUF Q8_0 파일을 MLX에서 재사용하는 방식이 아니다. 변환 대상은 Linear 153개이며, tied embedding·norm·convolution은 BF16으로 둔다. tokenizer·calibration·검토 readout과 원본 파일은 보존한다. 양자화가 판정에 미치는 영향은 비교 실험으로 확인한다.
 
@@ -125,6 +144,20 @@ cd agent/python
 - 개수 계산과 추론은 같은 검사별 복사본을 사용한다. 결과 파싱·실행은 원본 계획과 검사 목록을 사용한다. 그래프, 최종 JSON/SSE, 저장 계약과 재계획·재작성 한도는 그대로다.
 
 실제 Qwen 계획을 고정한 정상 5개와 숫자 오류 5개에서 **정상 PASS 5/5, 실제 오류 항목 검출 5/5, 사유까지 정확 4/5**였다. 검사 목록이 빠진 직전 발췌 구성은 정상 PASS 3/5, 오류 항목·사유 5/5였다. 계획당 d1 채점은 6.926→7.062초, 검사당 입력은 1,987.18→2,046.93토큰이었다. 두 숫자는 동일한 56개 검사의 기록이며 웹 질문 전체 시간은 별도다. [실험 조건과 오판 내역](../verification/2026-11-18-local-llm-d1-checklist-10.md).
+
+### v2.7.1 독립 숫자 검토 입력 축소
+
+현재 질문의 인용과 독립 리터럴 실행값을 비교하는 검사는 대상 단계 위치, 지표, 연산자, 수치, 단위, 인용만 d1에 보낸다. 단위가 생략됐으면 해당 지표의 기본 단위만 추가한다. 범위의 양 끝과 지시서가 가리키는 배열 위치를 보존한다. 입력 이력이 있으면 v2.5의 발췌 형식을 사용하며, 실행값 누락과 앞 단계 참조는 기존 검토 경로에서 판단한다. 토큰 계산과 추론은 동일한 검사별 입력을 사용한다.
+
+저장된 정상 8건과 숫자 변경 7건을 Q8+MLX 단일 검사로 비교했다. 정상 판정은 양쪽 모두 8/8, 숫자 오류 검출은 5/7, 정확한 오류 사유는 4/7→5/7이었다. 평균 입력은 1,791→381토큰, 모델 채점은 1.137→0.248초였다. 하한이 변경된 범위는 두 구성 모두 놓쳤고, 다른 범위의 상한 변경은 축소 후 놓쳤다. 단위 생략 인공 입력 2건은 위 집계와 별도로 모두 정확히 분류했다.
+
+### 검사별 판단 자료 발췌
+
+공용 개발 설정인 `per_check`와 `en-compact-no-view` 조합에서 계획 검토는 검사별로 인용과 실제 실행 설정을 발췌한다. 값의 출처가 앞 단계나 이전 선택이면 해당 참조의 판단에 필요한 정보도 제공한다. 일반 누락 검사는 원문과 전체 계획을 대조한다. Flash의 확인 요청 검사는 원문과 실제 확인 단계 목록을 대조한다. 정렬 검사에서 `UNCLEAR`가 나오면 원문으로 한 번 재검사한다.
+
+정렬과 비교 대상은 원문 전체가 지원 문장 패턴에 맞고 대상 검색·비교 단계가 하나로 특정될 때 먼저 코드로 대조한다. 정렬 검사는 검색의 지표·방향을 대조하고 `target_range`는 검색 필터로 보존한다. 비교 대상 검사는 이미 선택한 두 Run의 고정 버전 또는 단일 검색의 전체 후보 참조를 대조한다. 코드가 확정하지 못한 검사는 설정된 검토 모델이 맡는다. 코드가 확정한 오류가 있으면 직전 계획과 함께 검사 위치·실행값·수정값을 한 번의 재계획 요청에 묶는다. 코드에서 판정한 항목은 선택지 확률 없이 검토 기록에 남긴다.
+
+워커가 MLX 서비스에 전달하는 `omission_question`은 원문 복원을 위한 내부 필드다. 모델은 규칙상 필요한 검사에서만 원문을 읽는다. 누락 검사와 정렬 재검사에 사용하며, Flash는 조건이 명확한 단일 검색 범위와 비교 대상 검사에도 사용한다. 전체 입력 모드에서는 이 필드가 든 요청을 거부한다. 검사 전체 목록과 도구 설명 및 공통 정책은 모델이 읽는 검사별 입력에서 제외한다.
 
 ## Qwen 계획·응답과 캐시
 

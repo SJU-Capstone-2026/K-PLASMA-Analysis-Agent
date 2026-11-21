@@ -101,7 +101,9 @@ def test_q8_service_identity_is_bound_to_precision_and_loader_bytes(tmp_path,mon
     config.write_text(json.dumps({"model_path":str(tmp_path),"precision":"q8","group_size":1,
         "independent_batch_size":1,"port":8083,"token_file":str(key)}))
     manifest=json.loads(Path(runtime.__file__).with_name("runtime-manifest.json").read_text())
-    monkeypatch.setattr(runtime,"_mlx_variant",lambda *_:{"manifestSha256":"e"*64},raising=False)
+    monkeypatch.setattr(runtime, "_mlx_variant", lambda *_: {
+        "manifestSha256": "e" * 64, "dtype": "mixed-affine8-bf16",
+    })
     monkeypatch.setattr(runtime,"_mlx_libraries",lambda *_:"a"*64)
     monkeypatch.setattr(runtime,"_hash",lambda p:"e"*64 if p.name=="kplasma-manifest.json" else "a"*64)
     def output(args,**kwargs):

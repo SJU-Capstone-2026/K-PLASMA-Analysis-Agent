@@ -81,27 +81,14 @@ def review_cases():
         case.context,
         {"check": "filter.search.pressure", "choices": ["value_changed", "unit_changed"]},
     )
-    case = bank["P05"]
-    draft = case.good.model_dump(mode="json")
-    draft["steps"].append(
-        {
-            "id": "explain",
-            "kind": "tool",
-            "tool": "explain_answer",
-            "requirement_ids": ["r"],
-            "depends_on": ["search"],
-            "inputs": {"mode": "results"},
-        }
-    )
-    draft["requirements"][0]["handled_by"].append("explain")
-    from kplasma_agent.v2_local_llm.core.contracts import PlanDraft
-
+    case = bank["P10"]
     add(
-        "bad_extra_explanation",
+        "bad_sort_direction",
         case.question,
-        PlanDraft.model_validate(draft),
+        case.bad,
         "ISSUE",
-        intended={"check": "request.tasks", "choices": ["unexpected"]},
+        case.context,
+        {"check": "ordering.search", "choices": ["direction_changed"]},
     )
     question = "선택한 두 Run의 RF 전류 밀도 첨두간 값을 비교해줘."
     draft = plan(

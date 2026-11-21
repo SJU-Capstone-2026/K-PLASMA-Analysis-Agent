@@ -95,6 +95,7 @@ def test_dynamic_plan_questions_and_digests_survive_native_ordering(profile):
 
     expected, questions = prepare_d1_input(
         review_context, review_questions(review_context), role="plan_review", profile=profile)
+    questions = [question for question in questions if question["name"] != "ordering.s_search"]
 
     def transport(request):
         body = json.loads(request.content)
@@ -119,6 +120,8 @@ def test_dynamic_plan_questions_and_digests_survive_native_ordering(profile):
         outcome, usage = review_plan(client, settings(profile), payload)
     assert outcome["status"] == "PASS" and usage is None
     assert [item["name"] for item in outcome["checks"]] == [spec["name"] for spec in payload["check_specs"]]
+    ordering = next(row for row in outcome["checks"] if row["name"] == "ordering.search")
+    assert ordering["choice"] == "match" and ordering["probabilities"] == {}
     assert outcome["plan_digest"] == payload["plan_digest"]
     assert outcome["input_digest"] == payload["input_digest"] and payload == original
 

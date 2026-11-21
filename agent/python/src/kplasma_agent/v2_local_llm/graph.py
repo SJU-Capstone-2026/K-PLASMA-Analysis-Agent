@@ -9,10 +9,12 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.types import interrupt
 from pydantic import ValidationError
 
+from .config import REVIEW_MODELS
 from .model_client import ModelError
 from .metric_registry import CONDITION_KEYS
 from .progress import ProgressReporter
 from .core.bindings import BlockedInput, resolve_comparison_entries, resolve_inputs, should_run
+from .core.code_plan_checks import code_plan_checks
 from .core.composition import (
     assemble_answer, collect_comparison_coverage, collect_evidence, collect_numeric_values, collect_search_evidence, facts_only,
     interpretation_review_payload,
@@ -141,6 +143,8 @@ def _generation_failure(outcome):
 def build_v2_local_llm_graph(models, executions, checkpointer):
     executor = SequentialExecutor(executions)
     progress = getattr(executions, "progress", None) or ProgressReporter(None)
+    flash = getattr(getattr(models, "settings", None), "decisions_model", None) == REVIEW_MODELS["q4"][0]
+    review_version = "flash-checks-v1" if flash else "code-checks-v1"
 
     def publish_results(values):
         progress.results([value["executionId"] for value in values.values()
@@ -259,6 +263,14 @@ def build_v2_local_llm_graph(models, executions, checkpointer):
                     "failure": "INVALID_PLAN", "feedback": str(error)[:1600],
                     "validation_error": _validation_error(error, "INVALID_PLAN")}
 
+        accepted_draft = accepted.model_dump(mode="json")
+        checks = code_plan_checks(state["question"], accepted_draft, context, state.get("input_history", []))
+        errors = [check for check in checks.values() if check["choice"] != "match"]
+        if errors:
+            return {"route": "replan" if state.get("replans", 0) < 2 else "compose",
+                    "plan_draft": accepted_draft, "failure": "INVALID_PLAN", "feedback": "CODE_PLAN_MISMATCH",
+                    "validation_error": {"code": "CODE_PLAN_MISMATCH", "errors": errors}}
+
         prior_steps = {step["id"]: step for step in state.get("plan", {}).get("steps", [])}
         previous = state.get("step_results", {})
         reusable: dict[str, dict] = {}
@@ -299,11 +311,11 @@ def build_v2_local_llm_graph(models, executions, checkpointer):
             counts = {}
         else:
             key = (f"plan-review:{state['plan_revision']}:{payload['input_digest']}:{payload['plan_digest'][:24]}:"
-                   f"{PROMPT_VERSION}:ordering-recheck-v2")
+                   f"{PROMPT_VERSION}:{review_version}:{digest(payload['check_specs'])[:12]}")
             data, error, counts = model_call(state, "PLAN_REVIEW", key, models.review_plan, payload)
             try:
                 decision = PlanReviewResult.model_validate(data) if data else review_result(payload, "UNAVAILABLE", reason=error)
-                if not matches_review_context(decision, payload) or decision.status == "SKIPPED":
+                if not matches_review_context(decision, payload, flash=flash) or decision.status == "SKIPPED":
                     raise ValueError("plan review belongs to another input")
             except (ValueError, TypeError):
                 decision = review_result(payload, "UNAVAILABLE", reason="DECISIONS_INVALID_RESPONSE")
@@ -329,7 +341,7 @@ def build_v2_local_llm_graph(models, executions, checkpointer):
             return (decision.status == "PASS" and decision.plan_revision == state["plan_revision"]
                     and decision.plan_digest == plan_digest(state["plan"])
                     and decision.prompt_version == PROMPT_VERSION
-                    and matches_review_context(decision, state["plan_review_input"])
+                    and matches_review_context(decision, state["plan_review_input"], flash=flash)
                     and state.get("plan_review_binding_digest") == binding_digest(state))
         except (ValueError, TypeError, KeyError):
             return False

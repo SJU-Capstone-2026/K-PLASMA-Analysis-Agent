@@ -47,7 +47,7 @@ class Models:
             return review_result(context, "UNAVAILABLE", reason="DECISIONS_TIMEOUT").model_dump(mode="json"), None
         rows = answers({"mismatch": "missing", "unclear": "match"}.get(choice, choice), context)
         if choice == "unclear":
-            next(row for row in rows if row["name"] == "request.tasks")["choice"] = "unclear"
+            next(row for row in rows if row["name"] == "request.filter_coverage")["choice"] = "unclear"
         result = parse_plan_review({"answers": rows}, context).model_dump(mode="json")
         return result, {}
 

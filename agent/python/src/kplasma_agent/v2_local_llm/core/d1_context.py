@@ -8,7 +8,7 @@ from pathlib import Path
 from ..comparison_catalog import FIELD_META
 from .contracts import PlanDraft
 from .d1_input import _fixed_english
-from .d1_plan_view import project_plan_view
+from .d1_plan_view import OMISSION_QUESTION, project_focused_check, project_plan_view
 from .plan_checks import KINDS, build_check_specs
 from .plan_review import tool_contracts
 
@@ -31,7 +31,8 @@ def context_identity(mode: str) -> dict:
     core = Path(__file__).resolve().parent
     dependencies = {name: sha256((core.parent / name).read_bytes()).hexdigest()
                     for name in ("metric_registry.py", "contracts.py", "core/contracts.py",
-                                 "core/plan_checks.py", "core/plan_review.py", "core/d1_plan_view.py")}
+                                 "core/plan_checks.py", "core/plan_review.py", "core/d1_plan_view.py",
+                                 "core/flash_review.py", "core/code_plan_checks.py")}
     return {"mode": mode, "version": VERSION,
             "selector_sha256": sha256(Path(__file__).read_bytes()).hexdigest(),
             "registry_sha256": sha256((core.parent / "comparison_catalog.py").read_bytes()).hexdigest(),
@@ -169,10 +170,7 @@ def project_state(state: str, check_name: str) -> tuple[str, dict]:
                     metric(prior["field"])
 
         kind = spec["kind"]
-        if kind == "tasks":
-            tools.update(contracts)
-            metrics.update(_KNOWN_METRICS)
-        elif kind == "filter_coverage":
+        if kind == "filter_coverage":
             tools.update({"forward_lookup", "reverse_search"})
             metrics.update(_PROCESS | _OUTPUT)
         elif kind == "confirmation_coverage":
@@ -198,10 +196,6 @@ def project_state(state: str, check_name: str) -> tuple[str, dict]:
             else:
                 comparison["fields"] = {name: value for name, value in comparison["fields"].items()
                                         if name in metrics}
-            if kind == "tasks":
-                for item in comparison["fields"].values():
-                    item.pop("definition", None)
-                    item.pop("definition_ref", None)
             if "field_definitions" in comparison:
                 needed = {item["definition_ref"] for item in comparison.get("fields", {}).values()
                           if "definition_ref" in item}
@@ -221,9 +215,20 @@ def project_state(state: str, check_name: str) -> tuple[str, dict]:
         return result(state, "fallback", "unsupported_context")
 
 
-def project_check(state: str, name: str, question: dict) -> tuple[str, dict, dict]:
+def project_check(state: str, name: str, question: dict, *, flash: bool = False) -> tuple[str, dict, dict]:
+    try:
+        transport = json.loads(state)
+    except json.JSONDecodeError:
+        transport = None
+    focused = isinstance(transport, dict) and OMISSION_QUESTION in transport
     state, trace = project_state(state, name)
-    if trace["action"] == "selected" or trace["reason"] == "no_reduction":
+    if focused:
+        if trace["action"] == "fallback" or trace["reason"] == "not_plan_review":
+            raise ValueError("LOCAL_D1_REQUEST_INVALID")
+        state, question = project_focused_check(state, name, question, flash=flash)
+        trace.update(action="selected", reason="focused_plan_check", tool_ids=[], metric_ids=[])
+        trace["state_sha256"] = sha256(state.encode()).hexdigest()
+    elif trace["action"] == "selected" or trace["reason"] == "no_reduction":
         state, question = project_plan_view(state, name, question)
         trace["state_sha256"] = sha256(state.encode()).hexdigest()
     return state, question, trace

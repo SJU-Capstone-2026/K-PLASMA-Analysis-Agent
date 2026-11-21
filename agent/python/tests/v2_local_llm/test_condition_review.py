@@ -31,7 +31,7 @@ def test_checks_separate_filter_sort_and_operation_without_reparsing_question():
             'operation.threshold', 'targets.compare', 'request.filter_coverage'} <= set(specs)
     assert specs['filter.search.meanIonEnergy']['paths'] == [['steps', 2, 'inputs', 'constraints', 1]]
     assert specs['ordering.search']['paths'] == [['steps', 2, 'inputs', 'goals']]
-    assert context('P04', True)['check_specs'][1]['name'] == 'request.filter_coverage'
+    assert context('P04', True)['check_specs'][0]['name'] == 'request.filter_coverage'
 
 
 def test_rejection_evidence_comes_from_saved_original_and_actual_plan_not_model_text():

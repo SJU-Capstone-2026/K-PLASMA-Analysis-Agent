@@ -61,7 +61,7 @@ def test_numeric_excerpt_preserves_the_mismatch_and_quote_without_other_executio
     assert native == before and trace['action'] == 'selected'
 
 
-@pytest.mark.parametrize('check', ['request.tasks', 'request.filter_coverage', 'request.confirmation_coverage'])
+@pytest.mark.parametrize('check', ['request.filter_coverage', 'request.confirmation_coverage'])
 def test_omission_requests_remain_byte_identical(check):
     native = request([forward()], check)
     projected, trace = project_numeric_review(native)
