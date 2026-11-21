@@ -118,8 +118,8 @@ def test_per_check_packing_counts_selected_state_and_preserves_request():
     assert all("definition" not in item and "definition_ref" not in item for item in fields.values())
 
 
-@pytest.mark.parametrize("has_value", [True, False])
-def test_forward_numeric_review_keeps_the_full_checklist_and_only_the_tested_operand(has_value):
+@pytest.mark.parametrize("mode", ["literal", "default_unit", "missing"])
+def test_forward_numeric_review_sends_only_the_cited_operand_when_possible(mode):
     import json
     from kplasma_agent.v2_local_llm.core.d1_input import prepare_d1_input
     from kplasma_agent.v2_local_llm.core.decisions import native_request
@@ -128,8 +128,10 @@ def test_forward_numeric_review_keeps_the_full_checklist_and_only_the_tested_ope
 
     check = "filter.lookup.source_power"
     step = forward()
-    if not has_value:
+    if mode == "missing":
         step["inputs"]["source_power"] = None
+    elif mode == "default_unit":
+        step["inputs"]["source_power"]["unit"] = None
     original = json.loads(request([step], check)["state"])
     state, questions = prepare_d1_input(original, review_questions(original),
                                        role="plan_review", profile="en-compact-no-view")
@@ -140,16 +142,47 @@ def test_forward_numeric_review_keeps_the_full_checklist_and_only_the_tested_ope
     selected = next(group for group, _ in groups if check in group["questions"])
     excerpt = json.loads(selected["state"])
     assert len(groups) == len(original["check_specs"]) == len(trace)
-    if not has_value:
+    if mode == "missing":
         assert "review_view" not in excerpt and excerpt["plan"] == state["plan"]
         return
-    inputs = excerpt["plan"]["steps"][0]["inputs"]
-    assert list(inputs) == ["source_power"]
-    assert inputs["source_power"]["citation"] == state["plan"]["steps"][0]["inputs"]["source_power"]["source"]
-    specs = original["check_specs"]
-    assert excerpt["check_specs"] == [s for s in specs if s["name"] == check] + [s for s in specs if s["name"] != check]
+    value = state["plan"]["steps"][0]["inputs"]["source_power"]
+    expected = {"plan": {"steps": [{"id": "lookup", "inputs": {"source_power": {
+        "value": value["value"], "unit": value["unit"], "citation": {"quote": value["source"]["quote"]},
+    }}}]}}
+    if mode == "default_unit":
+        expected["default_unit"] = "W"
+    assert excerpt == expected
     assert len(selected["questions"]) == 1
+    assert selected["questions"][check]["criteria"] == native["questions"][check]["criteria"]
+    assert "citation.quote" in selected["questions"][check]["instructions"]
     assert "latest input_history" not in selected["questions"][check]["instructions"]
+
+
+def test_compact_range_keeps_both_bounds_at_the_requested_path():
+    import json
+    from kplasma_agent.v2_local_llm.core.d1_input import prepare_d1_input
+    from kplasma_agent.v2_local_llm.core.decisions import native_request
+    from kplasma_agent.v2_local_llm.core.plan_checks import review_questions
+    from .test_numeric_review_view import forward, literal, request
+
+    search = {"id": "search", "kind": "tool", "tool": "reverse_search", "inputs": {"constraints": [
+        {"field": "pressure", "operator": "eq", "value": literal(2, "mTorr", "pressure 2")},
+        {"field": "meanIonEnergy", "operator": "between", "min": literal(11, "eV", "energy 11"),
+         "max": literal(14, "eV", "through 13")},
+    ]}}
+    check = "filter.search.meanIonEnergy"
+    original = json.loads(request([forward(), search], check)["state"])
+    state, questions = prepare_d1_input(original, review_questions(original),
+                                       role="plan_review", profile="en-compact-no-view")
+    native = native_request({"input": [{"role": "user", "content": [
+        {"type": "input_json", "data": state}]}], "questions": questions})
+    groups = service().pack_requests(native, 1, lambda _: 100, context_mode="per_check")
+    selected = next(group for group, _ in groups if check in group["questions"])
+    assert json.loads(selected["state"]) == {"plan": {"steps": [None, {"id": "search", "inputs": {
+        "constraints": [None, {"field": "meanIonEnergy", "operator": "between",
+                              "min": {"value": 11, "unit": "eV", "citation": {"quote": "energy 11"}},
+                              "max": {"value": 14, "unit": "eV", "citation": {"quote": "through 13"}}}],
+    }}]}}
 
 
 def test_numeric_review_keeps_the_plan_and_rules_for_a_future_value():

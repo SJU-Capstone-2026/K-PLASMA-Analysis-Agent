@@ -2,7 +2,8 @@
 
 import json
 
-from .d1_input import _COMMON_EN
+from ..metric_registry import UNITS
+from .d1_input import _COMMON_EN, _FORWARD_METRICS
 
 _HISTORY = " and latest input_history"
 _FUTURE = "This is a pre-execution plan: future measurements, search results and user selections may not exist yet. "
@@ -78,6 +79,37 @@ def _question_citations(value):
             yield from _question_citations(item)
 
 
+def _compact_filter(step_id: str, index: int, selected: dict, spec: dict) -> dict:
+    needs_default_unit = False
+
+    def compact(operand):
+        nonlocal needs_default_unit
+        if "citation" not in operand:
+            return {key: compact(item) if isinstance(item, dict) else item
+                    for key, item in operand.items() if item is not None}
+        citation = operand["citation"]
+        if citation["message_key"] != "question":
+            raise ValueError("filter refers to another message")
+        needs_default_unit |= operand["unit"] is None
+        return {"value": operand["value"], "unit": operand["unit"], "citation": {"quote": citation["quote"]}}
+
+    inputs: dict = {}
+    for _, _, _, key, *position in spec["paths"]:
+        if position:
+            row, = position
+            values = inputs.setdefault(key, [])
+            # Keep the path named by the check instructions even if earlier rows are omitted.
+            values.extend([None] * (row + 1 - len(values)))
+            values[row] = compact(selected[key][row])
+        else:
+            inputs[key] = compact(selected[key])
+    state: dict = {"plan": {"steps": [None] * index + [{"id": step_id, "inputs": inputs}]}}
+    if needs_default_unit:
+        metric = spec["metric"]
+        state["default_unit"] = UNITS[_FORWARD_METRICS.get(metric, metric)]
+    return state
+
+
 def _excerpt(payload: dict, spec: dict) -> str:
     plan = payload["plan"]
     index, = {path[1] for path in spec["paths"]}
@@ -96,6 +128,13 @@ def _excerpt(payload: dict, spec: dict) -> str:
         if not isinstance(operand, dict):
             raise ValueError("missing filter operand")
         selected[field] = _cited_operand(operand)
+    if not payload["input_history"]:
+        try:
+            compact = _compact_filter(step["id"], index, selected, spec)
+        except ValueError:
+            pass
+        else:
+            return json.dumps(compact, ensure_ascii=False, allow_nan=False, separators=(",", ":"))
     quotes = list(dict.fromkeys(_question_citations(selected)))
     if quotes:
         payload["question"] = "\n".join(quotes)
@@ -118,7 +157,7 @@ def _excerpt(payload: dict, spec: dict) -> str:
 
 
 def project_plan_view(state: str, name: str, question: dict) -> tuple[str, dict]:
-    """Use the v2.5 view on already validated, compact English plan requests."""
+    """Prepare the check-specific view on validated, compact English plan requests."""
     text = question["instructions"]
     if not text.startswith(_COMMON_EN):
         return state, question
