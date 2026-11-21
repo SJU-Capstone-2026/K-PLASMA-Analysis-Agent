@@ -41,7 +41,23 @@ def test_plan_validation_restores_original_quote_spans_without_changing_the_draf
 
 
 @pytest.mark.parametrize(("original", "quote"), [
+    ("Run의 지표 폭을 확인해줘.", "Run 의 지표 폭 을 확인해줘."),
+    ("Run 의 지표를 확인해줘.", "Run의 지표를 확인해줘."),
+    ("전력과 압력도 비교해줘.", "전력 과 압력 도 비교해줘."),
+    ("기준표에서부터는 7.25 mTorr로 조회해줘.", "기준표 에서  부터 는 7.25 mTorr 로 조회해줘."),
+    ("(기준값)만큼이나 높아?", "(기준값) 만큼이나 높아?"),
+])
+def test_plan_validation_restores_spacing_before_korean_particles(original, quote):
+    candidate = plan(quote, [search([])])
+
+    accepted = validate_plan(candidate, messages={"question": original}, context_keys=set())
+
+    assert accepted.requirements[0].sources[0].quote == original
+
+
+@pytest.mark.parametrize(("original", "quote"), [
     ("압력 7.25 mTorr", "압력 7 .25  mTorr"),
+    ("출력 150 W까지", "출력 1 50 W 까지"),
     ("압력 17 mTorr", "7  mTorr"),
     ("압력 1.7 mTorr", "7  mTorr"),
     ("출력 -17 W", "17  W"),
@@ -52,6 +68,8 @@ def test_plan_validation_restores_original_quote_spans_without_changing_the_draf
     ("Run의 표, Run의 표", "Run  의 표"),
     ("Run의 Run의 Run의", "Run  의 Run  의"),
     ("Run의사결정", "Run  의"),
+    ("폭을 비교, 폭을 비교", "폭 을 비교"),
+    ("압력을 비교", "압 력을 비교"),
     ("압력\n7.25 mTorr", "압력 7.25  mTorr"),
 ])
 def test_plan_validation_rejects_changed_or_ambiguous_quotes(original, quote):

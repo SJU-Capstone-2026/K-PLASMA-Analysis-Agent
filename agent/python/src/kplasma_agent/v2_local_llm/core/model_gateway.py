@@ -441,9 +441,31 @@ def review_plan(client: httpx.Client, settings: V2LocalLLMSettings, payload, *, 
     data = {}
     try:
         data = _decisions_response(client, settings, body)
+        unclear = {row["name"] for row in data["answers"] if row["choice"] == "unclear"}
+        retry_questions = [
+            {**question, "choices": [choice for choice in question["choices"] if choice["value"] != "unclear"]}
+            for spec, question in zip(context["check_specs"], questions, strict=True)
+            if spec["kind"] == "ordering" and question["name"] in unclear
+        ]
+        if retry_questions:
+            retry_view = {**view, "question": context["question"]}
+            if input_guard is not None:
+                input_guard({"input": retry_view, "questions": retry_questions}, "plan_review")
+            retry = _decisions_response(client, settings, {
+                **body,
+                "input": [{"role": "user", "content": [{"type": "input_json", "data": retry_view}]}],
+                "questions": retry_questions,
+            })
+            rechecked = {row["name"]: row for row in retry["answers"]}
+            data["answers"] = [rechecked.get(row["name"], row) for row in data["answers"]]
+            usage = Counter(data.get("usage") or {})
+            usage.update(retry.get("usage") or {})
+            data["usage"] = dict(usage) if usage else None
         for row in data["answers"]:
             row["name"] = original_names[row["name"]]
-        return parse_plan_review(data, payload).model_dump(mode="json"), data.get("usage")
+        rechecked_ordering = frozenset(original_names[question["name"]] for question in retry_questions)
+        result = parse_plan_review(data, payload, rechecked_ordering=rechecked_ordering)
+        return result.model_dump(mode="json"), data.get("usage")
     except httpx.TimeoutException:
         reason = "DECISIONS_TIMEOUT"
     except httpx.HTTPStatusError as error:

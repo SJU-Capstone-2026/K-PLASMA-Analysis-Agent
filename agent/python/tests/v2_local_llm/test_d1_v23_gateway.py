@@ -4,6 +4,7 @@ from copy import deepcopy
 import json
 
 import httpx
+import pytest
 
 from kplasma_agent.v2_local_llm.config import Settings
 from kplasma_agent.v2_local_llm.core.model_gateway import (
@@ -84,6 +85,48 @@ def test_module_level_plan_review_uses_same_final_profile():
     state = json.loads(sent[0]["state"])
     assert "execution_view" not in state
     assert without_citation_text(state["plan"]) == without_citation_text(example_context("s_search")["plan"])
+
+
+@pytest.mark.parametrize(("retry_choice", "status"), [
+    ("match", "PASS"), ("missing", "ISSUE"), ("unexpected", "ISSUE"), ("direction_changed", "ISSUE"),
+])
+def test_unclear_ordering_rechecks_only_the_same_plan_with_the_original_question(retry_choice, status):
+    original = example_context()
+    snapshot = deepcopy(original)
+    sent = []
+    counted = []
+    name = "ordering.s_search"
+
+    def transport(request):
+        sent.append(json.loads(request.content))
+        choice = "unclear" if len(sent) == 1 else retry_choice
+        data = native_answer(request).json()
+        row = data["answers"][name]
+        row.update(choice=choice, probabilities={key: float(key == choice) for key in row["probabilities"]})
+        return httpx.Response(200, json=data)
+
+    with httpx.Client(transport=httpx.MockTransport(transport), trust_env=False) as client:
+        settings = V2LocalLLMSettings.from_env(Settings())
+        result, usage = review_plan(client, settings, original, input_guard=lambda body, _: counted.append(body))
+
+    first, retry = sent
+    first_view, retry_view = (json.loads(item["state"]) for item in (first, retry))
+    assert original == snapshot and original["question"] not in first["state"]
+    assert retry_view == {**first_view, "question": original["question"]}
+    criteria = first["questions"][name]["criteria"]
+    assert list(criteria) == ["match", "direction_changed", "missing", "unexpected", "unclear"]
+    retry_criteria = {key: description for key, description in criteria.items() if key != "unclear"}
+    assert retry["questions"] == {name: {**first["questions"][name], "criteria": retry_criteria}}
+    assert list(retry["questions"][name]["criteria"]) == list(retry_criteria)
+    assert [item["input"] for item in counted] == [first_view, retry_view]
+    assert [item["name"] for item in counted[1]["questions"]] == [name]
+    assert result["status"] == status and result["plan_digest"] == original["plan_digest"]
+    assert {row["name"]: row["choice"] for row in result["checks"]} == {
+        spec["name"]: retry_choice if spec["kind"] == "ordering" else "match" for spec in original["check_specs"]
+    }
+    ordering = next(row for row in result["checks"] if row["kind"] == "ordering")
+    assert ordering["probabilities"] == {key: float(key == retry_choice) for key in retry_criteria}
+    assert usage == {"input_tokens": 200}
 
 
 def test_review_names_cover_all_steps_and_feedback_uses_original_ids():

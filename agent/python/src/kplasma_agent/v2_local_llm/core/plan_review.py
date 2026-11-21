@@ -18,6 +18,14 @@ Choice = Literal["match", "mismatch", "unclear", "missing", "unexpected", "value
                  "boundary_changed", "direction_changed", "target_changed"]
 Probability = Annotated[float, Field(ge=0, le=1)]
 
+
+def _check_choices(kind, *, rechecked=False):
+    allowed = set(choices_for(kind))
+    if kind == "ordering" and rechecked:
+        allowed.remove("unclear")
+    return allowed
+
+
 class PlanReviewContext(TypedDict):
     schema_version: int
     question: str
@@ -64,7 +72,8 @@ class PlanReviewResult(ClosedModel):
             if not expected_names or len(names) != len(expected_names) or set(names) != expected_names:
                 raise ValueError("incomplete plan review checks")
             for check in self.checks:
-                allowed = {"match", "mismatch", "unclear"} if self.schema_version == 1 else set(choices_for(check.kind))
+                allowed = ({"match", "mismatch", "unclear"} if self.schema_version == 1 else
+                           _check_choices(check.kind, rechecked="unclear" not in check.probabilities))
                 if set(check.probabilities) != allowed or check.choice not in allowed:
                     raise ValueError("invalid plan review probabilities or choice")
                 if self.schema_version == 2 and ((check.choice == "match") != (check.issue is None)):
@@ -245,7 +254,8 @@ def program_effects(plan: PlanDraft) -> list[str]:
     return lines
 
 
-def parse_plan_review(data: dict, context: PlanReviewContext) -> PlanReviewResult:
+def parse_plan_review(data: dict, context: PlanReviewContext, *,
+                      rechecked_ordering: frozenset[str] = frozenset()) -> PlanReviewResult:
     rows = data["answers"]
     by_name = {row["name"]: row for row in rows}
     specs = context["check_specs"]
@@ -256,9 +266,9 @@ def parse_plan_review(data: dict, context: PlanReviewContext) -> PlanReviewResul
         row = by_name[spec["name"]]
         probabilities = row["probabilities"]
         probs = {item["value"]: item["probability"] for item in probabilities}
-        allowed = choices_for(spec["kind"])
+        allowed = _check_choices(spec["kind"], rechecked=spec["name"] in rechecked_ordering)
         if (row["type"] != "choice" or len(probabilities) != len(allowed)
-                or set(probs) != set(allowed) or row["choice"] not in allowed):
+                or set(probs) != allowed or row["choice"] not in allowed):
             raise ValueError("invalid plan review probabilities or choice")
         issue = rejection_evidence(context, spec, row["choice"]) if row["choice"] != "match" else None
         checks.append(PlanReviewCheck(name=spec["name"], choice=row["choice"], kind=spec["kind"], issue=issue,

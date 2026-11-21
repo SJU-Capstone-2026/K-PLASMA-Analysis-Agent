@@ -163,6 +163,18 @@ def _reuse_builtin_differences(plan: PlanDraft, selected_run_keys: Set[str]) -> 
     return plan.model_copy(update={"steps": steps, "requirements": requirements})
 
 
+# A complete suffix can contain several particles, as in 에서부터는.
+_KOREAN_PARTICLE_SUFFIX = re.compile(
+    r"(?:"
+    r"께옵서|께서|에게서|한테서|에게|한테|에다가|에다|에서|으로|로다가|로서|로써|더러|보고|"
+    r"이라든가|이라든지|라든가|라든지|든가|든지|이라고|라고|이라|이랑|하고|이다|이란|"
+    r"야말로|라도|나마|까지|부터|마저|조차|밖에|만큼|만치|대로|같이|처럼|보다|마냥|마다|따라|"
+    r"커녕|치고|깨나|인들|그려|그래|이시여|이여|"
+    r"[가고과께나니는도든들라랑란로를만며아야에여와요을은의이인뿐]"
+    r")++(?!\w)"
+)
+
+
 def _restore_quote_spacing(original: str, quote: str) -> str | None:
     if not quote or quote != quote.strip(" "):
         return None
@@ -170,10 +182,13 @@ def _restore_quote_spacing(original: str, quote: str) -> str | None:
     # A number in an excerpt must start at the original number's boundary.
     pattern = [r"(?<![\w.,+\-−±])" if quote[0].isdecimal() else r"(?<!\w)"]
     end = 0
-    for match in re.finditer(r"(?<!\w)Run *(?P<particle>[은는이가을를의])(?!\w)| +", quote):
+    # Preserve the existing recovery of a space omitted before a particle on Run.
+    for match in re.finditer(r"(?<!\w)Run(?=[은는이가을를의](?!\w))| +", quote):
         pattern.append(re.escape(quote[end:match.start()]))
-        particle = match["particle"]
-        pattern.append(rf"(?<!\w)Run *{particle}(?!\w)" if particle else " +")
+        if match[0] == "Run":
+            pattern.append(r"(?<!\w)Run *")
+        else:
+            pattern.append(" *" if _KOREAN_PARTICLE_SUFFIX.match(quote, match.end()) else " +")
         end = match.end()
     pattern.append(re.escape(quote[end:]))
 

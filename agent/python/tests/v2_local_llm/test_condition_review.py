@@ -64,7 +64,7 @@ def test_future_baseline_and_exact_selection_are_independent_conditions(case_id,
         assert issue['plan_values'][0]['value'] == 3
 
 
-@pytest.mark.parametrize('corruption', ['missing', 'duplicate', 'unknown', 'wrong_reason'])
+@pytest.mark.parametrize('corruption', ['missing', 'duplicate', 'unknown', 'wrong_reason', 'missing_ordering_option'])
 def test_partial_or_unregistered_condition_answers_cannot_approve(corruption):
     payload = context()
     data = reply(payload)
@@ -74,6 +74,9 @@ def test_partial_or_unregistered_condition_answers_cannot_approve(corruption):
         data['answers'][-1] = deepcopy(data['answers'][0])
     elif corruption == 'unknown':
         data['answers'][-1]['name'] = 'model_invented_condition'
+    elif corruption == 'missing_ordering_option':
+        row = next(row for row in data['answers'] if row['name'] == 'ordering.search')
+        row['probabilities'] = [item for item in row['probabilities'] if item['value'] != 'unclear']
     else:
         data['answers'][0]['choice'] = 'unit_changed'  # Task coverage cannot report a unit error.
     with pytest.raises(ValueError):

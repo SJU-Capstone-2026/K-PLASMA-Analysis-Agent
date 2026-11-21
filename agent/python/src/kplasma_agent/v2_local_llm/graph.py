@@ -298,7 +298,8 @@ def build_v2_local_llm_graph(models, executions, checkpointer):
             decision = review_result(payload, "SKIPPED", reason="PLAN_REVIEW_DISABLED")
             counts = {}
         else:
-            key = f"plan-review:{state['plan_revision']}:{payload['input_digest']}:{payload['plan_digest'][:24]}:{PROMPT_VERSION}"
+            key = (f"plan-review:{state['plan_revision']}:{payload['input_digest']}:{payload['plan_digest'][:24]}:"
+                   f"{PROMPT_VERSION}:ordering-recheck-v2")
             data, error, counts = model_call(state, "PLAN_REVIEW", key, models.review_plan, payload)
             try:
                 decision = PlanReviewResult.model_validate(data) if data else review_result(payload, "UNAVAILABLE", reason=error)
@@ -311,6 +312,8 @@ def build_v2_local_llm_graph(models, executions, checkpointer):
         if decision.status in {"PASS", "SKIPPED"}:
             publish_results(state.get("step_results", {}))
             return {**result, "route": "execute", "failure": None, "plan_review_feedback": None}
+        if any(check.kind == "ordering" and check.choice == "unclear" for check in decision.checks):
+            return {**result, "route": "compose", "failure": "PLAN_SEMANTIC_UNCLEAR", "plan_review_feedback": None}
         if decision.status in {"ISSUE", "UNCLEAR"}:
             feedback = plan_review_feedback(decision)
             return {**result, "route": "replan" if state.get("replans", 0) < 2 else "compose",

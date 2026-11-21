@@ -45,7 +45,10 @@ class Models:
         self.reviews.append(deepcopy(context))
         if choice == "outage":
             return review_result(context, "UNAVAILABLE", reason="DECISIONS_TIMEOUT").model_dump(mode="json"), None
-        result = parse_plan_review({"answers": answers("missing" if choice == "mismatch" else choice, context)}, context).model_dump(mode="json")
+        rows = answers({"mismatch": "missing", "unclear": "match"}.get(choice, choice), context)
+        if choice == "unclear":
+            next(row for row in rows if row["name"] == "request.tasks")["choice"] = "unclear"
+        result = parse_plan_review({"answers": rows}, context).model_dump(mode="json")
         return result, {}
 
     def compose(self, context):
@@ -172,6 +175,22 @@ def test_unapproved_or_unavailable_review_never_reserves_a_tool(choice):
     assert state["answer"]["answerSnapshot"]["executionStatus"] == "FAILED"
     assert state["replans"] == (0 if choice == "outage" else 2)
     assert "확인된 결과를 표시합니다" not in state["answer"]["answerSnapshot"]["answer"]
+
+
+def test_ordering_still_unclear_stops_without_replanning_or_executing():
+    class UnresolvedOrdering(Models):
+        def review_plan(self, context):
+            rows = answers("match", context)
+            ordering = next(row for row in rows if row["name"] == "ordering.search")
+            ordering["choice"] = "unclear"
+            return parse_plan_review({"answers": rows}, context).model_dump(mode="json"), {}
+
+    state, port = invoke(UnresolvedOrdering())
+
+    assert [attempt["kind"] for attempt in port.models.values()] == ["PLAN_INITIAL", "PLAN_REVIEW"]
+    assert state["plan_review"]["status"] == "UNCLEAR"
+    assert state["failure"] == "PLAN_SEMANTIC_UNCLEAR" and not port.steps
+    assert state["answer"]["answerSnapshot"]["executionStatus"] == "FAILED"
 
 
 def test_disabled_review_is_explicitly_skipped_not_reported_as_pass():
