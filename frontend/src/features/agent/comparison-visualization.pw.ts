@@ -18,7 +18,7 @@ async function expectChartLabelsInside(svg:Locator){
   const a=labels[i],b=labels[j];expect(a.left<b.right-.5&&b.left<a.right-.5&&a.top<b.bottom-.5&&b.top<a.bottom-.5,`${a.text} / ${b.text}`).toBe(false);
  }
 }
-const layouts=[390,800,1008,1440].flatMap(width=>(['v1','v2'] as const).map(version=>({width,version})));
+const layouts=[390,800,1008,1440].flatMap(width=>(['v1','v2','v2_localLLM'] as const).map(version=>({width,version})));
 for(const {width,version} of layouts)test(`${version} comparison charts and independent tagged message at ${width}px`,async({page},info)=>{
  await page.setViewportSize({width,height:1000});const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));
  const result=structuredClone(wire.comparison.result) as ComparisonResultV3;
@@ -43,11 +43,12 @@ for(const {width,version} of layouts)test(`${version} comparison charts and inde
   return [current,potential,iead,density];
  });
  result.outputs=outputs.map(o=>o.metadata);
- const answerSnapshot=version==='v2'?{...v2.general_answer,intent:'COMPOSITE_ANSWER',draft:null,stepResults:[{
+ // All composite versions keep their own identity while sharing the answer layout.
+ const answerSnapshot=version!=='v1'?{...v2.general_answer,implementationId:version,graphVersion:version,intent:'COMPOSITE_ANSWER',draft:null,stepResults:[{
   executionId:'compare',stepId:'compare',status:'verified',outputs:{toolResult:result},runRefs:result.usedRunRefs,groupId:null,reason:null,
  }]}:{...wire.comparison,result,usedRunRefs:result.usedRunRefs};
  const turn={id:'artificial-compare',askedAt:'2026-10-09T00:00:00Z',question:'인공 파형 비교',intent:'RUN_COMPARISON',context:null,answerRunRefs:result.usedRunRefs,answerSnapshot,ui:structuredClone(initialTurnUi)} as unknown as TurnSnapshot;
- let workspace:WorkspaceView={...structuredClone(emptyWorkspace),conversation:{version:1,activeRun:null,turns:[turn],agentGraphVersion:version},candidateReference:{kind:'후보 집합',runs:result.usedRunRefs,...(version==='v2'?{catalogRefs:result.usedRunRefs}:{})},agentMessages:[{requestId:turn.id,clientMessageId:'saved-key',question:turn.question,submittedRunRefs:result.usedRunRefs,createdAt:turn.askedAt,status:'COMPLETED',turnId:turn.id}]};
+ let workspace:WorkspaceView={...structuredClone(emptyWorkspace),conversation:{version:1,activeRun:null,turns:[turn],agentGraphVersion:version},candidateReference:{kind:'후보 집합',runs:result.usedRunRefs,...(version!=='v1'?{catalogRefs:result.usedRunRefs}:{})},agentMessages:[{requestId:turn.id,clientMessageId:'saved-key',question:turn.question,submittedRunRefs:result.usedRunRefs,createdAt:turn.askedAt,status:'COMPLETED',turnId:turn.id}]};
  const posted:AgentSubmission[]=[];const detailVersions:string[]=[];const ieadRequests:string[][]=[];let release:(()=>void)|undefined;let graphCalls=0;
  await page.route('**/api/**',async route=>{
   const req=route.request(),path=new URL(req.url()).pathname;if(!path.startsWith('/api/'))return route.continue();
@@ -69,7 +70,14 @@ for(const {width,version} of layouts)test(`${version} comparison charts and inde
   return route.fulfill({json:workspace});
  });
  await page.goto('/');const card=page.locator('[data-turn-id="artificial-compare"]');
+ const selector=page.getByRole('combobox',{name:'Agent 버전'});
+ // Saved conversations retain even identities unavailable for a new cloud conversation.
+ await expect(selector).toHaveValue(version);await expect(selector).toBeDisabled();
+ const selectorBox=(await selector.boundingBox())!;
+ expect(selectorBox.x).toBeGreaterThanOrEqual(0);expect(selectorBox.x+selectorBox.width).toBeLessThanOrEqual(width);
+ expect(await selector.locator('..').evaluate(node=>node.scrollWidth<=node.clientWidth+1)).toBe(true);
  const table=card.getByRole('table',{name:'선택한 실험 수치',exact:true});await expect(table).toBeVisible();
+ await page.screenshot({path:info.outputPath(`synthetic-${version}-saved-history-${width}.png`),fullPage:false});
  for(const label of ['계산 정의·원본','계산 근거','가능한 해석','설명의 한계','공정 조건·버전'])await expect(card.getByText(label,{exact:true})).toHaveCount(0);
  await expect(table.getByRole('columnheader',{name:'번호'})).toBeVisible();await expect(table.getByRole('columnheader',{name:'상세'})).toBeVisible();
  expect(await table.locator('tbody th').evaluateAll(cells=>cells.every(cell=>getComputedStyle(cell).whiteSpace==='nowrap'))).toBe(true);
@@ -92,14 +100,14 @@ for(const {width,version} of layouts)test(`${version} comparison charts and inde
  await chart.getByRole('button',{name:'전체 표시'}).click();
  for(const name of ['RF 전류 밀도 최댓값','RF 전류 밀도 최솟값','마지막 잔차']){
   await chart.getByRole('tab',{name,exact:true}).click();await expect(chart.locator('rect[data-run-key]')).toHaveCount(runCount);await expectChartLabelsInside(chart.getByRole('img'));
-  if(version==='v2')await expect.poll(async()=>(await chart.getByRole('img').boundingBox())!.height).toBeCloseTo(waveformHeight,0);
+  if(version!=='v1')await expect.poll(async()=>(await chart.getByRole('img').boundingBox())!.height).toBeCloseTo(waveformHeight,0);
   if(name==='마지막 잔차')await expect(chart.getByRole('img').getByText('1.00e-9',{exact:true})).toBeVisible();
   if(name==='RF 전류 밀도 최댓값')await chart.screenshot({path:info.outputPath(`synthetic-bar-labels-${width}.png`)});
  }
  await chart.getByRole('tab',{name:'전극 전위',exact:true}).click();await expect(chart.locator('path[data-run-id]')).toHaveCount(runCount);await expectChartLabelsInside(chart.getByRole('img'));
  await chart.getByRole('tab',{name:'쉬스 이온 밀도',exact:true}).click();await expect(chart.getByRole('img')).toHaveCount(runCount);
  const densityCanvas=chart.locator('canvas').first();
- if(version==='v2')expect((await chart.getByRole('img').first().boundingBox())!.height).toBeCloseTo(waveformHeight,0);
+ if(version!=='v1')expect((await chart.getByRole('img').first().boundingBox())!.height).toBeCloseTo(waveformHeight,0);
  const densityOpacity=await densityCanvas.evaluate(node=>{
   const canvas=node as HTMLCanvasElement,context=canvas.getContext('2d')!,top=Math.floor(canvas.height*.25);
   return [.2,.8].map(position=>context.getImageData(Math.floor(canvas.width*position),top,1,1).data[3]);
@@ -115,7 +123,7 @@ for(const {width,version} of layouts)test(`${version} comparison charts and inde
  await expect(chart.getByRole('img')).toHaveCount(2);
  expect(ieadRequests).toEqual(result.runs.slice(0,2).map(run=>[run.ref.runVersionId]));
  const heatmaps=chart.getByRole('region',{name:'선택한 IEAD 히트맵'});
- if(version==='v2')expect((await heatmaps.getByRole('img').first().boundingBox())!.height).toBeCloseTo(waveformHeight,0);
+ if(version!=='v1')expect((await heatmaps.getByRole('img').first().boundingBox())!.height).toBeCloseTo(waveformHeight,0);
  const figureBounds=await heatmaps.locator('figure').evaluateAll(figures=>figures.map(figure=>figure.getBoundingClientRect().toJSON()));
  expect(figureBounds[0].y).toBe(figureBounds[1].y);expect(figureBounds[1].x).toBeGreaterThan(figureBounds[0].right);
  if(width>=800)expect(await heatmaps.evaluate(node=>node.scrollWidth<=node.clientWidth+1)).toBe(true);
@@ -133,6 +141,7 @@ for(const {width,version} of layouts)test(`${version} comparison charts and inde
  await heatmaps.evaluate(node=>node.scrollIntoView({block:'center'}));
  await heatmaps.screenshot({path:info.outputPath(`synthetic-iead-heatmaps-${width}.png`)});
  await chart.getByRole('button',{name:'그래프 접기'}).click();await page.reload();await expect(chart.getByRole('button',{name:'그래프 펼치기'})).toBeVisible();
+ await expect(selector).toHaveValue(version);await expect(selector).toBeDisabled();
  await chart.getByRole('button',{name:'그래프 펼치기'}).click();await expect(chart.getByRole('img')).toHaveCount(2);
  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1)).toBe(true);expect(await card.evaluate(node=>node.scrollWidth<=node.clientWidth+1)).toBe(true);
  await card.screenshot({path:info.outputPath(`synthetic-comparison-${width}.png`)});

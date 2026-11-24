@@ -1,11 +1,143 @@
 import {expect, test, type Page} from '@playwright/test';
-import {writeFile} from 'node:fs/promises';
+import {readFile,writeFile} from 'node:fs/promises';
 import {join} from 'node:path';
 import type {AgentRequestView, RunRef, RunSummary, WorkspaceView} from 'agent';
 
 const api = process.env.KPLASMA_E2E_API;
 const output = process.env.KPLASMA_E2E_OUTPUT;
+const graphVersion=process.env.KPLASMA_E2E_GRAPH_VERSION??'v2';
+if(!['v2','v2_localLLM'].includes(graphVersion))throw new Error('Unsupported graph version');
 if (!api || !output) throw new Error('An isolated artificial-data backend and output directory are required.');
+let apiHeaders:Record<string,string>={};
+const browserErrors:string[]=[];
+const observations:Record<string,unknown>[]=[];
+let currentCase='setup';
+
+function observe(kind:string,detail:Record<string,unknown>={}){
+  observations.push({kind,case:currentCase,at:Date.now(),...detail});
+}
+function observeWorkspace(source:string,path:string,status:number,value:unknown){
+  const body=value as Partial<WorkspaceView>;
+  const token=body.stateToken;
+  observe('workspace-response',{source,path,status,stateToken:token?{
+    workspaceEpoch:token.workspaceEpoch,conversationEpoch:token.conversationEpoch,revision:token.revision,
+  }:null,graphVersion:body.conversation?.agentGraphVersion??null});
+}
+
+test.beforeEach(async({page})=>{
+  await page.addInitScript(()=>{
+    type Row=Record<string,unknown>;
+    const key='kplasma.e2e.input-observations';
+    let rows:Row[]=[];
+    try{rows=JSON.parse(sessionStorage.getItem(key)??'[]');}catch{ /* about:blank has no origin storage. */ }
+    const documentId=1+Math.max(0,...rows.map(row=>Number(row.documentId)||0));
+    const ids=new WeakMap<Node,number>();let nextId=0;
+    const id=(node:Node|null)=>{if(!node)return null;if(!ids.has(node))ids.set(node,++nextId);return ids.get(node);};
+    const state=()=>{
+      const input=document.querySelector<HTMLTextAreaElement>('#agent-query');
+      const submit=document.querySelector<HTMLButtonElement>('#agent-query-form [type="submit"]');
+      return {inputId:id(input),formId:id(input?.form??null),valueLength:input?.value.length??null,
+        disabled:input?.disabled??null,valid:input?.validity.valid??null,submitDisabled:submit?.disabled??null};
+    };
+    const record=(kind:string,extra:Row={})=>{
+      rows.push({kind,at:Date.now(),time:performance.now(),documentId,...state(),...extra});
+      if(rows.length>2000)rows.splice(0,rows.length-2000);
+    };
+    Object.assign(window,{__kplasmaInputObservations:rows});
+    const value=Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value')!;
+    Object.defineProperty(HTMLTextAreaElement.prototype,'value',{...value,set(next:string){
+      const beforeLength=String(value.get!.call(this)).length;
+      value.set!.call(this,next);
+      if(this.id==='agent-query')record('value-write',{targetId:id(this),beforeLength,afterLength:this.value.length});
+    }});
+    for(const event of ['beforeinput','input','change','invalid','submit','focusin','focusout','click']){
+      document.addEventListener(event,value=>{
+        const target=value.target;
+        if(target instanceof Element&&(target.id==='agent-query'||target.closest('#agent-query-form'))){
+          record(event,{trusted:value.isTrusted,targetTag:target.tagName,
+            inputType:value instanceof InputEvent?value.inputType:null});
+        }
+      },true);
+    }
+    let last='';
+    new MutationObserver(()=>{
+      const next=JSON.stringify(state());
+      if(next!==last){last=next;record('form-state');}
+    }).observe(document,{childList:true,subtree:true,attributes:true,attributeFilter:['disabled']});
+    for(const kind of ['DOMContentLoaded','pageshow','pagehide','beforeunload']){
+      window.addEventListener(kind,()=>{
+        record(kind);
+        if(kind==='pagehide'||kind==='beforeunload'){
+          try{sessionStorage.setItem(key,JSON.stringify(rows));}catch{ /* diagnostics never control the app. */ }
+        }
+      });
+    }
+    record('document-init');
+  });
+  const record=(message:string)=>browserErrors.push(message
+    .replace(/(?:Bearer\s+|KPLASMA_LOCAL_SESSION=)[A-Za-z0-9_.-]+/g,'[redacted]').slice(0,600));
+  page.on('pageerror',error=>record(error.message));
+  page.on('console',message=>{if(message.type()==='error')record(message.text());});
+  page.on('requestfailed',request=>record(`${new URL(request.url()).pathname}: ${request.failure()?.errorText}`));
+  page.on('framenavigated',frame=>{if(frame===page.mainFrame())observe('navigation',{path:new URL(frame.url()).pathname});});
+  page.on('response',async response=>{
+    const path=new URL(response.url()).pathname;
+    if(path==='/api/workspace'||path==='/api/workspace/new-conversation'){
+      try{observeWorkspace('browser',path,response.status(),await response.json());}
+      catch{observe('workspace-response-unreadable',{path,status:response.status()});}
+    }
+  });
+  page.on('websocket',socket=>socket.on('framereceived',frame=>{
+    try{
+      const body=JSON.parse(String(frame.payload));
+      if(['connected','update','full-reload','prune'].includes(body.type))observe('hmr',{type:body.type});
+    }catch{ /* Only event types are observed; frames and URLs are never retained. */ }
+  }));
+});
+test.afterEach(async({page})=>{
+  let inputObservations:unknown[]=[];
+  try{inputObservations=await page.evaluate(()=>(window as Window&{
+    __kplasmaInputObservations?:unknown[];
+  }).__kplasmaInputObservations??[]);}catch{observe('input-observations-unavailable');}
+  await writeFile(join(output!,'browser-diagnostics.json'),JSON.stringify({graphVersion,errors:browserErrors,
+    observations,inputObservations},null,2),{mode:0o600});
+});
+
+test.beforeEach(async({context,baseURL})=>{
+  if(graphVersion!=='v2_localLLM')return;
+  const connection=process.env.KPLASMA_E2E_CONNECTION;
+  if(!connection||!baseURL)throw new Error('LOCAL_SYNTHETIC_SESSION_REQUIRED');
+  let metadata;
+  try{metadata=JSON.parse(await readFile(connection,'utf8'));}
+  catch{throw new Error('LOCAL_SYNTHETIC_SESSION_INVALID');}
+  const uiOrigin=new URL(baseURL).origin;
+  const cookie=/^KPLASMA_LOCAL_SESSION=([A-Za-z0-9_-]{32,128})$/.exec(metadata.sessionCookie??'');
+  if(metadata.graphVersion!==graphVersion||metadata.data!=='artificial-only'
+    ||!['synthetic','real_model_on_artificial_data'].includes(metadata.evaluationMode)
+    ||metadata.url!==api||metadata.uiOrigin!==uiOrigin||!cookie)throw new Error('LOCAL_SYNTHETIC_SESSION_INVALID');
+  apiHeaders={Origin:uiOrigin,'Sec-Fetch-Site':'same-site'};
+  // Seed HttpOnly state before this context makes its first data request or opens the app.
+  try{
+    await context.addCookies([{name:'KPLASMA_LOCAL_SESSION',value:cookie[1],domain:new URL(uiOrigin).hostname,
+      path:'/api',httpOnly:true,sameSite:'Strict',secure:false}]);
+  }catch{throw new Error('LOCAL_SYNTHETIC_SESSION_CONTEXT_FAILED');}
+});
+
+async function apiCall(page:Page,path:string,data?:unknown){
+  try{
+    const response=data===undefined?await page.request.get(`${api}${path}`,{headers:apiHeaders}):
+      await page.request.post(`${api}${path}`,{data,headers:apiHeaders});
+    if(path==='/api/workspace'||path==='/api/workspace/new-conversation'){
+      observeWorkspace('test',path,response.status(),await response.json());
+    }
+    return response;
+  }catch(error){
+    // Playwright's raw API error can echo request cookies in its call log.
+    // eslint-disable-next-line preserve-caught-error -- Playwright's cause can expose private session cookies.
+    if(graphVersion==='v2_localLLM')throw new Error('LOCAL_SYNTHETIC_API_REQUEST_FAILED');
+    throw error;
+  }
+}
 
 const cases = [
   {id: 'concept', question: 'IED가 뭐야? 이온 에너지 분포라는 개념을 간단히 설명해줘.'},
@@ -15,10 +147,19 @@ const cases = [
 ];
 
 async function ask(page: Page, text: string): Promise<AgentRequestView> {
-  await page.getByRole('textbox', {name: '공정 데이터에 질문하기'}).fill(text);
+  const submit=page.locator('#agent-query-form [type="submit"]');
+  await expect(submit).toBeEnabled();
+  const input=page.getByRole('textbox', {name: '공정 데이터에 질문하기'});
+  observe('before-fill',{expectedLength:text.length});
+  await input.fill(text);
+  observe('fill-returned');
+  await expect(input).toHaveValue(text);
   const accepted = page.waitForResponse(r => new URL(r.url()).pathname === '/api/agent/requests'
-    && r.request().method() === 'POST');
-  await page.locator('#agent-query-form [type="submit"]').click();
+    && r.request().method() === 'POST',{timeout:20000});
+  await expect(submit).toBeEnabled();
+  observe('before-click');
+  await submit.click();
+  observe('click-returned');
   const response = await accepted;
   expect([200, 202]).toContain(response.status());
   return response.json();
@@ -27,10 +168,11 @@ async function ask(page: Page, text: string): Promise<AgentRequestView> {
 async function terminal(page: Page, id: string, revision = 0): Promise<AgentRequestView> {
   let result!: AgentRequestView;
   await expect.poll(async () => {
-    const response = await page.request.get(`${api}/api/agent/requests/${id}`);
+    const response = await apiCall(page,`/api/agent/requests/${id}`);
     result = await response.json();
     return result.requestRevision >= revision ? result.status : 'WAITING';
-  }, {timeout: 100000, intervals: [300, 1000]}).toMatch(/COMPLETED|NEEDS_INPUT|FAILED|CANCELLED/);
+  }, {timeout: graphVersion === 'v2_localLLM' ? 720000 : 100000, intervals: [300, 1000]})
+    .toMatch(/COMPLETED|NEEDS_INPUT|FAILED|CANCELLED/);
   return result;
 }
 
@@ -49,8 +191,8 @@ async function pick(page: Page, runs: RunSummary[]) {
   await page.getByRole('button', {name: '선택한 실험으로 계속'}).click();
 }
 
-test('v2 browser answers', async ({page}) => {
-  const allRuns = await (await page.request.get(`${api}/api/runs`)).json() as RunSummary[];
+test('selected graph browser answers on artificial data', async ({page}) => {
+  const allRuns = await (await apiCall(page,'/api/runs')).json() as RunSummary[];
   const runs = allRuns.filter(run => run.catalogStatus === 'READY' && run.sourcePower === 100).sort((a, b) => a.metrics.ionFlux - b.metrics.ionFlux);
   expect(runs.map(run => run.metrics.ionFlux), 'synthetic boundary and its two sides').toEqual([1, 40, 60]);
   const selected = runs.slice(0, 2);
@@ -58,23 +200,32 @@ test('v2 browser answers', async ({page}) => {
     .map(r => r.runId).sort();
   const rows = [];
   for (const item of cases) {
-    const before = await (await page.request.get(`${api}/api/workspace`)).json() as WorkspaceView;
-    await page.request.post(`${api}/api/workspace/new-conversation`, {data: {stateToken: before.stateToken}});
+    currentCase=item.id;
+    observe('case-start');
+    const before = await (await apiCall(page,'/api/workspace')).json() as WorkspaceView;
+    await apiCall(page,'/api/workspace/new-conversation',{stateToken:before.stateToken});
     await page.goto('/?view=agent');
     const selector = page.getByRole('combobox', {name: 'Agent 버전'});
-    await expect(selector).toBeEnabled();
-    await selector.selectOption('v2');
+    await expect(selector).toBeVisible();
+    await expect(page.getByRole('textbox', {name: '공정 데이터에 질문하기'})).toBeEnabled();
+    if(graphVersion==='v2_localLLM')await expect(selector).toHaveValue(graphVersion);
+    else {await expect(selector).toBeEnabled();await selector.selectOption(graphVersion);}
     const accepted = await ask(page, item.question);
-    expect(accepted.graphVersion).toBe('v2');
+    expect(accepted.graphVersion).toBe(graphVersion);
     let result = await terminal(page, accepted.requestId);
+    await writeFile(join(output!, `v2-${item.id}-terminal.json`), JSON.stringify(result, null, 2));
     if (item.id === 'nested') {
-      expect(result.status, 'user must choose the two Runs before execution').toBe('NEEDS_INPUT');
-      expect(result.pendingInput?.type).toBe('run_selection');
-      await pick(page, selected);
-      result = await terminal(page, accepted.requestId, result.requestRevision + 1);
+      expect.soft(result.status, 'user must choose the two Runs before execution').toBe('NEEDS_INPUT');
+      expect.soft(result.pendingInput?.type).toBe('run_selection');
+      if (result.status === 'NEEDS_INPUT' && result.pendingInput?.type === 'run_selection') {
+        await pick(page, selected);
+        result = await terminal(page, accepted.requestId, result.requestRevision + 1);
+        await writeFile(join(output!, `v2-${item.id}-terminal.json`), JSON.stringify(result, null, 2));
+      }
     }
     const snapshot = result.answerSnapshot as Record<string, unknown> | null;
-    expect.soft(snapshot?.implementationId, item.id).toBe('v2');
+    expect.soft(snapshot?.graphVersion, item.id).toBe(graphVersion);
+    expect.soft(snapshot?.implementationId, item.id).toBe(graphVersion);
     expect.soft(snapshot?.executionStatus, item.id).toBe('COMPLETE');
     expect.soft(snapshot?.hasIncompleteWork, item.id).toBe(false);
     const steps = (snapshot?.stepResults ?? []) as {outputs: {toolResult?: {kind?: string; commonRunIds?: string[]; usedRunRefs?: RunRef[]}}}[];
@@ -94,7 +245,7 @@ test('v2 browser answers', async ({page}) => {
       issue = '요청한 검색 또는 예상 후보가 누락됨';
     }
     expect.soft(issue, item.id).toBeNull();
-    const activities = result.executionSummary?.activities ?? [];
+    const activities = result.progress?.activities ?? result.executionSummary?.activities ?? [];
     const planReviews = activities.filter(a => a.code === 'PLAN_REVIEW' && a.phase === 'started');
     if (item.id !== 'concept') {
       expect.soft(planReviews.length, `${item.id}: live evaluations require Decisions plan review`).toBeGreaterThan(0);
@@ -106,14 +257,15 @@ test('v2 browser answers', async ({page}) => {
     }
     const answer = page.locator('.agent-response').last();
     if (item.id === 'concept' && result.status === 'COMPLETED') {
-      await expect(answer.locator('.v1-markdown')).toBeVisible();
+      await expect.soft(answer.locator('.v1-markdown')).toBeVisible();
     }
     if (item.id === 'mixed-concept' && result.status === 'COMPLETED') {
-      await expect(answer.getByRole('region', {name: '개념 설명'})).toContainText('이온 플럭스');
+      await expect.soft(answer.getByRole('region', {name: '개념 설명'})).toContainText('이온 플럭스');
     }
     const visible = result.status === 'COMPLETED' ? await answer.innerText({timeout: 12000})
       : await page.locator('.agent-page').innerText();
-    rows.push({id: item.id, question: item.question, graphVersion: 'v2', pass: issue === null,
+    rows.push({id: item.id, question: item.question, graphVersion,
+      evaluationMode:process.env.KPLASMA_V2_MOCK==='true'?'synthetic':'real_model_on_artificial_data',pass:issue===null,
       issue, status: result.status, visible, actual, snapshot, activities,
       expected: item.id === 'nested' ? expected : strictExpected});
     await writeFile(join(output!, 'v2-answers.json'), JSON.stringify(rows, null, 2));
@@ -130,7 +282,7 @@ test('v2 browser answers', async ({page}) => {
 });
 
 test('Decision Agent runs approved @ searches and candidate selection through standard V2',async({page})=>{
-  test.skip(process.env.KPLASMA_V2_MOCK!=='true','Scripted V2 integration only');
+  test.skip(graphVersion!=='v2'||process.env.KPLASMA_V2_MOCK!=='true','Scripted V2 integration only');
   const runs=await (await page.request.get(`${api}/api/runs`)).json() as RunSummary[];
   const baseline=runs.find(run=>run.pressure===6&&run.sourcePower===300&&run.biasPower===600)!;
   const alternative=runs.find(run=>run.pressure===6&&run.sourcePower===100)!;

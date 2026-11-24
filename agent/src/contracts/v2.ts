@@ -1,6 +1,11 @@
 import type { RunRef } from './index.js';
 
-export type GraphVersion = 'v1' | 'v2';
+export type CompositeGraphVersion = 'v2' | 'v2_localLLM';
+export type GraphVersion = 'v1' | CompositeGraphVersion;
+export const isCompositeGraphVersion = (value: unknown): value is CompositeGraphVersion =>
+  value === 'v2' || value === 'v2_localLLM';
+export const isGraphVersion = (value: unknown): value is GraphVersion =>
+  value === 'v1' || isCompositeGraphVersion(value);
 type Json = null | string | number | boolean | Json[] | { [key: string]: Json };
 type ExecutionStatus = 'COMPLETE' | 'PARTIAL' | 'FAILED';
 type ReviewStatus = 'PASS' | 'ISSUE' | 'UNAVAILABLE' | 'SKIPPED';
@@ -52,6 +57,11 @@ export interface GraphV2AnswerSnapshotV1 {
   };
 }
 
+export type CompositeAnswerSnapshot = {
+  [V in CompositeGraphVersion]: Omit<GraphV2AnswerSnapshotV1, 'implementationId' | 'graphVersion'>
+    & {implementationId: V; graphVersion: V}
+}[CompositeGraphVersion];
+
 const record = (v: unknown): v is Record<string, unknown> =>
   typeof v === 'object' && v !== null && !Array.isArray(v);
 const string = (v: unknown): v is string => typeof v === 'string';
@@ -64,7 +74,12 @@ const json = (v: unknown): v is Json => v === null || string(v) || finite(v) || 
 const jsonRecord = (v: unknown) => record(v) && Object.values(v).every(json);
 
 export function isGraphV2AnswerSnapshot(value: unknown): value is GraphV2AnswerSnapshotV1 {
-  if (!record(value) || value.implementationId !== 'v2' || value.graphVersion !== 'v2' || value.schemaVersion !== 1
+  return isCompositeAnswerSnapshot(value) && value.graphVersion === 'v2';
+}
+
+export function isCompositeAnswerSnapshot(value: unknown): value is CompositeAnswerSnapshot {
+  if (!record(value) || !isCompositeGraphVersion(value.graphVersion)
+      || value.implementationId !== value.graphVersion || value.schemaVersion !== 1
       || !oneOf(value.intent, ['COMPOSITE_ANSWER', 'GENERAL_ANSWER'])
       || !string(value.question) || !string(value.answer) || !jsonRecord(value.confirmedContext)
       || !(value.planRevision === null || finite(value.planRevision) && Number.isInteger(value.planRevision)

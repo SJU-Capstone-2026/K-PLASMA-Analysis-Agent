@@ -105,11 +105,11 @@ test('an ambiguous save failure retries the same mutation key without adding twi
  expect(calls).toBe(2);expect(screen.getByText(/선택 1개/)).toBeInTheDocument();
 });
 
-test.each(['v1','v2'] as const)('%s Run selection retains cancellation',async(graphVersion)=>{
+test.each(['v1','v2','v2_localLLM'] as const)('%s Run selection retains cancellation',async(graphVersion)=>{
  if(graphVersion==='v1')pickerServer();
  else vi.stubGlobal('fetch',vi.fn(async()=>Response.json({requestId:'request',requestRevision:2,pendingInputId:'pending',options:options.slice(0,2)})));
  const cancel=vi.fn(async()=>{});
- render(<RunSelectionPanel request={graphVersion==='v1'?request:v2Request} sending={false} onResume={async()=>{}} onCancel={cancel} onError={()=>{}}/>);
+ render(<RunSelectionPanel request={graphVersion==='v1'?request:{...v2Request,graphVersion}} sending={false} onResume={async()=>{}} onCancel={cancel} onError={()=>{}}/>);
  await screen.findByRole('checkbox',{name:/R1 · Run-0/});
  fireEvent.click(screen.getByRole('button',{name:'분석 취소'}));
  await waitFor(()=>expect(cancel).toHaveBeenCalledTimes(1));

@@ -7,16 +7,8 @@ import json
 from pathlib import Path
 from time import monotonic
 
-import httpx
-
-from kplasma_agent import tracing
-from kplasma_agent.config import Settings
-from kplasma_agent.v2.budget import check_payload
-from kplasma_agent.v2.contracts import PlanDraft
-from kplasma_agent.v2.model_gateway import V2ModelGateway, V2Settings
-from kplasma_agent.v2.plan_review import build_plan_review_context
-from kplasma_agent.v2.plan_validation import validate_plan
 from .plan_review_cases import cases
+from .v2_harness import GRAPH_VERSIONS, live_configuration, open_gateway, runtime_for_version
 
 
 def jobs(bank, repeats):
@@ -45,6 +37,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--live", action="store_true")
     parser.add_argument("--env-file", type=Path)
+    parser.add_argument("--graph-version", choices=GRAPH_VERSIONS, default="v2")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--repeats", type=int, default=3)
     parser.add_argument("--case", action="append")
@@ -55,30 +48,34 @@ def main():
     args.output.mkdir(parents=True, exist_ok=True)
     matrix = list(jobs(bank, args.repeats))
     (args.output / "jobs.json").write_text(json.dumps([
-        {"case": case.id, "bad": bad, "repeat": repeat, "question": case.question}
+        {"graphVersion": args.graph_version, "evaluationMode": "real_model" if args.live else "offline_preflight",
+         "case": case.id, "bad": bad, "repeat": repeat, "question": case.question}
         for case, bad, repeat in matrix], ensure_ascii=False, indent=2))
     if not args.live:
         print(f"Planned {len(matrix)} fixed-plan Decisions requests; no API calls. Use --live to run.")
         return
-    base = Settings.from_env(args.env_file)
-    if not base.api_key:
-        parser.error("OPENAI_API_KEY is required for --live")
+    try:
+        base, configured = live_configuration(args.graph_version, args.env_file)
+    except (OSError, ValueError) as error:
+        parser.error(str(error))
+    runtime = runtime_for_version(args.graph_version)
+    tracing = runtime.tracing
     tracing.initialize(base)
     atexit.register(tracing.shutdown)
     rows = []
-    with httpx.Client(timeout=base.timeout) as client, (args.output / "results.jsonl").open("w") as output:
-        models = V2ModelGateway(V2Settings.from_env(base), client, check_payload)
+    with open_gateway(args.graph_version, base, configured) as models, (args.output / "results.jsonl").open("w") as output:
         for case, bad, repeat in matrix:
             proposed = case.bad if bad else case.good
-            plan = validate_plan(PlanDraft.model_validate(proposed.model_dump(mode="json")),
+            plan = runtime.validation.validate_plan(runtime.contracts.PlanDraft.model_validate(proposed.model_dump(mode="json")),
                 messages={"question": case.question}, context_keys=set(case.context),
                 selected_run_keys={e["key"] for e in case.context.get("comparison_entries", [])})
-            payload = build_plan_review_context(plan, 1, case.question, [], case.context, {})
+            payload = runtime.review.build_plan_review_context(plan, 1, case.question, [], case.context, {})
             start = monotonic()
             with tracing.span("eval.decisions", session_id=f"decisions:{args.output.name}:{case.id}:{bad}:{repeat}",
                               attributes={"evaluation.case_id": case.id, "evaluation.expected_bad": bad}):
                 result, usage = models.review_plan(payload)
-            row = {"case": case.id, "bad": bad, "repeat": repeat, "question": case.question,
+            row = {"graphVersion": args.graph_version, "evaluationMode": "real_model",
+                   "case": case.id, "bad": bad, "repeat": repeat, "question": case.question,
                    "grade": grade(bad, result["status"]), "seconds": monotonic() - start,
                    "input": payload, "review": result, "usage": usage}
             rows.append(row)

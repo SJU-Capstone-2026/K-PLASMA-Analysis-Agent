@@ -534,8 +534,10 @@
                     "type": "string",
                     "enum": [
                       "v1",
-                      "v2"
-                    ]
+                      "v2",
+                      "v2_localLLM"
+                    ],
+                    "description": "Exact conversation graph identity. The deployment must enable this version; an omitted value uses its configured default (cloud: v1; local: v2_localLLM). A pinned conversation cannot change versions."
                   }
                 }
               }
@@ -588,6 +590,28 @@
       },
       "RequestView": {
         "$ref": "agent-v1.openapi.yaml#/components/schemas/RequestView"
+      },
+      "GraphVersion": {
+        "type": "string",
+        "enum": [
+          "v1",
+          "v2",
+          "v2_localLLM"
+        ]
+      },
+      "GraphV2LocalLLMAnswerSnapshotV1": {
+        "$ref": "agent-v2-local-llm.answer.schema.json"
+      },
+      "CompositeAnswerSnapshot": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/GraphV2AnswerSnapshotV1"
+          },
+          {
+            "$ref": "#/components/schemas/GraphV2LocalLLMAnswerSnapshotV1"
+          }
+        ],
+        "description": "graphVersion and implementationId must match each other and the owning request. The legacy v1 schema families remain separate."
       }
     }
   }

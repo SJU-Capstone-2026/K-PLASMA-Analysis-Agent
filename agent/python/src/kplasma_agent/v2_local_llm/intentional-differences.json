@@ -1,0 +1,484 @@
+{
+  "schemaVersion": 1,
+  "changes": [
+    {
+      "path": "backend_client.py",
+      "selectors": [
+        "class:BackendClient/function:__init__",
+        "import:kplasma_agent.v2_local_llm.network:local_http_client"
+      ],
+      "reason": "Restrict the owned backend client to one explicit loopback origin with no proxy or redirects.",
+      "tests": [
+        "tests/v2_local_llm/test_network.py",
+        "tests/v2_local_llm/test_model_client.py"
+      ]
+    },
+    {
+      "path": "config.py",
+      "selectors": [
+        "assign:PREFIX",
+        "assign:PLAN_TIMEOUT_SECONDS",
+        "assign:REVIEW_MODELS",
+        "class:Settings/assign:context_tokens",
+        "class:Settings/assign:d1_batch_tokens",
+        "class:Settings/assign:d1_context_tokens",
+        "class:Settings/assign:d1_model",
+        "class:Settings/assign:d1_model_path",
+        "class:Settings/assign:d1_revision",
+        "class:Settings/assign:d1_runtime_version",
+        "class:Settings/assign:d1_token",
+        "class:Settings/assign:d1_tokenizer_path",
+        "class:Settings/assign:d1_ubatch_tokens",
+        "class:Settings/assign:d1_url",
+        "class:Settings/assign:graph_build_id",
+        "class:Settings/assign:model",
+        "class:Settings/assign:model_path",
+        "class:Settings/assign:model_revision",
+        "class:Settings/assign:model_url",
+        "class:Settings/assign:phoenix_project_name",
+        "class:Settings/assign:runtime_version",
+        "class:Settings/assign:tokenizer_path",
+        "class:Settings/function:from_env",
+        "class:Settings/function:readiness",
+        "class:Settings/function:versions",
+        "function:_reject_contamination",
+        "import:dotenv:dotenv_values",
+        "import:dotenv:load_dotenv",
+        "import:kplasma_agent.v2_local_llm.network:validate_endpoint",
+        "class:Settings/assign:measurement_path",
+        "class:Settings/assign:reasoning_effort",
+        "class:Settings/function:generation_options",
+        "class:Settings/assign:qwen_plan_cache_dir",
+        "class:Settings/assign:qwen_plan_cache_enabled",
+        "class:Settings/assign:memory_policy",
+        "class:Settings/assign:d1_engine",
+        "class:Settings/assign:d1_group_size",
+        "class:Settings/assign:d1_independent_batch_size",
+        "class:Settings/assign:d1_precision",
+        "class:Settings/assign:d1_input_profile",
+        "class:Settings/assign:d1_context_mode"
+      ],
+      "reason": "Require pinned local artifacts, live native model contracts and matching full-stack memory measurements; preserve local-only destinations and recovery identity without OS outbound-filter requirements. Follow-up: pinned llama.cpp GGUF profile, role-specific thinking, native token counting and measured sequential residency; unchanged graph and final answer contracts. LocalLLM_v2.2 names prerequisite guards required_prior_outputs, reads legacy requires without rewriting records, and explains predecessor-only semantics; dependency, execution and final answer rules are preserved. Explicit development memory policy permits recorded warnings without weakening the strict default; policy is bound to evidence and recovery identity. LocalLLM_v2.3 adds numerical Qwen diagnostics and an isolated, explicitly selected BF16 d1 MLX profile with full packed input counting and measured release; graph, review meanings and response contracts stay fixed. v2.3 uses MLX affine8 single-check d1 with a retained BF16 single mode; only the transmitted review context is translated and deduplicated, retaining original snapshots, question IDs, choices and the graph/answer contracts. LocalLLM_v2.4 keeps full tool contracts by default and binds opt-in per-check projection identity to readiness and recovery.",
+      "tests": [
+        "tests/v2_local_llm/test_config.py",
+        "tests/v2_local_llm/test_worker.py",
+        "tests/v2_local_llm/test_llamacpp_profile.py",
+        "tests/v2_local_llm/test_llamacpp_runtime.py",
+        "tests/v2_local_llm/test_prior_outputs.py",
+        "tests/v2_local_llm/test_prompt_cache.py",
+        "tests/v2_local_llm/test_memory_policy.py",
+        "tests/v2_local_llm/test_d1_mlx_integration.py",
+        "tests/v2_local_llm/test_d1_input.py",
+        "tests/v2_local_llm/test_d1_v23_gateway.py"
+      ]
+    },
+    {
+      "path": "model_client.py",
+      "selectors": [
+        "docstring",
+        "class:ModelClient/function:__init__",
+        "class:ModelClient/function:_generate",
+        "class:ModelClient/function:_json_request",
+        "class:ModelClient/function:_tool_request",
+        "import:kplasma_agent.v2_local_llm.network:local_http_client,validate_endpoint",
+        "class:ModelClient/function:_input",
+        "class:ModelClient/function:_request",
+        "class:ModelClient/function:select_tool",
+        "class:ModelClient/function:answer",
+        "class:ModelClient/function:stream_answer",
+        "class:ModelClient/function:generate",
+        "import:math"
+      ],
+      "reason": "Use Qwen through the owned loopback transport, native submit_plan tool calls for planning and JSON Schema for answer drafts; preserve real native call provenance, validation, failure handling, budgets, usage and answer streaming. Follow-up: pinned llama.cpp GGUF profile, role-specific thinking, native token counting and measured sequential residency; unchanged graph/tool/final answer contracts. LocalLLM_v2.1 removes unused inherited Responses and v1 tool-selection/continuation methods; active native planning, strict answer generation and streaming stay unchanged. LocalLLM_v2.3 adds numerical Qwen diagnostics and an isolated, explicitly selected BF16 d1 MLX profile with full packed input counting and measured release; graph, review meanings and response contracts stay fixed.",
+      "tests": [
+        "tests/v2_local_llm/test_model_client.py",
+        "tests/v2_local_llm/test_chat_schema.py",
+        "tests/v2_local_llm/test_model_gateway.py",
+        "tests/v2_local_llm/test_native_plan.py",
+        "tests/v2_local_llm/test_llamacpp_profile.py",
+        "tests/v2_local_llm/test_llamacpp_runtime.py",
+        "tests/v2_local_llm/test_prompt_cache.py",
+        "tests/v2_local_llm/test_d1_mlx_integration.py"
+      ]
+    },
+    {
+      "path": "persistence/checkpointer.py",
+      "selectors": [
+        "class:DurableSaver/function:__init__",
+        "class:DurableSaver/function:_save"
+      ],
+      "reason": "Use a local-only saver format so another graph cannot reuse its checkpoint envelope.",
+      "tests": [
+        "tests/v2_local_llm/test_checkpoint_adapter.py",
+        "tests/v2_local_llm/test_worker.py"
+      ]
+    },
+    {
+      "path": "tracing.py",
+      "selectors": [
+        "function:_register",
+        "function:initialize",
+        "import:urllib.parse:urlsplit"
+      ],
+      "reason": "Disable external exporter construction; preserve no-op spans and credential scrubbing.",
+      "tests": [
+        "tests/v2_local_llm/test_tracing.py"
+      ]
+    },
+    {
+      "path": "core/budget.py",
+      "selectors": [
+        "assign:ROLES",
+        "assign:MAX_INPUT_TOKENS",
+        "docstring",
+        "function:_check_count",
+        "function:_context_limit",
+        "function:_encoding",
+        "function:_json",
+        "function:_role",
+        "function:check_payload",
+        "function:make_input_guard",
+        "import:functools:lru_cache",
+        "import:tiktoken",
+        "function:make_d1_counter",
+        "function:make_qwen_counter",
+        "function:validate_d1_groups",
+        "function:d1_count_values"
+      ],
+      "reason": "Count the complete pinned local Qwen and native d1 templates with local tokenizers; enforce actual context/batch limits and reject overflow without truncating input. Follow-up: pinned llama.cpp GGUF profile, role-specific thinking, native token counting and measured sequential residency; unchanged graph/tool/final answer contracts. LocalLLM_v2.1 removes the obsolete Hugging Face tokenizer fallback; current workers and evaluations retain authenticated native counters and all budget checks, failing closed when a Qwen counter is missing. LocalLLM_v2.3 adds numerical Qwen diagnostics and an isolated, explicitly selected BF16 d1 MLX profile with full packed input counting and measured release; graph, review meanings and response contracts stay fixed.",
+      "tests": [
+        "tests/v2_local_llm/test_budget.py",
+        "tests/v2_local_llm/test_native_token_counting.py",
+        "tests/v2_local_llm/test_llamacpp_profile.py",
+        "tests/v2_local_llm/test_llamacpp_runtime.py",
+        "tests/v2_local_llm/test_d1_mlx_integration.py"
+      ]
+    },
+    {
+      "path": "core/model_gateway.py",
+      "selectors": [
+        "docstring",
+        "class:V2LocalLLMModelGateway/function:submit_plan",
+        "class:V2LocalLLMSettings/function:from_env",
+        "function:_decisions_response",
+        "function:call_submit_plan",
+        "import:collections:Counter",
+        "import:pydantic:ValidationError",
+        "import:os",
+        "assign:PLAN_INSTRUCTIONS",
+        "assign:COMPOSE_INSTRUCTIONS",
+        "import:kplasma_agent.v2_local_llm.core.contracts:DataAnswerDraft,GeneralAnswerDraft,PlanDraft,ReviewAnswer,ReviewDecision",
+        "import:kplasma_agent.v2_local_llm.core.contracts:DataAnswerDraft as DataAnswerDraft,GeneralAnswerDraft,PlanDraft,ReviewAnswer,ReviewDecision",
+        "import:kplasma_agent.v2_local_llm.core.selected_values:SelectedValues",
+        "import:kplasma_agent.v2_local_llm.core.planner_input:SelectedRunsAggregate,expand_selected_runs_aggregates",
+        "import:kplasma_agent.v2_local_llm.config:PLAN_TIMEOUT_SECONDS,REVIEW_MODELS,Settings",
+        "import:kplasma_agent.v2_local_llm.config:Settings",
+        "import:kplasma_agent.v2_local_llm.core.code_plan_checks:code_plan_checks",
+        "import:kplasma_agent.v2_local_llm.core.plan_checks:review_questions",
+        "import:kplasma_agent.v2_local_llm.core.plan_checks:build_check_specs,review_questions",
+        "import:kplasma_agent.v2_local_llm.core.plan_review:parse_plan_review,review_result",
+        "import:kplasma_agent.v2_local_llm.core.plan_review:execution_view,parse_plan_review,plan_digest,program_effects,review_result",
+        "function:_plan_defaults",
+        "function:submit_plan_tool_schema",
+        "class:V2LocalLLMModelGateway/function:__init__",
+        "class:V2LocalLLMModelGateway/function:compose",
+        "function:_review_input",
+        "function:_answer_questions",
+        "assign:_D1_STEP_NAMES",
+        "function:_rename_step_references",
+        "function:_d1_plan_context",
+        "function:review_plan",
+        "function:review_answer",
+        "class:V2LocalLLMModelGateway/function:review_plan",
+        "class:V2LocalLLMModelGateway/function:review"
+      ],
+      "reason": "Receive exactly one native submit_plan call with the local tool schema, decode only nullable revision and JSON-encoded list representations, preserve strict validation and its error paths for the existing replan loop; retain mandatory d1 review and unchanged graph nodes, edges and answer contracts without content JSON fallback. Follow-up: pinned llama.cpp GGUF profile, role-specific thinking, native token counting and measured sequential residency; unchanged graph and final answer contracts. LocalLLM_v2.2 names prerequisite guards required_prior_outputs, reads legacy requires without rewriting records, and explains predecessor-only semantics; dependency, execution and final answer rules are preserved. v2.3 uses MLX affine8 single-check d1 with a retained BF16 single mode; only the transmitted review context is translated and deduplicated, retaining original snapshots, question IDs, choices and the graph/answer contracts.",
+      "tests": [
+        "tests/v2_local_llm/test_config.py",
+        "tests/v2_local_llm/test_decisions.py",
+        "tests/v2_local_llm/test_model_gateway.py",
+        "tests/v2_local_llm/test_d1_v23_gateway.py",
+        "tests/v2_local_llm/test_native_plan.py",
+        "tests/v2_local_llm/test_llamacpp_profile.py",
+        "tests/v2_local_llm/test_llamacpp_runtime.py",
+        "tests/v2_local_llm/test_prior_outputs.py",
+        "tests/v2_local_llm/test_prompt_cache.py",
+        "tests/v2_local_llm/test_d1_input.py",
+        "tests/v2_local_llm/test_d1_v23_gateway.py",
+        "tests/v2_local_llm/test_selected_values.py"
+      ]
+    },
+    {
+      "path": "core/composition.py",
+      "selectors": [
+        "import:kplasma_agent.v2_local_llm.comparison_catalog:FIELD_META",
+        "import:kplasma_agent.v2_local_llm.metric_registry:CONDITION_KEYS,LABELS,OUTPUT_METRICS,UNITS,format_value,is_finite",
+        "import:kplasma_agent.v2_local_llm.metric_registry:CONDITION_KEYS,OUTPUT_METRICS,UNITS,format_value,is_finite",
+        "import:kplasma_agent.v2_local_llm.core.planner_input:_IEAD_UNIT_LIMITATION",
+        "assign:_ION_FLUX_FORMULA_REQUEST",
+        "function:reference_answer",
+        "function:_render_fact"
+      ],
+      "reason": "Render an explicitly requested basic definition or a verified source-unit limitation through the existing answer contracts when its reference is known, and use registered display labels for verified facts.",
+      "tests": ["tests/v2_local_llm/test_round3_recovery.py"]
+    },
+    {
+      "path": "graph.py",
+      "selectors": [
+        "import:kplasma_agent.v2_local_llm.config:REVIEW_MODELS",
+        "import:kplasma_agent.v2_local_llm.core.code_plan_checks:code_plan_checks",
+        "import:kplasma_agent.v2_local_llm.core.composition:assemble_answer,collect_comparison_coverage,collect_evidence,collect_numeric_values,collect_search_evidence,facts_only,interpretation_review_payload",
+        "import:kplasma_agent.v2_local_llm.core.composition:assemble_answer,collect_comparison_coverage,collect_evidence,collect_numeric_values,collect_search_evidence,facts_only,interpretation_review_payload,reference_answer",
+        "function:_generation_failure",
+        "function:build_v2_local_llm_graph"
+      ],
+      "reason": "Forward native argument validation diagnostics in generation_failure. Put the current d1-rejected plan in rejected_plan, omit its duplicate previous_plan, and suppress stale semantic feedback during a format-error replan. Recheck unclear ordering once against the original question with four choices; retain the existing compose path for unresolved stored reviews.",
+      "tests": [
+        "tests/v2_local_llm/test_native_plan.py",
+        "tests/v2_local_llm/test_clone_parity.py",
+        "tests/v2_local_llm/test_plan_review_graph.py",
+        "tests/v2_local_llm/test_code_plan_review.py",
+        "tests/v2_local_llm/test_round3_recovery.py"
+      ]
+    },
+    {
+      "path": "network.py",
+      "newFile": true,
+      "selectors": [],
+      "reason": "Enforce one literal loopback origin at the transport before a request reaches sockets; ignore proxies and do not follow redirects.",
+      "tests": [
+        "tests/v2_local_llm/test_network.py"
+      ]
+    },
+    {
+      "path": "core/decisions.py",
+      "newFile": true,
+      "selectors": [],
+      "reason": "Normalize native System One typed choices without inventing probabilities, confidence or usage.",
+      "tests": [
+        "tests/v2_local_llm/test_decisions.py"
+      ]
+    },
+    {
+      "path": "worker.py",
+      "newFile": true,
+      "selectors": [],
+      "reason": "Physically derive the private single-version worker from the pinned v2 worker (worker-source.json); directly construct the owned graph/saver/gateway and block unverified real execution.",
+      "tests": [
+        "tests/v2_local_llm/test_worker.py",
+        "tests/v2_local_llm/test_checkpoint_adapter.py",
+        "tests/v2_local_llm/test_prompt_cache.py"
+      ]
+    },
+    {
+      "path": "runtime.py",
+      "newFile": true,
+      "selectors": [],
+      "reason": "Read local runtime readiness and native memory facts without external services or OS network filters. Follow-up: pinned llama.cpp GGUF profile, role-specific thinking, native token counting and measured sequential residency; unchanged graph/tool/final answer contracts. LocalLLM_v2.3 adds numerical Qwen diagnostics and an isolated, explicitly selected BF16 d1 MLX profile with full packed input counting and measured release; graph, review meanings and response contracts stay fixed.",
+      "tests": [
+        "tests/v2_local_llm/test_runtime_measurement.py",
+        "tests/v2_local_llm/test_config.py",
+        "tests/v2_local_llm/test_worker.py",
+        "tests/v2_local_llm/test_llamacpp_profile.py",
+        "tests/v2_local_llm/test_llamacpp_runtime.py",
+        "tests/v2_local_llm/test_prompt_cache.py",
+        "tests/v2_local_llm/test_d1_mlx_integration.py"
+      ]
+    },
+    {
+      "path": "core/plan_validation.py",
+      "selectors": [
+        "import:re",
+        "import:kplasma_agent.v2_local_llm.core.code_plan_checks:use_explicit_comparison_results_only,use_explicit_search_intent",
+        "import:kplasma_agent.v2_local_llm.core.planner_input:connect_selected_comparison_threshold,include_causal_comparison_evidence,use_explicit_comparison_outputs,use_explicit_single_run_lookup",
+        "assign:_KOREAN_PARTICLE_SUFFIX",
+        "function:_connect_comparison_choices",
+        "function:_restore_quote_spacing",
+        "function:_uses_builtin_difference",
+        "function:validate_plan"
+      ],
+      "reason": "LocalLLM_v2.2 names prerequisite guards required_prior_outputs, reads legacy requires without rewriting records, and explains predecessor-only semantics. LocalLLM_v2.6 restores original citation spacing. Local plan validation normalizes duplicate comparison fields, connects baseline/axis choices before their target comparison, validates Run selection guards using their list type, and compiles selected-group thresholds. Fully recognized standalone searches preserve cited scientific flux thresholds. Explicit read-only search and comparison requests omit unsolicited explanations. Explicit selected comparisons use the named output fields.",
+      "tests": [
+        "tests/v2_local_llm/test_prior_outputs.py",
+        "tests/v2_local_llm/test_plan_validation.py",
+        "tests/v2_local_llm/test_plan_review_graph.py"
+      ]
+    },
+    {
+      "path": "core/plan_review.py",
+      "selectors": [
+        "function:execution_view"
+      ],
+      "reason": "LocalLLM_v2.2 names prerequisite guards required_prior_outputs, reads legacy requires without rewriting records, and explains predecessor-only semantics; dependency, execution and final answer rules are preserved.",
+      "tests": [
+        "tests/v2_local_llm/test_prior_outputs.py"
+      ]
+    },
+    {
+      "path": "core/plan_review.py",
+      "selectors": [
+        "import:kplasma_agent.v2_local_llm.core.code_plan_checks:CodeCheck,code_plan_checks",
+        "function:_check_choices",
+        "function:parse_plan_review",
+        "function:matches_review_context",
+        "class:PlanReviewResult/function:consistent_verdict"
+      ],
+      "reason": "Keep existing scored reviews readable and verify unscored code matches against the bound plan and user context.",
+      "tests": [
+        "tests/v2_local_llm/test_code_plan_review.py",
+        "tests/v2_local_llm/test_d1_v23_gateway.py",
+        "tests/v2_local_llm/test_condition_review.py"
+      ]
+    },
+    {
+      "path": "core/plan_checks.py",
+      "selectors": [
+        "assign:RULES",
+        "function:build_check_specs"
+      ],
+      "reason": "LocalLLM_v2.2 names prerequisite guards required_prior_outputs, reads legacy requires without rewriting records, and explains predecessor-only semantics; dependency, execution and final answer rules are preserved.",
+      "tests": [
+        "tests/v2_local_llm/test_prior_outputs.py"
+      ]
+    },
+    {
+      "path": "core/bindings.py",
+      "selectors": [
+        "function:resolve_inputs"
+      ],
+      "reason": "LocalLLM_v2.2 names prerequisite guards required_prior_outputs, reads legacy requires without rewriting records, and explains predecessor-only semantics; dependency, execution and final answer rules are preserved.",
+      "tests": [
+        "tests/v2_local_llm/test_prior_outputs.py"
+      ]
+    },
+    {
+      "path": "core/contracts.py",
+      "selectors": [
+        "class:OutputRequirement/assign:count",
+        "class:OutputRequirement/assign:field",
+        "class:OutputRequirement/assign:step_id",
+        "class:OutputRequirement/assign:unit",
+        "class:OutputRequirement/assign:value_type",
+        "class:PlanDraft/assign:base_revision",
+        "class:PlanDraft/assign:request_mode",
+        "class:PlanDraft/assign:requirements",
+        "class:PlanDraft/assign:schema_version",
+        "class:PlanDraft/assign:steps",
+        "class:Requirement/assign:handled_by",
+        "class:Requirement/assign:id",
+        "class:Requirement/assign:sources",
+        "class:Requirement/assign:text",
+        "class:SourceQuote/assign:message_key",
+        "class:SourceQuote/assign:quote",
+        "class:StepBase/assign:depends_on",
+        "class:StepBase/assign:id",
+        "class:StepBase/assign:required_prior_outputs",
+        "class:StepBase/assign:requirement_ids",
+        "class:StepBase/assign:requires",
+        "class:StepBase/assign:run_if",
+        "import:pydantic:AliasChoices,BaseModel,ConfigDict,Field,JsonValue",
+        "import:pydantic:BaseModel,ConfigDict,Field,JsonValue",
+        "class:StepBase/assign:model_config"
+      ],
+      "reason": "LocalLLM_v2.2 names prerequisite guards required_prior_outputs, reads legacy requires without rewriting records, and explains predecessor-only semantics; dependency, execution and final answer rules are preserved.",
+      "tests": [
+        "tests/v2_local_llm/test_prior_outputs.py"
+      ]
+    },
+    {
+      "path": "prompt_cache.py",
+      "newFile": true,
+      "selectors": [],
+      "reason": "Optional loopback-only Qwen planner disk KV cache with private bounded files and unchanged graph, writer and d1 judgments.",
+      "tests": [
+        "tests/v2_local_llm/test_prompt_cache.py"
+      ]
+    },
+    {
+      "path": "qwen_analysis.py",
+      "newFile": true,
+      "selectors": [],
+      "reason": "Local numerical planner diagnostics with optional local CPU retokenization, no generation/request/schema changes or model wakeups.",
+      "tests": [
+        "tests/v2_local_llm/test_model_client.py"
+      ]
+    },
+    {
+      "path": "runtime_integrity.py",
+      "newFile": true,
+      "selectors": [],
+      "reason": "CPU-only installed-library and loader-consumed model inventory checks bind runtime readiness to the measured isolated d1 implementation.",
+      "tests": [
+        "tests/v2_local_llm/test_d1_integrity.py",
+        "tests/v2_local_llm/test_d1_mlx_integration.py"
+      ]
+    },
+    {
+      "path": "core/selected_values.py",
+      "newFile": true,
+      "selectors": [],
+      "reason": "The writer selects request-local value choices in typed prose segments and enum-only evidence choices for fact_ids and evidence_ids; code compiles references and all citation IDs into the unchanged DataAnswerDraft and streams the existing public block names. Unknown choices, directly copied citation IDs and model-written reference syntax are rejected, including during rewrites. Graph, d1 review, numeric grounding and final answer contracts are preserved.",
+      "tests": [
+        "tests/v2_local_llm/test_selected_values.py",
+        "tests/v2_local_llm/test_model_gateway.py"
+      ]
+    },
+    {
+      "path": "core/planner_input.py",
+      "newFile": true,
+      "selectors": [],
+      "reason": "Expand Qwen's explicit aggregate search threshold over confirmed Runs into canonical compare, derive and search bindings before validating the durable plan.",
+      "tests": [
+        "tests/v2_local_llm/test_model_gateway.py"
+      ]
+    },
+    {
+      "path": "core/d1_input.py",
+      "newFile": true,
+      "selectors": [],
+      "reason": "Translate fixed instructions and specialize ordering choices without changing their order. Send verified user excerpts instead of the complete question, compact duplicate metadata, and retain the source snapshots and check coverage.",
+      "tests": [
+        "tests/v2_local_llm/test_d1_input.py",
+        "tests/v2_local_llm/test_d1_v23_gateway.py"
+      ]
+    },
+    {
+      "path": "core/code_plan_checks.py",
+      "newFile": true,
+      "selectors": [],
+      "reason": "Compare explicit search ordering and Run target requests with executable inputs before d1 review.",
+      "tests": [
+        "tests/v2_local_llm/test_code_plan_review.py"
+      ]
+    },
+    {
+      "path": "core/d1_plan_view.py",
+      "newFile": true,
+      "selectors": [],
+      "reason": "Limit independent literal filter checks to the relevant operands and their source excerpts, restore the full check list, and include history and future-input instructions where relevant. The original plan, check outcomes and public contracts retain their existing shapes.",
+      "tests": [
+        "tests/v2_local_llm/test_d1_mlx.py"
+      ]
+    },
+    {
+      "path": "core/flash_review.py",
+      "newFile": true,
+      "selectors": [],
+      "reason": "Give Flash focused evidence for optional baseline/trend, numerical bounds, selection and Run targets while keeping the native verdict contract.",
+      "tests": [
+        "tests/v2_local_llm/test_flash_review.py",
+        "tests/v2_local_llm/test_code_plan_review.py"
+      ]
+    },
+    {
+      "path": "core/d1_context.py",
+      "newFile": true,
+      "selectors": [],
+      "reason": "Conservatively select only registered per-check tool contracts on the native MLX wire; preserve original plans, snapshots, all checks, graphs and final response contracts, with byte-identical full fallback. User-approved follow-up uses fixed reference sets for three always-present coverage checks and per-kind selection for all thirteen kinds; omitted requests remain reviewable and unknown inputs retain safe fallback.",
+      "tests": [
+        "tests/v2_local_llm/test_d1_context.py",
+        "tests/v2_local_llm/test_d1_mlx.py"
+      ]
+    }
+  ]
+}

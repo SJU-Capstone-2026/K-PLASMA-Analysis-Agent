@@ -1,0 +1,14 @@
+[project]
+name = "kplasma-d1-mlx-runtime"
+version = "2.3.0"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+  "mlx-decision",
+  "mlx==0.32.4",
+]
+
+[tool.uv.sources]
+mlx-decision = { git = "https://github.com/armbues/mlx-decision.git", rev = "2527a733c97a3fd5e0de54ea19f74fd362ed1ad2" }
+
+[dependency-groups]
+dev = ["pytest>=9,<10"]

@@ -208,8 +208,11 @@ def load_cases_raw():
     assert len(cases) == 40 and len({c["id"] for c in cases}) == 40
     assert len({c["question"] for c in cases}) == 40
     assert dict(Counter(c["category"] for c in cases)) == COUNTS
-    assert len(oracle["runs"]) == 149 and len(oracle["byId"]) == 149
+    run_count = cases[0]["sourceOracle"].get("catalogCount", 149)
+    assert run_count in (149, 150)
+    assert len(oracle["runs"]) == run_count and len(oracle["byId"]) == run_count
     for case in cases:
+        assert case["sourceOracle"].get("catalogCount", 149) == run_count, case["id"]
         assert case["sourceOracle"]["files"] == oracle["hashes"], case["id"]
         assert all(r in oracle["byId"] for r in case["selected"])
         assert case["baseline"] is None or case["baseline"] in case["selected"]
@@ -272,8 +275,10 @@ def datum_ok(datum, rid, field, oracle):
         return False
 
 
-def grade_raw(case, view, interactions):
+def grade_raw(case, view, interactions, *, graph_version="v2"):
     """Grade one final request and its actual, same-request HITL interactions."""
+    if graph_version not in ("v2", "v2_localLLM"):
+        raise ValueError("unsupported graph version")
     checks = []
     expected = case["expected"]
     human = bool(expected.get("general") or expected.get("interpretation"))
@@ -288,10 +293,13 @@ def grade_raw(case, view, interactions):
         return {"pass": False, "checks": checks, "humanReviewRequired": human}
     check("frozen_oracle_identity", case.get("sourceOracle", {}).get("files") == oracle["hashes"])
     check("request_completed", view.get("status") == "COMPLETED", view.get("status"))
-    check("actual_v2", view.get("graphVersion") == "v2", view.get("graphVersion"))
+    check("actual_v2" if graph_version == "v2" else "actual_graph_version",
+          view.get("graphVersion") == graph_version, view.get("graphVersion"))
     snapshot = view.get("answerSnapshot")
     check("answer_snapshot_present", isinstance(snapshot, dict))
     snapshot = snapshot if isinstance(snapshot, dict) else {}
+    check("snapshot_graph_version", snapshot.get("graphVersion") == graph_version, snapshot.get("graphVersion"))
+    check("implementation_identity", snapshot.get("implementationId") == graph_version, snapshot.get("implementationId"))
     answer = snapshot.get("answer")
     check("nonempty_final_answer", isinstance(answer, str) and bool(answer.strip()))
     answer = answer if isinstance(answer, str) else ""
@@ -762,9 +770,9 @@ def load_cases():
     return [_corrected_case(case)[0] for case in load_cases_raw()]
 
 
-def grade(case, view, interactions):
+def grade(case, view, interactions, *, graph_version="v2"):
     corrected, override = _corrected_case(case)
-    result = grade_raw(corrected, view, interactions)
+    result = grade_raw(corrected, view, interactions, graph_version=graph_version)
     errors, count = [], 0
     for step_index, step in enumerate((view.get("answerSnapshot") or {}).get("stepResults", []), 1):
         tool = step.get("outputs", {}).get("toolResult")

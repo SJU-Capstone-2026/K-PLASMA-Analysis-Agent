@@ -6,21 +6,18 @@ from dataclasses import replace
 import json
 from pathlib import Path
 
-import httpx
-
-from kplasma_agent.config import Settings
-from kplasma_agent.v2.model_gateway import V2ModelGateway, V2Settings
-from kplasma_agent.v2.budget import check_payload
-
 from .v2_cases import CASES
-from .v2_harness import evaluate_case
+from .v2_harness import GRAPH_VERSIONS, evaluate_case, live_configuration, open_gateway
 
 SETTINGS = (("gpt-5.6-luna", "none"), ("gpt-5.6-luna", "low"),
             ("gpt-6-luna", "none"), ("gpt-6-luna", "low"))
 
 
-def jobs(limit, only, repeat):
-    for model, effort in SETTINGS:
+def jobs(limit, only, repeat, *, graph_version="v2"):
+    if graph_version not in GRAPH_VERSIONS:
+        raise ValueError("unsupported graph version")
+    matrix = (("mlx-community/Qwen3.5-9B-4bit", "none"),) if graph_version == "v2_localLLM" else SETTINGS
+    for model, effort in matrix:
         for case in [c for c in CASES if not only or c.id == only][:limit]:
             attempts = repeat if case.repeated else 1
             for trial in range(1, attempts + 1):
@@ -37,41 +34,44 @@ def main():
     parser.add_argument("--limit", type=int, default=len(CASES))
     parser.add_argument("--case")
     parser.add_argument("--repeat", type=int, default=3)
-    parser.add_argument("--workers", type=int, default=4)
+    parser.add_argument("--graph-version", choices=GRAPH_VERSIONS, default="v2")
+    parser.add_argument("--workers", type=int)
     parser.add_argument("--plan-review", choices=("on", "off"), default="on")
     args = parser.parse_args()
+    args.workers = args.workers if args.workers is not None else (1 if args.graph_version == "v2_localLLM" else 4)
+    if args.workers < 1 or args.graph_version == "v2_localLLM" and args.workers != 1:
+        parser.error("local evaluation requires concurrency 1; workers must be positive")
+    if args.graph_version == "v2_localLLM" and args.plan_review != "on":
+        parser.error("local evaluation requires plan review")
     if args.live and args.plan_review != "on":
         parser.error("live evaluation requires plan review; --plan-review off is not allowed")
     output = args.output.resolve()
     repo = Path(__file__).resolve().parents[3]
     if output.is_relative_to(repo):
         parser.error("output must be outside the repository")
-    matrix = list(jobs(args.limit, args.case, args.repeat))
+    matrix = list(jobs(args.limit, args.case, args.repeat, graph_version=args.graph_version))
     if not matrix:
         parser.error("no evaluation cases match")
     output.mkdir(parents=True, exist_ok=True)
     (output / "matrix.json").write_text(json.dumps([
-        {"model": model, "effort": effort, "case": case.id, "trial": trial}
+        {"graphVersion": args.graph_version, "evaluationMode": "real_model" if args.live else "offline_preflight",
+         "model": model, "effort": effort, "case": case.id, "trial": trial}
         for model, effort, case, trial in matrix
     ], indent=2), encoding="utf-8")
     print(f"{len(matrix)} evaluation requests -> {output}", flush=True)
     if not args.live:
         return
-    base = Settings.from_env(args.env_file)
-    if not base.api_key:
-        parser.error("live mode requires OPENAI_API_KEY")
-    configured = V2Settings.from_env(base)
-    if not configured.plan_review_enabled:
-        parser.error("live evaluation requires AGENT_V2_PLAN_REVIEW_ENABLED=true")
-    check_payload({}, "plan")
+    try:
+        base, configured = live_configuration(args.graph_version, args.env_file)
+    except (OSError, ValueError) as error:
+        parser.error(str(error))
 
     def run(job):
         model, effort, case, trial = job
-        v2 = replace(configured, planner=replace(base, model=model, reasoning_effort=effort),
-                     plan_review_enabled=True)
-        with httpx.Client(timeout=base.timeout, transport=httpx.HTTPTransport(retries=0)) as client:
-            gateway = V2ModelGateway(v2, client, check_payload)
-            row = evaluate_case(case, gateway, plan_review_enabled=True)
+        selected = configured if args.graph_version == "v2_localLLM" else replace(
+            configured, planner=replace(base, model=model, reasoning_effort=effort), plan_review_enabled=True)
+        with open_gateway(args.graph_version, base, selected) as gateway:
+            row = evaluate_case(case, gateway, plan_review_enabled=True, graph_version=args.graph_version)
         return {**row, "model": model, "effort": effort, "trial": trial}
 
     with ThreadPoolExecutor(max_workers=args.workers) as pool, (output / "results.jsonl").open("w") as file:

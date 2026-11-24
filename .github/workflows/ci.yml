@@ -26,6 +26,11 @@ jobs:
       - run: uv sync --project agent/python --frozen --extra tracing
       - name: v2 agent and shared domain regression
         run: npm run test:agent
+      - name: Independent local clone and private boundaries
+        run: npm run test:agent:local
+      - name: Explicit graph dispatch contracts
+        working-directory: agent/python
+        run: uv run --frozen --extra tracing pytest tests/test_graph_variants.py tests/test_eval_graph_versions.py
       - run: uv run --project agent/python --frozen pytest scripts/performance/forward-lookup/tests
       - run: uv run --project agent/python --frozen pytest scripts/performance/run-selection/tests
       - run: uv run --project agent/python --frozen ruff check --select E4,E7,E9,F scripts/performance/forward-lookup
@@ -44,6 +49,10 @@ jobs:
         run: npm run test:ui:v2
       - name: v2 synthetic full-stack browser
         run: npm run test:e2e
+      - name: Local graph synthetic full-stack browser
+        run: npm run test:e2e -- --graph-version v2_localLLM
       - name: v2 checkpoint and restart recovery
         run: npm run test:agent:restart
+      - name: Local graph checkpoint and session recovery
+        run: npm run test:agent:restart -- --graph-version v2_localLLM
       # Deliberately no upload-artifact step. External sources, traces, payloads and screenshots stay local.
