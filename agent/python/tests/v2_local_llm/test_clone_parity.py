@@ -23,11 +23,10 @@ def normalize_identity(answer):
 
 
 def run_scenario(version, scenario, monkeypatch):
-    namespace = {"v2": "kplasma_agent", "v3": "kplasma_agent.v3", "local": NAMESPACE}[version]
+    namespace = {"v2": "kplasma_agent", "local": NAMESPACE}[version]
     graph_module = importlib.import_module(namespace + (".graphs.v2" if version == "v2" else ".graph"))
-    builder = getattr(graph_module, {"v2": "build_v2_graph", "v3": "build_v3_graph",
-                                    "local": "build_v2_local_llm_graph"}[version])
-    helpers = {"v2": "v2", "v3": "v3", "local": "v2_local_llm"}[version]
+    builder = getattr(graph_module, {"v2": "build_v2_graph", "local": "build_v2_local_llm_graph"}[version])
+    helpers = {"v2": "v2", "local": "v2_local_llm"}[version]
     monkeypatch.setattr(graph_module, "time", SimpleNamespace(monotonic=lambda: 1000.0))
     if scenario == "concept":
         fixture = importlib.import_module(helpers + ".test_graph")
@@ -85,22 +84,21 @@ def test_local_output_matches_frozen_source_not_live_v2(scenario, monkeypatch):
 
 @pytest.mark.initial_clone
 @pytest.mark.parametrize("scenario", SCENARIOS)
-def test_initial_three_namespaces_match_the_frozen_source(scenario, monkeypatch):
+def test_initial_namespaces_match_the_frozen_source(scenario, monkeypatch):
     expected = json.loads(Path(__file__).with_name("clone-outputs.json").read_text())[scenario]
-    for version in ("v2", "v3", "local"):
+    for version in ("v2", "local"):
         assert run_scenario(version, scenario, monkeypatch) == expected
 
 
 @pytest.mark.initial_clone
-def test_three_runtimes_share_no_schema_function_or_mutable_registry(monkeypatch):
-    gateways = [importlib.import_module(name) for name in (
-        "kplasma_agent.v2.model_gateway", "kplasma_agent.v3.core.model_gateway", NAMESPACE + ".core.model_gateway")]
+def test_runtimes_share_no_schema_function_or_mutable_registry(monkeypatch):
+    v2_gateway = importlib.import_module("kplasma_agent.v2.model_gateway")
+    local_gateway = importlib.import_module(NAMESPACE + ".core.model_gateway")
     for name in ("PlanDraft", "submit_plan_tool_schema", "QUESTIONS"):
-        values = [getattr(module, name) for module in gateways]
-        assert len({id(value) for value in values}) == 3
-    originals = [deepcopy(module.QUESTIONS) for module in gateways[:2]]
-    monkeypatch.setitem(gateways[2].QUESTIONS, "local_only", ("synthetic mutation", {"x": "x"}))
-    assert [module.QUESTIONS for module in gateways[:2]] == originals
-    previous = [module.submit_plan_tool_schema() for module in gateways[:2]]
-    monkeypatch.setattr(gateways[2], "submit_plan_tool_schema", lambda: {"local_only": True})
-    assert [module.submit_plan_tool_schema() for module in gateways[:2]] == previous
+        assert getattr(v2_gateway, name) is not getattr(local_gateway, name)
+    questions = deepcopy(v2_gateway.QUESTIONS)
+    monkeypatch.setitem(local_gateway.QUESTIONS, "local_only", ("synthetic mutation", {"x": "x"}))
+    assert v2_gateway.QUESTIONS == questions
+    schema = v2_gateway.submit_plan_tool_schema()
+    monkeypatch.setattr(local_gateway, "submit_plan_tool_schema", lambda: {"local_only": True})
+    assert v2_gateway.submit_plan_tool_schema() == schema

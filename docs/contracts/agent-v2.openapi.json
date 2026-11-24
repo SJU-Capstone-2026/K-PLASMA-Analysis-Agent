@@ -535,7 +535,6 @@
                     "enum": [
                       "v1",
                       "v2",
-                      "v3",
                       "v2_localLLM"
                     ],
                     "description": "Exact conversation graph identity. The deployment must enable this version; an omitted value uses its configured default (cloud: v1; local: v2_localLLM). A pinned conversation cannot change versions."
@@ -597,12 +596,8 @@
         "enum": [
           "v1",
           "v2",
-          "v3",
           "v2_localLLM"
         ]
-      },
-      "GraphV3AnswerSnapshotV1": {
-        "$ref": "agent-v3.answer.schema.json"
       },
       "GraphV2LocalLLMAnswerSnapshotV1": {
         "$ref": "agent-v2-local-llm.answer.schema.json"
@@ -611,9 +606,6 @@
         "oneOf": [
           {
             "$ref": "#/components/schemas/GraphV2AnswerSnapshotV1"
-          },
-          {
-            "$ref": "#/components/schemas/GraphV3AnswerSnapshotV1"
           },
           {
             "$ref": "#/components/schemas/GraphV2LocalLLMAnswerSnapshotV1"

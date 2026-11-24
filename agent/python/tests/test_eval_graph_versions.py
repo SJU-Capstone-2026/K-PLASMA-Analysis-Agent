@@ -14,7 +14,7 @@ from evals.v2_cases import CASES, Case
 
 
 @pytest.mark.parametrize("version,namespace", [
-    ("v2", "kplasma_agent.v2"), ("v3", "kplasma_agent.v3"),
+    ("v2", "kplasma_agent.v2"),
     ("v2_localLLM", "kplasma_agent.v2_local_llm"),
 ])
 def test_runtime_uses_the_selected_namespace_and_builder(version, namespace):
@@ -24,9 +24,12 @@ def test_runtime_uses_the_selected_namespace_and_builder(version, namespace):
     assert runtime.builder.__module__ == ("kplasma_agent.graphs.v2" if version == "v2" else namespace + ".graph")
 
 
-def test_unknown_version_never_uses_v2():
+@pytest.mark.parametrize("version", ["local", "v3"])
+def test_unsupported_version_never_uses_v2(version):
     with pytest.raises(ValueError, match="graph version"):
-        v2_harness.runtime_for_version("local")
+        v2_harness.runtime_for_version(version)
+    with pytest.raises(ValueError, match="graph version"):
+        run_flow.worker_command(version, "private.env")
 
 
 def test_local_jobs_use_one_model_instead_of_cloud_matrix():
@@ -49,7 +52,7 @@ def test_local_live_configuration_cannot_bypass_readiness(monkeypatch):
 
 
 @pytest.mark.parametrize("version,namespace", [
-    ("v2", "v2"), ("v3", "v3"), ("v2_localLLM", "v2_local_llm"),
+    ("v2", "v2"), ("v2_localLLM", "v2_local_llm"),
 ])
 def test_scripted_case_runs_owned_graph_and_rejects_wrong_identity(version, namespace):
     fixtures = import_module(f"{namespace}.test_graph")
@@ -77,7 +80,7 @@ def test_harness_detects_an_accidentally_routed_v2_builder(monkeypatch):
 
 
 @pytest.mark.parametrize("version,module", [
-    ("v2", "kplasma_agent.worker"), ("v3", "kplasma_agent.v3.worker"),
+    ("v2", "kplasma_agent.worker"),
     ("v2_localLLM", "kplasma_agent.v2_local_llm.worker"),
 ])
 def test_flow_worker_command_preserves_explicit_version_and_env_file(version, module):
@@ -110,7 +113,8 @@ def test_session_bootstrap_precedes_data_and_is_consumed_once():
 def test_flow_grader_rejects_cross_version_snapshot(version, monkeypatch):
     monkeypatch.setattr(flow_grader, "load_oracle", lambda: {"hashes": {}, "byId": {}, "features": {}})
     case = {"expected": {}, "sourceOracle": {"files": {}}, "hitl": []}
-    snapshot = {"graphVersion": version, "implementationId": "v2" if version != "v2" else "v3", "answer": "인공 답변"}
+    wrong_version = "v2_localLLM" if version == "v2" else "v2"
+    snapshot = {"graphVersion": version, "implementationId": wrong_version, "answer": "인공 답변"}
     result = flow_grader.grade_raw(case, {"status": "COMPLETED", "graphVersion": version,
                                          "answerSnapshot": snapshot}, [], graph_version=version)
     check = next(check for check in result["checks"] if check["name"] == "implementation_identity")
@@ -118,8 +122,8 @@ def test_flow_grader_rejects_cross_version_snapshot(version, monkeypatch):
     assert result["pass"] is False
 
 
-@pytest.mark.parametrize("version,namespace", [("v3", "v3"), ("v2_localLLM", "v2_local_llm")])
-def test_scripted_worker_calls_only_matching_production_worker(version, namespace, monkeypatch):
+def test_scripted_worker_calls_only_matching_production_worker(monkeypatch):
+    version, namespace = "v2_localLLM", "v2_local_llm"
     scripted = import_module(f"{namespace}.runtime_worker")
     calls = []
     backend = object()

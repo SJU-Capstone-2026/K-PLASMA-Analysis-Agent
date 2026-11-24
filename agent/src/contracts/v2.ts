@@ -1,9 +1,9 @@
 import type { RunRef } from './index.js';
 
-export type CompositeGraphVersion = 'v2' | 'v3' | 'v2_localLLM';
+export type CompositeGraphVersion = 'v2' | 'v2_localLLM';
 export type GraphVersion = 'v1' | CompositeGraphVersion;
 export const isCompositeGraphVersion = (value: unknown): value is CompositeGraphVersion =>
-  value === 'v2' || value === 'v3' || value === 'v2_localLLM';
+  value === 'v2' || value === 'v2_localLLM';
 export const isGraphVersion = (value: unknown): value is GraphVersion =>
   value === 'v1' || isCompositeGraphVersion(value);
 type Json = null | string | number | boolean | Json[] | { [key: string]: Json };

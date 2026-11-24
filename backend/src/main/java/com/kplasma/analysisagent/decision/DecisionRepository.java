@@ -11,7 +11,7 @@ public class DecisionRepository {
     public DecisionRepository(JdbcTemplate jdbc,ObjectMapper mapper){this.jdbc=jdbc;this.mapper=mapper;}
     public List<DecisionRecord> list(){return jdbc.query("select record from decision where workspace_id=1 order by ordinal desc",(rs,n)->mapper.readValue(rs.getString(1),DecisionRecord.class));}
     /** Stored JSON in save order, for the Agent's deterministic reuse rules. */
-    public List<String> recordsInSaveOrder(String graphVersion){return jdbc.queryForList("select record::text from decision where workspace_id=1 and (? or origin_graph_version in ('v1','v2','v3')) order by ordinal",String.class,"v2_localLLM".equals(graphVersion));}
+    public List<String> recordsInSaveOrder(String graphVersion){return jdbc.queryForList("select record::text from decision where workspace_id=1 and (? or origin_graph_version in ('v1','v2')) order by ordinal",String.class,"v2_localLLM".equals(graphVersion));}
     public boolean cloudRecordsAllowed(List<?> records){
         if(records.isEmpty())return true;
         Set<String> ids=new HashSet<>();
@@ -19,7 +19,7 @@ public class DecisionRepository {
             if(!(value instanceof Map<?,?> record)||!(record.get("reviewId") instanceof String id))return false;
             ids.add(id);
         }
-        var allowed=jdbc.queryForList("select review_id from decision where workspace_id=1 and origin_graph_version in ('v1','v2','v3')",String.class);
+        var allowed=jdbc.queryForList("select review_id from decision where workspace_id=1 and origin_graph_version in ('v1','v2')",String.class);
         return new HashSet<>(allowed).containsAll(ids);
     }
     public DecisionRecord get(String id){return jdbc.queryForObject("select record from decision where review_id=?",(rs,n)->mapper.readValue(rs.getString(1),DecisionRecord.class),id);}

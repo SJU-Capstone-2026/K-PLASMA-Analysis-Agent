@@ -227,13 +227,13 @@ npm run measure:agent:local -- --env-file .env.local-llm
 
 ```sh
 # 비밀값은 해당 backend의 환경에만 준비한다.
-SERVER_ADDRESS=127.0.0.1 AGENT_SUPPORTED_GRAPH_VERSIONS=v1,v2,v3,v2_localLLM \
+SERVER_ADDRESS=127.0.0.1 AGENT_SUPPORTED_GRAPH_VERSIONS=v1,v2,v2_localLLM \
 AGENT_DEFAULT_GRAPH_VERSION=v2_localLLM AGENT_LOCAL_RUNTIME_ENABLED=true \
 AGENT_LOCAL_UI_ORIGIN=http://127.0.0.1:5173 AGENT_LOCAL_API_HOST=127.0.0.1:8080 \
 backend/gradlew -p backend bootRun
 
 # frontend 터미널: token을 VITE_ 변수에 넣지 않는다.
-VITE_AGENT_SUPPORTED_GRAPH_VERSIONS=v1,v2,v3,v2_localLLM VITE_AGENT_DEFAULT_GRAPH_VERSION=v2_localLLM \
+VITE_AGENT_SUPPORTED_GRAPH_VERSIONS=v1,v2,v2_localLLM VITE_AGENT_DEFAULT_GRAPH_VERSION=v2_localLLM \
 VITE_API_TARGET=http://127.0.0.1:8080 npm run dev
 ```
 

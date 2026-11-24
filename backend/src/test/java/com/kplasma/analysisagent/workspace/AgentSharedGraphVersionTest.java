@@ -15,7 +15,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 @TestPropertySource(properties={"kplasma.agent.worker-token=synthetic-cloud-worker",
     "kplasma.agent.local-worker-token=synthetic-local-worker",
-    "kplasma.agent.supported-graph-versions=v1,v2,v3,v2_localLLM", "kplasma.agent.default-graph-version=v2",
+    "kplasma.agent.supported-graph-versions=v1,v2,v2_localLLM", "kplasma.agent.default-graph-version=v2",
     "AGENT_LOCAL_RUNTIME_ENABLED=false", "AGENT_LOCAL_UI_ORIGIN=http://127.0.0.1:5173",
     "AGENT_LOCAL_API_HOST=", "AGENT_LOCAL_BOOTSTRAP_TOKEN=synthetic-shared-bootstrap"})
 class AgentSharedGraphVersionTest extends WorkspaceTestSupport {
@@ -87,7 +87,7 @@ class AgentSharedGraphVersionTest extends WorkspaceTestSupport {
             "stateToken", token(), "graphVersion", "v2"), "cloud-question");
         forbidden(claim("synthetic-local-worker", List.of("v2")));
         forbidden(claim("synthetic-cloud-worker", List.of("v2_localLLM")));
-        var cloudClaim = claim("synthetic-cloud-worker", List.of("v1", "v2", "v3"));
+        var cloudClaim = claim("synthetic-cloud-worker", List.of("v1", "v2"));
         assertThat(cloudClaim.statusCode()).describedAs(cloudClaim.body()).isEqualTo(200);
         assertThat(json(cloudClaim).path("request").path("requestId").asString())
             .isEqualTo(cloud.path("requestId").asString());
@@ -96,8 +96,8 @@ class AgentSharedGraphVersionTest extends WorkspaceTestSupport {
         ok("POST", "/api/workspace/new-conversation", Map.of("stateToken", token()), null);
         var local = ok("POST", "/api/agent/requests", Map.of("text", "private-local-question",
             "stateToken", token(), "graphVersion", "v2_localLLM"), "local-question");
-        forbidden(claim("synthetic-cloud-worker", List.of("v1", "v2", "v3", "v2_localLLM")));
-        var noCloudWork = claim("synthetic-cloud-worker", List.of("v1", "v2", "v3"));
+        forbidden(claim("synthetic-cloud-worker", List.of("v1", "v2", "v2_localLLM")));
+        var noCloudWork = claim("synthetic-cloud-worker", List.of("v1", "v2"));
         assertThat(noCloudWork.statusCode()).describedAs(noCloudWork.body()).isEqualTo(200);
         assertThat(json(noCloudWork).path("request").isNull()).isTrue();
         var localClaim = claim("synthetic-local-worker", List.of("v2_localLLM"));
@@ -124,7 +124,7 @@ class AgentSharedGraphVersionTest extends WorkspaceTestSupport {
         ok("POST","/api/agent/requests/"+local.path("requestId").asString()+"/cancel",Map.of(),"cancel-local");
         ok("POST","/api/workspace/new-conversation",Map.of("stateToken",token()),null);
         var reuse=ok("POST","/api/agent/requests",Map.of("text","cloud-memory-question","stateToken",token(),"graphVersion","v1"),"cloud-memory-question");
-        var reuseClaim=claim("synthetic-cloud-worker",List.of("v1","v2","v3"));
+        var reuseClaim=claim("synthetic-cloud-worker",List.of("v1","v2"));
         assertThat(reuseClaim.statusCode()).isEqualTo(200);
         String reuseRoot="/internal/agent/requests/"+reuse.path("requestId").asString();
         var fence=Map.<String,Object>of("claimGeneration",json(reuseClaim).path("claimGeneration").longValue(),
@@ -147,7 +147,7 @@ class AgentSharedGraphVersionTest extends WorkspaceTestSupport {
         forbidden(exchange("POST",reuseRoot+"/context",fence,"synthetic-cloud-worker",null,null));
         forbidden(exchange("GET",reuseRoot+"/checkpoint"+query,null,"synthetic-cloud-worker",null,null));
         jdbc.update("update agent_request set lease_until=clock_timestamp()-interval '1 second' where id=?::uuid",reuse.path("requestId").asString());
-        forbidden(claim("synthetic-cloud-worker",List.of("v1","v2","v3")));
+        forbidden(claim("synthetic-cloud-worker",List.of("v1","v2")));
         jdbc.update("update decision set origin_graph_version=null where review_id='REV-local-private'");
         forbidden(exchange("GET",reuseRoot+"/checkpoint"+query,null,"synthetic-cloud-worker",null,null));
         assertThat(ok("GET","/api/decisions",null,null).toString()).contains("LOCAL_ONLY_MEMORY");

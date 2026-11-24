@@ -20,7 +20,7 @@ function demand(condition,message,kind='HITL_MISMATCH') {
 
 export function browserLaunchOptions(command){
   const version=command.graphVersion??'v2';
-  demand(['v2','v3','v2_localLLM'].includes(version),'Unsupported graph version','CONFIG');
+  demand(['v2','v2_localLLM'].includes(version),'Unsupported graph version','CONFIG');
   if(version==='v2_localLLM')demand(/^KPLASMA_LOCAL_SESSION=[A-Za-z0-9_-]{32,128}$/.test(command.sessionCookie??''),
     'LOCAL_SESSION_REQUIRED','CONFIG');
   return {headless:command.headless===true};

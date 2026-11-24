@@ -18,7 +18,7 @@ async function expectChartLabelsInside(svg:Locator){
   const a=labels[i],b=labels[j];expect(a.left<b.right-.5&&b.left<a.right-.5&&a.top<b.bottom-.5&&b.top<a.bottom-.5,`${a.text} / ${b.text}`).toBe(false);
  }
 }
-const layouts=[390,800,1008,1440].flatMap(width=>(['v1','v2','v3','v2_localLLM'] as const).map(version=>({width,version})));
+const layouts=[390,800,1008,1440].flatMap(width=>(['v1','v2','v2_localLLM'] as const).map(version=>({width,version})));
 for(const {width,version} of layouts)test(`${version} comparison charts and independent tagged message at ${width}px`,async({page},info)=>{
  await page.setViewportSize({width,height:1000});const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));
  const result=structuredClone(wire.comparison.result) as ComparisonResultV3;

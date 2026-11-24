@@ -8,7 +8,7 @@ import {emptyWorkspace,initialTurnUi,type ConversationController} from './useCon
 afterEach(()=>vi.unstubAllEnvs());
 
 test('the selector exposes only configured versions and preserves the chosen identity',()=>{
- vi.stubEnv('VITE_AGENT_SUPPORTED_GRAPH_VERSIONS','v1,v2,v3,v2_localLLM');
+ vi.stubEnv('VITE_AGENT_SUPPORTED_GRAPH_VERSIONS','v1,v2,v2_localLLM');
  const selectGraphVersion=vi.fn();
  const conversation:ConversationController={state:structuredClone(emptyWorkspace),graphVersion:'v1',selectGraphVersion,
   ready:true,error:'',pending:false,provisionalMessage:null,activeRequest:null,sending:false,
@@ -17,17 +17,17 @@ test('the selector exposes only configured versions and preserves the chosen ide
  const {rerender}=render(<AgentPage conversation={conversation} records={[]} notify={vi.fn()} onDetail={vi.fn()}
   onRecord={vi.fn()} onEvidence={vi.fn()} onDemo={vi.fn()}/>);
  const selector=screen.getByRole('combobox',{name:'Agent 버전'});
- expect(Array.from(selector.querySelectorAll('option'),option=>option.value)).toEqual(['v1','v2','v3','v2_localLLM']);
- fireEvent.change(selector,{target:{value:'v3'}});
- expect(selectGraphVersion).toHaveBeenCalledWith('v3');
+ expect(Array.from(selector.querySelectorAll('option'),option=>option.value)).toEqual(['v1','v2','v2_localLLM']);
+ fireEvent.change(selector,{target:{value:'v2'}});
+ expect(selectGraphVersion).toHaveBeenCalledWith('v2');
  fireEvent.change(selector,{target:{value:'v2_localLLM'}});
  expect(selectGraphVersion).toHaveBeenCalledWith('v2_localLLM');
  vi.stubEnv('VITE_AGENT_SUPPORTED_GRAPH_VERSIONS','v1,v2');
- const pinned={...conversation,state:{...conversation.state,conversation:{...conversation.state.conversation,agentGraphVersion:'v3' as const}},graphVersion:'v3' as const};
+ const pinned={...conversation,state:{...conversation.state,conversation:{...conversation.state.conversation,agentGraphVersion:'v2_localLLM' as const}},graphVersion:'v2_localLLM' as const};
  rerender(<AgentPage conversation={pinned} records={[]} notify={vi.fn()} onDetail={vi.fn()}
   onRecord={vi.fn()} onEvidence={vi.fn()} onDemo={vi.fn()}/>);
  expect(screen.getByRole('combobox',{name:'Agent 버전'})).toBeDisabled();
- expect(screen.getByRole('combobox',{name:'Agent 버전'})).toHaveValue('v3');
+ expect(screen.getByRole('combobox',{name:'Agent 버전'})).toHaveValue('v2_localLLM');
 });
 async function candidateTurn(){const response=await executeFallback({text:'Ion Flux는 높게, Mean Ion Energy는 30–40 eV에 가깝게 후보를 찾아줘',candidateReferences:[]},{candidateRunsLatest:fixtureRuns.map(toRunSummary),referenceRunsByVersion:new Map(),decisionRecords:[],hydrateFullRun:async ref=>fixtureRuns.find(r=>r.runId===ref.runId)!});return {id:'t1',askedAt:'2026-01-01T00:00:00Z',question:'후보 찾아줘',intent:response.intent,context:null,answerRunRefs:response.usedRunRefs,answerSnapshot:response.answerSnapshot,ui:initialTurnUi} satisfies TurnSnapshot;}
 test('candidate card keyboard selects only its turn; group reference selects the whole active group without submitting',async()=>{const turn=await candidateTurn();const submit=vi.fn(async()=>{});const updateTurnUi=vi.fn(async()=>{});const setReference=vi.fn<ConversationController['setReference']>(async()=>{});render(<AgentPage conversation={{state:{...emptyWorkspace,conversation:{...emptyWorkspace.conversation,turns:[turn]}},graphVersion:'v1',selectGraphVersion:()=>{},ready:true,error:'',pending:false,provisionalMessage:null,activeRequest:null,sending:false,resume:async()=>{},cancel:async()=>{},submit,updateTurnUi,setReference,refresh:async()=>{},selectConversation:async()=>{},newConversation:async()=>{},reset:async()=>{}}} records={[]} notify={()=>{}} onDetail={()=>{}} onRecord={()=>{}} onEvidence={()=>{}} onDemo={async()=>{}}/>);const cards=document.querySelectorAll('.agent-fit-card-selectable');fireEvent.keyDown(cards[0],{key:' '});expect(updateTurnUi).toHaveBeenCalledWith('t1',{selectedCandidateRunId:cards[0].getAttribute('data-run-id')});expect(setReference).not.toHaveBeenCalled();expect(submit).not.toHaveBeenCalled();fireEvent.click(screen.getByRole('button',{name:'전체 후보 채팅에 추가'}));const update=setReference.mock.calls[0][0];expect(typeof update==='function'?update(emptyWorkspace):update).toEqual({kind:'후보 집합',runs:candidateRefs(turn)});expect(submit).not.toHaveBeenCalled();});

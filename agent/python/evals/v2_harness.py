@@ -5,7 +5,6 @@ from contextlib import contextmanager, ExitStack
 from copy import deepcopy
 from dataclasses import asdict
 from importlib import import_module
-from pathlib import Path
 from time import monotonic
 from types import SimpleNamespace
 
@@ -17,24 +16,23 @@ from kplasma_agent.domain.common import run_ref
 
 from .v2_cases import Case, runs
 
-GRAPH_VERSIONS = ("v2", "v3", "v2_localLLM")
+GRAPH_VERSIONS = ("v2", "v2_localLLM")
 
 
 def runtime_for_version(graph_version="v2"):
     """Select an owned implementation; unknown versions never fall back."""
     if graph_version not in GRAPH_VERSIONS:
         raise ValueError("unsupported graph version")
-    namespace = {"v2": "kplasma_agent", "v3": "kplasma_agent.v3",
-                 "v2_localLLM": "kplasma_agent.v2_local_llm"}[graph_version]
+    namespace = {"v2": "kplasma_agent", "v2_localLLM": "kplasma_agent.v2_local_llm"}[graph_version]
     core = namespace + (".v2" if graph_version == "v2" else ".core")
     gateway = import_module(core + ".model_gateway")
     graph = import_module("kplasma_agent.graphs.v2" if graph_version == "v2" else namespace + ".graph")
-    suffix = {"v2": "V2", "v3": "V3", "v2_localLLM": "V2LocalLLM"}[graph_version]
+    suffix = {"v2": "V2", "v2_localLLM": "V2LocalLLM"}[graph_version]
     return SimpleNamespace(
         config=import_module(namespace + ".config").Settings,
         gateway=getattr(gateway, suffix + "ModelGateway"),
         gateway_settings=getattr(gateway, suffix + "Settings"),
-        builder=getattr(graph, {"v2": "build_v2_graph", "v3": "build_v3_graph",
+        builder=getattr(graph, {"v2": "build_v2_graph",
                                 "v2_localLLM": "build_v2_local_llm_graph"}[graph_version]),
         budget=import_module(core + ".budget"), contracts=import_module(core + ".contracts"),
         validation=import_module(core + ".plan_validation"),
@@ -46,8 +44,6 @@ def live_configuration(graph_version, env_file):
     runtime = runtime_for_version(graph_version)
     if graph_version != "v2" and env_file is None:
         raise ValueError("an explicit env file is required for this graph version")
-    if graph_version == "v3" and not Path(env_file).is_file():
-        raise ValueError("an existing env file is required for v3")
     base = runtime.config.from_env(env_file)
     if graph_version == "v2_localLLM":
         status = base.readiness()
@@ -57,7 +53,7 @@ def live_configuration(graph_version, env_file):
         raise ValueError("live evaluation requires OPENAI_API_KEY")
     configured = runtime.gateway_settings.from_env(base)
     if not configured.plan_review_enabled:
-        flag = {"v2": "AGENT_V2_PLAN_REVIEW_ENABLED", "v3": "AGENT_V3_PLAN_REVIEW_ENABLED",
+        flag = {"v2": "AGENT_V2_PLAN_REVIEW_ENABLED",
                 "v2_localLLM": "AGENT_V2_LOCAL_LLM_PLAN_REVIEW_ENABLED"}[graph_version]
         raise ValueError(f"live evaluation requires {flag}=true")
     if base.timeout != 90:

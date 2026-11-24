@@ -32,7 +32,7 @@ def worker_command(graph_version, env_file=None):
         raise ValueError("unsupported graph version")
     if graph_version != "v2" and env_file is None:
         raise ValueError("an explicit env file is required")
-    module = {"v2": "kplasma_agent.worker", "v3": "kplasma_agent.v3.worker",
+    module = {"v2": "kplasma_agent.worker",
               "v2_localLLM": "kplasma_agent.v2_local_llm.worker"}[graph_version]
     return [sys.executable, "-m", module, *(["--env-file", str(env_file)] if env_file else [])]
 
@@ -513,7 +513,7 @@ def main():
     if GRAPH_VERSION != "v2_localLLM":
         worker_env.update(AGENT_BACKEND_URL=API, AGENT_WORKER_TOKEN=connection["workerToken"],
                           AGENT_MODEL_TIMEOUT_SECONDS="90")
-        worker_env["AGENT_V3_PLAN_REVIEW_ENABLED" if GRAPH_VERSION == "v3" else "AGENT_V2_PLAN_REVIEW_ENABLED"] = "true"
+        worker_env["AGENT_V2_PLAN_REVIEW_ENABLED"] = "true"
     manifest["startedAt"] = datetime.now(timezone.utc).isoformat()
     manifest["sourceSha256"] = {
         str(path.relative_to(REPO)): hashlib.sha256(path.read_bytes()).hexdigest()

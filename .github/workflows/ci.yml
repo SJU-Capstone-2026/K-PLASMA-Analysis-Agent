@@ -26,9 +26,6 @@ jobs:
       - run: uv sync --project agent/python --frozen --extra tracing
       - name: v2 agent and shared domain regression
         run: npm run test:agent
-      - name: Independent v3 clone and scripted parity
-        working-directory: agent/python
-        run: uv run --frozen --extra tracing pytest -c pytest-v3.ini
       - name: Independent local clone and private boundaries
         run: npm run test:agent:local
       - name: Explicit graph dispatch contracts

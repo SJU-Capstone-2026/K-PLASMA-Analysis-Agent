@@ -11,17 +11,14 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class V2ContractTest {
     @Test void compositeHeadersMustMatchAndTheV2GuardStaysStrict() throws Exception {
         var fixture = new ObjectMapper().readTree(getClass().getResourceAsStream("/v2/contracts.json"));
-        for (String version : java.util.List.of("v3", "v2_localLLM")) {
-            var snapshot = (ObjectNode) fixture.get("general_answer").deepCopy();
-            snapshot.put("implementationId", version).put("graphVersion", version);
-            assertTrue(V2Contracts.isCompositeSnapshot(snapshot));
-            assertFalse(V2Contracts.isSnapshot(snapshot));
-            snapshot.put("graphVersion", "v2");
-            assertFalse(V2Contracts.isCompositeSnapshot(snapshot));
-            snapshot.put("graphVersion", version);
-            snapshot.remove("implementationId");
-            assertFalse(V2Contracts.isCompositeSnapshot(snapshot));
-        }
+        var snapshot = (ObjectNode) fixture.get("general_answer").deepCopy();
+        snapshot.put("implementationId", "v2_localLLM").put("graphVersion", "v2_localLLM");
+        assertTrue(V2Contracts.isCompositeSnapshot(snapshot));
+        assertFalse(V2Contracts.isSnapshot(snapshot));
+        snapshot.put("graphVersion", "v2");
+        assertFalse(V2Contracts.isCompositeSnapshot(snapshot));
+        snapshot.put("graphVersion", "v2_localLLM").remove("implementationId");
+        assertFalse(V2Contracts.isCompositeSnapshot(snapshot));
     }
 
     @Test void rejectsUnknownGraphVersion() throws Exception {

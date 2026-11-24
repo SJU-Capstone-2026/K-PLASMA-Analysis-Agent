@@ -6,7 +6,7 @@ import type {AgentRequestView, RunRef, RunSummary, WorkspaceView} from 'agent';
 const api = process.env.KPLASMA_E2E_API;
 const output = process.env.KPLASMA_E2E_OUTPUT;
 const graphVersion=process.env.KPLASMA_E2E_GRAPH_VERSION??'v2';
-if(!['v2','v3','v2_localLLM'].includes(graphVersion))throw new Error('Unsupported graph version');
+if(!['v2','v2_localLLM'].includes(graphVersion))throw new Error('Unsupported graph version');
 if (!api || !output) throw new Error('An isolated artificial-data backend and output directory are required.');
 let apiHeaders:Record<string,string>={};
 const browserErrors:string[]=[];

@@ -429,7 +429,7 @@ def test_independent_oracle_keeps_strict_and_inclusive_boundaries_distinct():
     assert strict[:2] == (10, False) and inclusive[:2] == (10, True)
 
 
-@pytest.mark.parametrize("expected_version", ["v2", "v3", "v2_localLLM"])
+@pytest.mark.parametrize("expected_version", ["v2", "v2_localLLM"])
 def test_same_run_cannot_be_graded_as_two_comparison_endpoints(monkeypatch, expected_version):
     def raw_grade(case, view, interactions, *, graph_version):
         assert graph_version == expected_version

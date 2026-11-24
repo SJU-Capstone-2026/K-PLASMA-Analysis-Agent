@@ -277,7 +277,7 @@ def datum_ok(datum, rid, field, oracle):
 
 def grade_raw(case, view, interactions, *, graph_version="v2"):
     """Grade one final request and its actual, same-request HITL interactions."""
-    if graph_version not in ("v2", "v3", "v2_localLLM"):
+    if graph_version not in ("v2", "v2_localLLM"):
         raise ValueError("unsupported graph version")
     checks = []
     expected = case["expected"]

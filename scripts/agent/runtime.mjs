@@ -10,18 +10,18 @@ export function graphVersionArgument(argv=process.argv.slice(2)){
   const entries=argv.flatMap((arg,index)=>arg==='--graph-version'?[argv[index+1]]:
     arg.startsWith('--graph-version=')?[arg.slice('--graph-version='.length)]:[]);
   const version=entries.length?entries[0]:'v2';
-  if(!['v2','v3','v2_localLLM'].includes(version)||entries.length>1)
+  if(!['v2','v2_localLLM'].includes(version)||entries.length>1)
     throw new Error('Unsupported graph version');
   return version;
 }
 
 export function runtimeWorkerSpec(graphVersion,{live=false,envFile}={}){
-  if(!['v2','v3','v2_localLLM'].includes(graphVersion))throw new Error('Unsupported graph version');
+  if(!['v2','v2_localLLM'].includes(graphVersion))throw new Error('Unsupported graph version');
   if(!live)return [graphVersion==='v2'?'agent/python/tests/runtime_v2_worker.py':
-    `agent/python/tests/${graphVersion==='v3'?'v3':'v2_local_llm'}/runtime_worker.py`];
+    'agent/python/tests/v2_local_llm/runtime_worker.py'];
   if(graphVersion!=='v2'&&!envFile)throw new Error('An explicit env file is required');
   return ['-m',graphVersion==='v2'?'kplasma_agent.worker':
-    `kplasma_agent.${graphVersion==='v3'?'v3':'v2_local_llm'}.worker`,...(envFile?['--env-file',envFile]:[])];
+    'kplasma_agent.v2_local_llm.worker',...(envFile?['--env-file',envFile]:[])];
 }
 
 export function assertLocalReadiness(python,envFile,env=process.env){
@@ -93,11 +93,9 @@ export async function startV1Environment(output,mode='stub',options={}){
   try{
     try{
       process.env.AGENT_WORKER_TOKEN=token;
-      if(graphVersion==='v3'||graphVersion==='v2_localLLM'){
-        process.env.AGENT_SUPPORTED_GRAPH_VERSIONS=graphVersion==='v3'?'v1,v2,v3':'v2_localLLM';
-        process.env.AGENT_DEFAULT_GRAPH_VERSION=graphVersion==='v3'?'v1':'v2_localLLM';
-      }
       if(isLocal){
+        process.env.AGENT_SUPPORTED_GRAPH_VERSIONS='v2_localLLM';
+        process.env.AGENT_DEFAULT_GRAPH_VERSION='v2_localLLM';
         process.env.AGENT_LOCAL_RUNTIME_ENABLED='true';process.env.AGENT_LOCAL_UI_ORIGIN=uiOrigin;
         process.env.AGENT_LOCAL_API_HOST='';process.env.AGENT_LOCAL_BOOTSTRAP_TOKEN=bootstrapToken;
       }
@@ -129,7 +127,7 @@ export async function startV1Environment(output,mode='stub',options={}){
         env.AGENT_V2_LOCAL_LLM_BACKEND_URL=backend.url;env.AGENT_V2_LOCAL_LLM_WORKER_TOKEN=token;
       }else if(mode==='live'){
         env.OPENAI_MODEL='gpt-5.6-luna';env.OPENAI_REASONING_EFFORT='none';
-        env[graphVersion==='v3'?'AGENT_V3_PLAN_REVIEW_ENABLED':'AGENT_V2_PLAN_REVIEW_ENABLED']='true';
+        env.AGENT_V2_PLAN_REVIEW_ENABLED='true';
         env.AGENT_MODEL_TIMEOUT_SECONDS='90';
       }
       if(mode!=='live')delete env.OPENAI_API_KEY;
