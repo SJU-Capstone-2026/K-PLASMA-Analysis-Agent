@@ -1,5 +1,5 @@
 import {lazy, Suspense} from 'react';
-import type {ComparisonResultV2, GraphV2AnswerSnapshotV1, Snapshot, TurnSnapshot} from 'agent';
+import type {ComparisonResultV2, CompositeAnswerSnapshot, Snapshot, TurnSnapshot} from 'agent';
 import {searchGroups, snapshotResult, type SearchResult} from './agent-contract';
 import type {AnswerAction} from './PrototypeAnswerMarkup';
 import {hasOnlyExpectedOutputGaps, RunComparisonCard} from './RunComparisonCard';
@@ -14,7 +14,7 @@ const titles = {
 };
 
 export function V2AnswerView({answer, turn, onAction}: {
-  answer: GraphV2AnswerSnapshotV1;
+  answer: CompositeAnswerSnapshot;
   turn: TurnSnapshot;
   onAction: AnswerAction;
 }) {

@@ -7,6 +7,17 @@ import {AnswerView} from './AnswerView';
 import {initialTurnUi} from './useConversation';
 import {syntheticRun} from '../../test/runs';
 
+test.each(['v3'])('saved %s answers use the composite renderer without a prototype fallback',async version=>{
+ const snapshot={...general.general_answer,implementationId:version,graphVersion:version,
+  answer:'독립 그래프의 인공 개념 설명입니다.',
+  draft:{paragraphs:['독립 그래프의 인공 개념 설명입니다.'],sources:[]}};
+ const turn={id:version,askedAt:'',question:'인공 개념 질문',intent:'GENERAL_ANSWER',context:null,
+  answerRunRefs:[],answerSnapshot:JSON.parse(JSON.stringify(snapshot)),ui:structuredClone(initialTurnUi)} as TurnSnapshot;
+ render(<AnswerView turn={turn} onAction={()=>{}}/>);
+ expect(await screen.findByText('독립 그래프의 인공 개념 설명입니다.')).toBeVisible();
+ expect(screen.queryByText('이 질문은 현재 프로토타입에서 답하지 않습니다')).not.toBeInTheDocument();
+});
+
 test('saved v2 general answers render inline and display LaTeX',async()=>{
  const snapshot={...general.general_answer,answer:String.raw`이온 플럭스 \(\Gamma_i\)의 식입니다.
 

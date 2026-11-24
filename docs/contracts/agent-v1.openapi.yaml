@@ -335,6 +335,11 @@ paths:
               properties:
                 workerId: { type: string, maxLength: 200 }
                 leaseSeconds: { type: integer, minimum: 5, maximum: 300, default: 60 }
+                supportedGraphVersions:
+                  type: array
+                  minItems: 1
+                  items: { enum: [v1, v2, v3] }
+                  description: Exact worker-owned graph identities enabled by this deployment. Omitted retains the legacy v1 claim behavior.
       responses:
         '200':
           description: >-
@@ -883,7 +888,7 @@ components:
         executionSummary: { $ref: '#/components/schemas/ExecutionSummary' }
         status: { enum: [QUEUED, RUNNING, NEEDS_INPUT, COMPLETED, FAILED, CANCELLED] }
         stage: { type: string }
-        graphVersion: { enum: [v1, v2] }
+        graphVersion: { enum: [v1, v2, v3] }
         question: { type: [string, 'null'] }
         pendingInput:
           type: [object, 'null']
@@ -900,7 +905,17 @@ components:
           oneOf:
             - { $ref: './agent-answer-v2.schemas.yaml#/components/schemas/AnswerSnapshotV2' }
             - { $ref: './agent-answer-v3.schemas.yaml' }
-            - { type: object, properties: { schemaVersion: { const: 1 } }, description: Immutable historical schema-1 snapshot. }
+            - { $ref: './agent-v2.answer.schema.json' }
+            - { $ref: './agent-v3.answer.schema.json' }
+            - type: object
+              properties: { schemaVersion: { const: 1 } }
+              not:
+                anyOf:
+                  - required: [implementationId]
+                    properties: { implementationId: { enum: [v2, v3] } }
+                  - required: [graphVersion]
+                    properties: { graphVersion: { enum: [v2, v3] } }
+              description: Immutable historical schema-1 snapshot; composite identities use their exact version schema.
             - { type: 'null' }
         intent: { type: [string, 'null'] }
         usedRunRefs: { type: array, items: { $ref: '#/components/schemas/RunRef' } }

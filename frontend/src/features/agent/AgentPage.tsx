@@ -1,5 +1,6 @@
 import {memo,useCallback,useLayoutEffect,useRef,useState,type SetStateAction} from 'react';
-import {isGraphV2AnswerSnapshot,queryDefaultUnits} from 'agent';
+import {isCompositeAnswerSnapshot,isCompositeGraphVersion,isGraphVersion,queryDefaultUnits} from 'agent';
+import {graphDeployment} from './graph-versions';
 import {metricNames,searchGroups,snapshotResult,type SearchResult} from './agent-contract';
 import type {AgentMessage,DecisionRecord,ReferenceState,RunRef,Snapshot,TurnSnapshot,V2RecordSource} from 'agent';
 import {ReferenceTray} from '../../components/ReferenceTray';
@@ -32,6 +33,9 @@ const ConversationTurn=memo(function ConversationTurn({turn,message,onAction}:{t
 });
 export function AgentPage({conversation,notify,onDetail,onRecord,onEvidence,onDemo}:AgentPageProps){
  const {state,pending}=conversation;const colorScope=`${state.stateToken.workspaceEpoch}.${state.stateToken.conversationEpoch}`;const turns=state.conversation.turns;const active=state.conversation.activeRun;const composer=state.candidateReference??(active?reference([active]):null);
+ const graphVersions=graphDeployment().versions;
+ const pinnedGraph=state.conversation.agentGraphVersion;
+ if(pinnedGraph&&!graphVersions.includes(pinnedGraph))graphVersions.push(pinnedGraph);
  const [drafts,setDrafts]=useState<Record<string,string>>({});
  const text=drafts[colorScope]??'';
  function setText(update:SetStateAction<string>){
@@ -63,7 +67,7 @@ export function AgentPage({conversation,notify,onDetail,onRecord,onEvidence,onDe
   else if(name==='reference-candidate-group'){
    let refs=candidateRefs(turn);
    let source:V2RecordSource|undefined;
-   if(isGraphV2AnswerSnapshot(turn.answerSnapshot)){
+   if(isCompositeAnswerSnapshot(turn.answerSnapshot)){
     const step=turn.answerSnapshot.stepResults.find(s=>s.executionId===element.dataset.executionId);
     const result=step?.outputs.toolResult;
     if(!step||!result||typeof result!=='object'||Array.isArray(result))return;
@@ -76,14 +80,14 @@ export function AgentPage({conversation,notify,onDetail,onRecord,onEvidence,onDe
    notify(`${refs.length}개 후보를 채팅에 추가했습니다.`,'info');
   }
   else if(name==='open-run-detail'&&ref)onDetail(ref,turn);
-  else if(name==='open-v2-step-record'&&ref&&isGraphV2AnswerSnapshot(turn.answerSnapshot)){
+  else if(name==='open-v2-step-record'&&ref&&isCompositeAnswerSnapshot(turn.answerSnapshot)){
    const step=turn.answerSnapshot.stepResults.find(step=>step.executionId===element.dataset.executionId);
    const groupId=element.dataset.groupId;
    if(step&&groupId&&step.runRefs.some(r=>r.runId===ref.runId&&r.runVersionId===ref.runVersionId)){
     onRecord(turn,{turnId:turn.id,executionId:step.executionId,stepId:step.stepId,groupId},ref);
    }
   }
-  else if(name==='open-experiment-record'&&!isGraphV2AnswerSnapshot(turn.answerSnapshot))onRecord(turn);
+  else if(name==='open-experiment-record'&&!isCompositeAnswerSnapshot(turn.answerSnapshot))onRecord(turn);
   else if(name==='memory-evidence'&&runId)onEvidence(turn,runId);
   else if(name==='agent-use-suggestion')await run(element.dataset.prompt??'');
   else if(name==='memory-threshold'||name==='memory-undo'){
@@ -181,10 +185,10 @@ export function AgentPage({conversation,notify,onDetail,onRecord,onEvidence,onDe
   else if(liveAnswerSize>previous.size||liveResultRevision!==previous.result&&liveResultRevision!==undefined)setShowLatestButton(true);
  },[colorScope,conversation.ready,liveAnswerSize,liveAnswerRevision,liveResultRevision,jumpToLatest]);
 
- return <RunColorsProvider key={colorScope} scope={colorScope} enabled={conversation.ready}><div className="agent-page agent-page--wide"><header className="agent-page-header"><div><span className="eyebrow">CONVERSATIONAL EVIDENCE ANALYSIS</span><h1>K-PLASMA 분석 Agent</h1><p>결론과 실제 수치를 먼저 보고, 필요한 실험 상세만 펼쳐 확인합니다.</p></div><div className="agent-page-actions"><label className="agent-graph-choice">Agent 버전 <select aria-label="Agent 버전" value={conversation.graphVersion} disabled={!conversation.ready||pending||!!conversation.provisionalMessage||!!state.conversation.agentGraphVersion||turns.length>0} onChange={event=>conversation.selectGraphVersion(event.target.value==='v2'?'v2':'v1')}><option value="v1">v1</option><option value="v2">v2</option></select></label><div className="agent-trust-row"><span><i className="status-dot status-dot--success"/>등록된 실제 Run</span><span>예측·보간 없음</span></div><button className="button button--ghost button--small" type="button" data-action="new-conversation" disabled={!turns.length&&!conversation.activeRequest&&!state.conversation.agentGraphVersion&&!state.agentMessages?.length} onClick={()=>conversation.newConversation().catch(catchError)}>새 대화</button></div></header><section ref={liveRegion} className="agent-conversation agent-conversation--wide"><details className="agent-help"><summary>사용 도움말</summary><details className="v1-unit-help"><summary>단위 없이도 조회할 수 있어요 · 기본 단위 보기</summary><ul>{Object.entries(queryDefaultUnits).map(([metric,unit])=><li key={metric}>{metricNames[metric]} <strong>{unit}</strong></li>)}</ul><p>예: 압력 8, 소스 300, 바이어스 600 · 이온 플럭스 400 이상</p><p>단위를 쓰면 입력한 단위를 우선합니다. 생략하면 적용한 기본 단위를 답변에서 알려드립니다.</p></details>{active?<div className="agent-quick-followups"><span>이 Run에서 이어서</span>{[['전체 결과·분포','이 Run의 전체 결과와 이온 에너지 분포 보여줘'],['Energy만 조금 높게','이 결과에서 이온 에너지만 조금 더 높은 실제 조건 찾아줘'],['왜 이런 결과인지','왜 이런 결과가 나왔는지 설명해줘']].map(([label,prompt])=><button key={label} type="button" data-action="use-followup" data-prompt={prompt} disabled={pending} onClick={()=>void run(prompt)}>{label}</button>)}</div>:null}<div className="memory-demo-actions"><span>기록 활용 시연 데이터가 필요하다면</span><button className="button button--ghost button--small" type="button" data-action="memory-demo" onClick={()=>onDemo().catch(catchError)}>데모 기록 불러오기</button><small>실제 사용자 기록과 구분되어 이 브라우저에만 저장됩니다.</small></div></details>
+ return <RunColorsProvider key={colorScope} scope={colorScope} enabled={conversation.ready}><div className="agent-page agent-page--wide"><header className="agent-page-header"><div><span className="eyebrow">CONVERSATIONAL EVIDENCE ANALYSIS</span><h1>K-PLASMA 분석 Agent</h1><p>결론과 실제 수치를 먼저 보고, 필요한 실험 상세만 펼쳐 확인합니다.</p></div><div className="agent-page-actions"><label className="agent-graph-choice">Agent 버전 <select aria-label="Agent 버전" value={conversation.graphVersion} disabled={!conversation.ready||pending||!!conversation.provisionalMessage||!!state.conversation.agentGraphVersion||turns.length>0} onChange={event=>{if(isGraphVersion(event.target.value))conversation.selectGraphVersion(event.target.value);}}>{graphVersions.map(version=><option key={version} value={version}>{version}</option>)}</select></label><div className="agent-trust-row"><span><i className="status-dot status-dot--success"/>등록된 실제 Run</span><span>예측·보간 없음</span></div><button className="button button--ghost button--small" type="button" data-action="new-conversation" disabled={!turns.length&&!conversation.activeRequest&&!state.conversation.agentGraphVersion&&!state.agentMessages?.length} onClick={()=>conversation.newConversation().catch(catchError)}>새 대화</button></div></header><section ref={liveRegion} className="agent-conversation agent-conversation--wide"><details className="agent-help"><summary>사용 도움말</summary><details className="v1-unit-help"><summary>단위 없이도 조회할 수 있어요 · 기본 단위 보기</summary><ul>{Object.entries(queryDefaultUnits).map(([metric,unit])=><li key={metric}>{metricNames[metric]} <strong>{unit}</strong></li>)}</ul><p>예: 압력 8, 소스 300, 바이어스 600 · 이온 플럭스 400 이상</p><p>단위를 쓰면 입력한 단위를 우선합니다. 생략하면 적용한 기본 단위를 답변에서 알려드립니다.</p></details>{active?<div className="agent-quick-followups"><span>이 Run에서 이어서</span>{[['전체 결과·분포','이 Run의 전체 결과와 이온 에너지 분포 보여줘'],['Energy만 조금 높게','이 결과에서 이온 에너지만 조금 더 높은 실제 조건 찾아줘'],['왜 이런 결과인지','왜 이런 결과가 나왔는지 설명해줘']].map(([label,prompt])=><button key={label} type="button" data-action="use-followup" data-prompt={prompt} disabled={pending} onClick={()=>void run(prompt)}>{label}</button>)}</div>:null}<div className="memory-demo-actions"><span>기록 활용 시연 데이터가 필요하다면</span><button className="button button--ghost button--small" type="button" data-action="memory-demo" onClick={()=>onDemo().catch(catchError)}>데모 기록 불러오기</button><small>실제 사용자 기록과 구분되어 이 브라우저에만 저장됩니다.</small></div></details>
  <div className="agent-example-groups">
   <div className="agent-examples" aria-label="분석 예시">{examples.map(([action,label,title,prompt])=><button key={action} type="button" data-action={action} disabled={pending||!conversation.ready} onClick={()=>void run(prompt)}><span>{label}</span><strong>{title}</strong></button>)}</div>
-  {conversation.graphVersion==='v2'&&<section className="agent-v2-examples" aria-label="v2 평가 예시">
+  {isCompositeGraphVersion(conversation.graphVersion)&&<section className="agent-v2-examples" aria-label="v2 평가 예시">
    <p>v2 복합 질문 평가</p>
    <div className="agent-examples">
     {v2Examples.map(([action,label,title,prompt])=><button key={action} type="button" data-action={action}

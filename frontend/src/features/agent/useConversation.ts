@@ -5,6 +5,7 @@ import {applyProgressEvent,mergeRequestSnapshot} from './progress-events';
 import {ApiClientError} from '../../api/client';
 import {resolveCandidateRef,explicitReferences} from './references';
 import {activateConversation,fetchWorkspace,patchTurnUi,replaceConversation,writeReference} from '../../api/workspace';
+import {graphDeployment} from './graph-versions';
 export const emptyWorkspace:WorkspaceView={stateToken:{workspaceEpoch:0,conversationEpoch:0,revision:0},conversation:{version:1,activeRun:null,turns:[]},candidateReference:null};
 export const initialTurnUi:TurnUiSnapshot={collapsed:false,openRunIds:[],runDetailTabs:{},activeCandidateGroup:'common',continuedRunId:null,lookupExpanded:false,selectedCandidateRunId:null};
 const sameEpoch=(a:StateToken,b:StateToken)=>a.workspaceEpoch===b.workspaceEpoch&&a.conversationEpoch===b.conversationEpoch;
@@ -22,9 +23,10 @@ function selectedCandidate(workspace:WorkspaceView):RunRef|undefined{
  return selected?asRef(selected):undefined;
 }
 export function useConversation(){
+ const deployment=graphDeployment();
  const [state,setState]=useState(emptyWorkspace);const current=useRef(state);const [ready,setReady]=useState(false);const [error,setError]=useState('');
- const [draftGraphVersion,setDraftGraphVersion]=useState<GraphVersion>('v1');
- const draftGraph=useRef<GraphVersion>('v1');
+ const [draftGraphVersion,setDraftGraphVersion]=useState<GraphVersion>(deployment.defaultVersion);
+ const draftGraph=useRef<GraphVersion>(deployment.defaultVersion);
  const [activeRequest,setActiveRequest]=useState<AgentRequestView|null>(null);const active=useRef<AgentRequestView|null>(null);const [sending,setSending]=useState(false);const busy=useRef(false);
  const [resultPreview,setResultPreview]=useState<AgentResultProjection|null>(null);
  const initialization=useRef<Promise<void>>(Promise.resolve());const generation=useRef(0);const controllers=useRef(new Set<AbortController>());const queue=useRef<Promise<unknown>>(Promise.resolve());const mounted=useRef(true);
@@ -127,7 +129,7 @@ export function useConversation(){
   if(!text.trim()||!ready)return;if(reservation.current||busy.current||inProgress(active.current))throw new Error('진행 중인 요청을 완료하거나 취소해 주세요.');
   reservation.current=true;setSending(true);
   const token={...current.current.stateToken};const intendedSelection=selectedCandidate(displayedWorkspace());
-  try{if(!submission.current){const explicit=explicitReferences(displayedWorkspace(),requestContext);const key=crypto.randomUUID();submission.current={key,posted:false,body:{text,stateToken:token,...(current.current.conversation.agentGraphVersion===null&&draftGraph.current==='v2'?{graphVersion:'v2' as const}:{}),attachedRunRefs:explicit.refs.map(asRef),referenceOrigins:explicit.origins,...(intendedSelection?{selectedRunRef:asRef(intendedSelection)}:{}),...(requestContext?.activeRun?{baseline:asRef(requestContext.activeRun)}:{}),...(requestContext?.candidateReference?{candidateReferences:requestContext.candidateReference.runs.map(asRef)}:{})}};showMessage({requestId:key,clientMessageId:key,createdAt:new Date().toISOString(),question:text,submittedRunRefs:explicit.refs.map(asRef),status:'SENDING',turnId:null});saveOutbox();}}catch(e){reservation.current=false;setSending(false);throw e;}
+  try{if(!submission.current){const explicit=explicitReferences(displayedWorkspace(),requestContext);const key=crypto.randomUUID();submission.current={key,posted:false,body:{text,stateToken:token,...(!current.current.conversation.agentGraphVersion&&draftGraph.current!=='v1'?{graphVersion:draftGraph.current}:{}),attachedRunRefs:explicit.refs.map(asRef),referenceOrigins:explicit.origins,...(intendedSelection?{selectedRunRef:asRef(intendedSelection)}:{}),...(requestContext?.activeRun?{baseline:asRef(requestContext.activeRun)}:{}),...(requestContext?.candidateReference?{candidateReferences:requestContext.candidateReference.runs.map(asRef)}:{})}};showMessage({requestId:key,clientMessageId:key,createdAt:new Date().toISOString(),question:text,submittedRunRefs:explicit.refs.map(asRef),status:'SENDING',turnId:null});saveOutbox();}}catch(e){reservation.current=false;setSending(false);throw e;}
   const newSubmission=submission.current;const recoveringDifferentText=newSubmission.body.text!==text;
   // The reservation precedes every await; clicks and Enter cannot allocate a second key.
   try{
@@ -175,7 +177,7 @@ export function useConversation(){
    // A UI write may have committed even if its response or recovery read was interrupted.
    if(!await reconcile(c,epoch))return;
    const next=await replaceConversation(current.current.stateToken,reset);
-   if(!c.signal.aborted&&epoch===generation.current){draftGraph.current='v1';setDraftGraphVersion('v1');apply(next);setError('');}
+   if(!c.signal.aborted&&epoch===generation.current){draftGraph.current=deployment.defaultVersion;setDraftGraphVersion(deployment.defaultVersion);apply(next);setError('');}
   }finally{controllers.current.delete(c);}
  });}
  async function selectConversation(conversationEpoch:number){
@@ -187,7 +189,7 @@ export function useConversation(){
     if(!await reconcile(c,epoch))return;
     const next=await activateConversation(current.current.stateToken,conversationEpoch,c.signal);
     if(!c.signal.aborted&&epoch===generation.current){
-     draftGraph.current='v1';setDraftGraphVersion('v1');apply(next);setError('');
+     draftGraph.current=deployment.defaultVersion;setDraftGraphVersion(deployment.defaultVersion);apply(next);setError('');
     }
    }catch(e){
     if(!c.signal.aborted&&epoch===generation.current){try{await reconcile(c,epoch);}catch{/* Keep the last loaded conversation available. */}throw e;}
@@ -195,6 +197,7 @@ export function useConversation(){
   });
  }
  function selectGraphVersion(version:GraphVersion){
+  if(!deployment.versions.includes(version))return;
   if(!ready||reservation.current||busy.current||submission.current||inProgress(active.current)
     ||current.current.conversation.agentGraphVersion||current.current.conversation.turns.length)return;
   draftGraph.current=version;setDraftGraphVersion(version);

@@ -32,7 +32,8 @@ public class AgentRequestService {
     private final AgentPublicResultProjection publicResults;
     private final RunSelectionService selections;
     private final DecisionRepository decisions;
-    public AgentRequestService(AgentRequestRepository requests,WorkspaceRepository workspace,SnapshotValidator validate,JdbcTemplate jdbc,ObjectMapper mapper,V2ExecutionRepository v2,AgentPublicEvents publicEvents,AgentPublicResultProjection publicResults,RunSelectionService selections,DecisionRepository decisions){this.requests=requests;this.workspace=workspace;this.validate=validate;this.jdbc=jdbc;this.mapper=mapper;this.v2=v2;this.publicEvents=publicEvents;this.publicResults=publicResults;this.selections=selections;this.decisions=decisions;}
+    private final GraphVersionPolicy graphVersions;
+    public AgentRequestService(AgentRequestRepository requests,WorkspaceRepository workspace,SnapshotValidator validate,JdbcTemplate jdbc,ObjectMapper mapper,V2ExecutionRepository v2,AgentPublicEvents publicEvents,AgentPublicResultProjection publicResults,RunSelectionService selections,DecisionRepository decisions,GraphVersionPolicy graphVersions){this.requests=requests;this.workspace=workspace;this.validate=validate;this.jdbc=jdbc;this.mapper=mapper;this.v2=v2;this.publicEvents=publicEvents;this.publicResults=publicResults;this.selections=selections;this.decisions=decisions;this.graphVersions=graphVersions;}
     public record ReferenceOrigin(RunRef ref,String kind,String turnId,String groupId,
         @JsonInclude(JsonInclude.Include.NON_NULL) String executionId,
         @JsonInclude(JsonInclude.Include.NON_NULL) String stepId) {}
@@ -62,7 +63,7 @@ public class AgentRequestService {
         var turns=current.conversation().turns();
         String pinned=current.conversation().agentGraphVersion();
         if(pinned==null&&!turns.isEmpty())pinned="v1";
-        String graphVersion=GraphVersionPolicy.resolve(pinned,body.graphVersion());
+        String graphVersion=graphVersions.resolve(pinned,body.graphVersion());
         context.put("graphVersion",graphVersion);
         context.put("lastAnswer",turns.isEmpty()?null:turns.getLast().answerSnapshot());
         context.put("comparisonContext",turns.reversed().stream().filter(t->"compare_runs".equals(t.answerSnapshot().get("kind"))||"explain_change".equals(t.answerSnapshot().get("kind"))).map(TurnSnapshot::answerSnapshot).findFirst().orElse(null));
@@ -86,7 +87,7 @@ public class AgentRequestService {
             } else {
                 var turn=current.conversation().turns().stream().filter(t->t.id().equals(origin.turnId())).findFirst().orElse(null);
                 require(turn!=null&&turn.answerRunRefs().contains(ref),"Reference must originate in an actual saved answer");
-                if ("v2".equals(turn.answerSnapshot().get("implementationId"))) {
+                if (GraphVersionPolicy.isComposite(String.valueOf(turn.answerSnapshot().get("implementationId")))) {
                     require(V2StepOrigins.contains(turn,new V2RecordSource(origin.turnId(),origin.executionId(),
                         origin.stepId(),origin.groupId()),ref),"V2 reference must belong to its saved execution group");
                 } else {
@@ -163,13 +164,14 @@ public class AgentRequestService {
         var current=workspace.lock();var row=requests.get(id,true);epochs(row,current);validate.key(key,INVALID);require(body.input()!=null&&!body.input().isEmpty(),"input is required");require(requests.json(body.input()).length()<=20000,"input is too large");
         var previous=jdbc.queryForList("select request_revision,pending_input_id,(input - 'comparisonReference')=?::jsonb as same from agent_input_event where request_id=? and idempotency_key=?",requests.json(body.input()),id,key);
         if(!previous.isEmpty()){var old=previous.getFirst();if(!Boolean.TRUE.equals(old.get("same"))||!Objects.equals(old.get("pending_input_id"),body.pendingInputId())||((Number)old.get("request_revision")).longValue()!=body.expectedRequestRevision()+1)conflict("IDEMPOTENCY_CONFLICT","Input key already used for a different response");return requests.view(row);}
+        graphVersions.resolve(row.graphVersion(), null);
         if(!"NEEDS_INPUT".equals(row.status())||row.revision()!=body.expectedRequestRevision()||row.pending()==null||!Objects.equals(row.pending().get("id"),body.pendingInputId()))conflict("STALE_REQUEST","The pending input changed");
         if(row.revision()>=10)conflict("INPUT_LIMIT","추가 질문 횟수 제한에 도달했습니다. 새 질문으로 시작해 주세요.");
         Map<String,Object> event=new LinkedHashMap<>(body.input());
         if("run_selection".equals(row.pending().get("type"))){
             require("run_selection".equals(body.input().get("type")),"Run selection input is required");
             Map<String,Object> snapshot;
-            if("v2".equals(row.graphVersion())){
+            if(GraphVersionPolicy.isComposite(row.graphVersion())){
                 require(body.input().keySet().stream().allMatch(Set.of("type","runKeys","baselineKey")::contains),"Unexpected selection field");
                 var options=options(row,body.pendingInputId());Object raw=body.input().get("runKeys");require(raw instanceof List<?>,"runKeys are required");var keys=(List<?>)raw;
                 int minimum=selectionLimit(row.pending().get("minSelections"),2);
@@ -210,7 +212,7 @@ public class AgentRequestService {
     }
     @Transactional public Map<String,Object> claim(Claim body){
         validate.text(body.workerId(),INVALID,"workerId");require(body.workerId().length()<=200,"workerId is too long");int seconds=lease(body.leaseSeconds());
-        var versions=GraphVersionPolicy.workerVersions(body.supportedGraphVersions());
+        var versions=graphVersions.workerVersions(body.supportedGraphVersions());
         String placeholders=String.join(",",Collections.nCopies(versions.size(),"?"));
         while(true){
             var ids=jdbc.queryForList("select id from agent_request where graph_version in ("+placeholders+") and (status='QUEUED' or (status='RUNNING' and lease_until<clock_timestamp())) order by created_at for update skip locked limit 1",UUID.class,versions.toArray());
@@ -243,7 +245,7 @@ public class AgentRequestService {
         var replay=publicEvents.replay(id,body.eventKey(),body.type(),payload);
         if(replay!=null)return replay;
         if("results.ready".equals(body.type())) {
-            require("v2".equals(row.graphVersion()),"Public saved results require graph v2");
+            require(GraphVersionPolicy.isComposite(row.graphVersion()),"Public saved results require graph v2");
             @SuppressWarnings("unchecked") var ids=(List<String>)payload.get("executionIds");
             publicResults.project(v2.publicResults(id,ids,true));
         }
@@ -254,7 +256,7 @@ public class AgentRequestService {
         var current = workspace.lock();
         var row = fence(id, body.claimGeneration(), body.requestRevision());
         epochs(row, current);
-        require("v2".equals(row.graphVersion()), "This endpoint requires graph v2");
+        require(GraphVersionPolicy.isComposite(row.graphVersion()), "This endpoint requires graph v2");
     }
 
     @Transactional public Map<String,Object> acceptV2Plan(UUID id, V2Write body) {
@@ -532,7 +534,7 @@ public class AgentRequestService {
         result.put("value",available?value:null);result.put("unit",unit);result.put("status",available?"AVAILABLE":"UNAVAILABLE");result.put("reason",available?null:"MISSING_VALUE");result.put("sourceValue",null);return result;
     }
     private JsonNode v2SelectionSource(UUID id, AgentRequestRepository.Row row, Object sourceExecutionId) {
-        require("v2".equals(row.graphVersion()) && sourceExecutionId instanceof String,
+        require(GraphVersionPolicy.isComposite(row.graphVersion()) && sourceExecutionId instanceof String,
             "Candidate source requires graph v2");
         var saved = v2.savedResults(id).stream()
             .filter(r -> Objects.equals(r.path("executionId").asString(), sourceExecutionId))
@@ -621,7 +623,7 @@ public class AgentRequestService {
         var current=workspace.lock();
         var row=requests.get(id,true);
         epochs(row,current);
-        if (!"v2".equals(row.graphVersion()))conflict("CLIENT_REFRESH_REQUIRED","실험 선택 화면이 업데이트되었습니다. 화면을 새로고침해 주세요.");
+        if (!GraphVersionPolicy.isComposite(row.graphVersion()))conflict("CLIENT_REFRESH_REQUIRED","실험 선택 화면이 업데이트되었습니다. 화면을 새로고침해 주세요.");
         if (!"NEEDS_INPUT".equals(row.status()) || row.pending()==null
             || !"run_selection".equals(row.pending().get("type")) || !Objects.equals(row.pending().get("id"),pendingId)) {
             conflict("STALE_REQUEST","Run selection changed");
@@ -655,7 +657,7 @@ public class AgentRequestService {
         var pending=new LinkedHashMap<>(body.pendingInput());
         if("run_selection".equals(pending.get("type"))){
             require(((String)pending.get("id")).length()<=200,"pendingInput.id is too long");
-            if("v2".equals(row.graphVersion())){
+            if(GraphVersionPolicy.isComposite(row.graphVersion())){
                 int minimum=selectionLimit(pending.get("minSelections"),2);
                 int maximum=selectionLimit(pending.get("maxSelections"),Integer.MAX_VALUE);
                 require(maximum>=minimum,"Selection maximum must be at least the minimum");
@@ -680,7 +682,7 @@ public class AgentRequestService {
     @Transactional public Map<String,Object> finalizeRequest(UUID id,Mutation body){
         var current=workspace.lock();var row=requests.get(id,true);epochs(row,current);require(body.answer()!=null,"answer is required");
         if("COMPLETED".equals(row.status())){
-            boolean same = "v2".equals(row.graphVersion())
+            boolean same = GraphVersionPolicy.isComposite(row.graphVersion())
                 ? Boolean.TRUE.equals(jdbc.queryForObject("select final_answer=?::jsonb from agent_request where id=?",
                     Boolean.class,requests.json(body.answer()),id))
                 : mapper.readTree(requests.json(row.answer())).equals(mapper.valueToTree(body.answer()));
@@ -688,7 +690,7 @@ public class AgentRequestService {
             return requests.view(row);
         }
         row=fence(id,body.claimGeneration(),body.requestRevision());var answer=body.answer();
-        if ("v2".equals(row.graphVersion())) return finalizeV2(row, answer);
+        if (GraphVersionPolicy.isComposite(row.graphVersion())) return finalizeV2(row, answer);
         require(INTENTS.contains(answer.intent()==null?"":answer.intent()),"Invalid answer intent");require(answer.answerSnapshot()!=null,"Answer snapshot is required");require("v1".equals(answer.answerSnapshot().get("implementationId")),"Answer must identify v1");
         if(answer.answerSnapshot().get("schemaVersion") instanceof Number n&&(n.intValue()==2||n.intValue()==3)){
             validate.bulkRefs(answer.usedRunRefs(),INVALID);validate.compactValidated(answer.answerSnapshot(),INVALID,new HashSet<>(answer.usedRunRefs()));new AnswerV2Validator(validate,((Number)answer.answerSnapshot().get("schemaVersion")).intValue()==3).answer(answer,row.question());
@@ -700,7 +702,7 @@ public class AgentRequestService {
     }
     private Map<String,Object> finalizeV2(AgentRequestRepository.Row row, AgentResponse answer) {
         JsonNode snapshot = mapper.valueToTree(answer.answerSnapshot());
-        require(com.kplasma.analysisagent.agent.v2.V2Contracts.isSnapshot(snapshot), "Invalid v2 answer");
+        require(com.kplasma.analysisagent.agent.v2.V2Contracts.isCompositeSnapshot(snapshot) && row.graphVersion().equals(snapshot.path("graphVersion").asString()), "Invalid v2 answer");
         require(Objects.equals(row.question(), snapshot.path("question").asString())
             && Objects.equals(answer.intent(), snapshot.path("intent").asString()), "Answer does not match this request");
         var runRefs = new LinkedHashSet<RunRef>();

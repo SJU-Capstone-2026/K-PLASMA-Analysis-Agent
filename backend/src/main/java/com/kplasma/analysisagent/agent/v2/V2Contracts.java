@@ -9,9 +9,13 @@ public final class V2Contracts {
     private V2Contracts() {}
 
     public static boolean isSnapshot(JsonNode value) {
+        return isCompositeSnapshot(value) && "v2".equals(value.path("graphVersion").asString());
+    }
+
+    public static boolean isCompositeSnapshot(JsonNode value) {
         if (value == null || !value.isObject()) return false;
-        return "v2".equals(value.path("implementationId").asString())
-            && "v2".equals(value.path("graphVersion").asString())
+        return GraphVersionPolicy.isComposite(value.path("graphVersion").asString())
+            && value.path("graphVersion").asString().equals(value.path("implementationId").asString())
             && value.path("schemaVersion").isIntegralNumber()
             && value.path("schemaVersion").asInt() == 1
             && Set.of("COMPOSITE_ANSWER", "GENERAL_ANSWER").contains(value.path("intent").asString())
