@@ -21,8 +21,6 @@ function demand(condition,message,kind='HITL_MISMATCH') {
 export function browserLaunchOptions(command){
   const version=command.graphVersion??'v2';
   demand(['v2','v2_localLLM'].includes(version),'Unsupported graph version','CONFIG');
-  if(version==='v2_localLLM')demand(/^KPLASMA_LOCAL_SESSION=[A-Za-z0-9_-]{32,128}$/.test(command.sessionCookie??''),
-    'LOCAL_SESSION_REQUIRED','CONFIG');
   return {headless:command.headless===true};
 }
 
@@ -92,12 +90,7 @@ class BrowserBridge {
     this.browser=await chromium.launch(launchOptions);
     this.context=await this.browser.newContext({viewport:{width:1440,height:1000},locale:'ko-KR',
       timezoneId:'Asia/Seoul',colorScheme:'light',reducedMotion:'reduce'});
-    this.apiHeaders={};
-    if(this.graphVersion==='v2_localLLM'){
-      const value=command.sessionCookie.slice('KPLASMA_LOCAL_SESSION='.length);
-      await this.context.addCookies([{name:'KPLASMA_LOCAL_SESSION',value,url:this.web+'/api',httpOnly:true,sameSite:'Strict'}]);
-      this.apiHeaders={Cookie:command.sessionCookie,Origin:this.web,'Sec-Fetch-Site':'same-site'};
-    }
+    this.apiHeaders=this.graphVersion==='v2_localLLM'?{Origin:this.web,'Sec-Fetch-Site':'same-site'}:{};
     this.page=await this.context.newPage();
     this.page.setDefaultTimeout(10000);
     this.page.on('pageerror',error=>this.current?.browserErrors.push({type:'pageerror',message:error.message}));

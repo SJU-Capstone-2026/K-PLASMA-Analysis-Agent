@@ -1,7 +1,6 @@
 package com.kplasma.analysisagent.workspace;
 
 import java.net.URI;
-import java.net.HttpCookie;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
@@ -16,9 +15,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 @TestPropertySource(properties={"kplasma.agent.worker-token=synthetic-worker-token",
     "kplasma.agent.supported-graph-versions=v2_localLLM", "kplasma.agent.default-graph-version=v2_localLLM",
     "AGENT_LOCAL_RUNTIME_ENABLED=false", "AGENT_LOCAL_UI_ORIGIN=http://127.0.0.1:5173",
-    "AGENT_LOCAL_API_HOST=", "AGENT_LOCAL_BOOTSTRAP_TOKEN=synthetic-local-bootstrap-token"})
+    "AGENT_LOCAL_API_HOST="})
 class AgentLocalGraphVersionTest extends WorkspaceTestSupport {
-    private String sessionCookie;
 
     private HttpRequest.Builder browserRequest(String method, String path, Object body, String key) throws Exception {
         var request = HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + port + path))
@@ -40,33 +38,24 @@ class AgentLocalGraphVersionTest extends WorkspaceTestSupport {
     }
 
     @Override protected HttpResponse<String> send(String method, String path, Object body, String key) throws Exception {
-        if (sessionCookie == null) {
-            var response = exchange(browserRequest("POST", "/api/local-runtime/session", null, null)
-                .header("X-Local-Bootstrap", "synthetic-local-bootstrap-token"));
-            assertThat(response.statusCode()).describedAs(response.body()).isEqualTo(204);
-            String header = response.headers().firstValue("Set-Cookie").orElseThrow();
-            assertThat(header).contains("HttpOnly", "SameSite=Strict");
-            var cookie = HttpCookie.parse(header).getFirst();
-            sessionCookie = cookie.getName() + "=" + cookie.getValue();
-        }
-        return exchange(browserRequest(method, path, body, key).header("Cookie", sessionCookie));
+        return exchange(browserRequest(method, path, body, key));
     }
 
-    private void assertSessionBoundary() throws Exception {
+    private void assertLocalBoundary() throws Exception {
         for (String path : List.of("/api/workspace", "/api/agent/requests/artificial/events")) {
-            var response = exchange(browserRequest("GET", path, null, null)
+            var response = exchange(HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + port + path))
                 .header("Accept", path.endsWith("/events") ? "text/event-stream" : "application/json"));
-            assertThat(response.statusCode()).describedAs(response.body()).isEqualTo(401);
+            assertThat(response.statusCode()).describedAs(response.body()).isEqualTo(403);
             assertThat(json(response).path("code").asString()).isEqualTo("LOCAL_ACCESS_DENIED");
         }
         var crossSite = exchange(browserRequest("GET", "/api/workspace", null, null)
-            .header("Cookie", sessionCookie).setHeader("Origin", "https://outside.invalid")
+            .setHeader("Origin", "https://outside.invalid")
             .setHeader("Sec-Fetch-Site", "cross-site"));
         assertThat(crossSite.statusCode()).isEqualTo(403);
     }
 
     @Test void localIntakeDefaultsToItsOwnVersionAndRejectsCloudBeforeEnqueue() throws Exception {
-        assertSessionBoundary();
+        assertLocalBoundary();
         var beforeDemo = token();
         rejects("POST", "/api/workspace/new-conversation", Map.of("stateToken", beforeDemo, "decisionDemo", true),
             null, 400, "INVALID_AGENT_REQUEST");

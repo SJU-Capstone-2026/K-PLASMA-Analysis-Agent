@@ -38,11 +38,11 @@ curl http://localhost:8080/api/health
 npm run dev:agent
 ```
 
-프런트엔드 기본 주소는 [http://localhost:5173](http://localhost:5173)이다. `VITE_API_TARGET`의 `/api` 프록시로 백엔드에 연결한다. DB와 저장소가 준비되면 health 응답이 `UP`이다. PostgreSQL 볼륨과 백엔드 원본 보관소를 함께 보존하면 불변 Run 버전과 원본 계보를 추적할 수 있다. `bootRun`의 기본 `./storage`는 `backend/storage/`에 해당한다. JAR를 다른 폴더에서 실행할 때는 `KPLASMA_STORAGE_ROOT`를 원하는 절대 경로로 설정한다.
+프런트엔드 기본 주소는 [http://127.0.0.1:5173](http://127.0.0.1:5173)이다. `VITE_API_TARGET`의 `/api` 프록시로 백엔드에 연결한다. DB와 저장소가 준비되면 health 응답이 `UP`이다. PostgreSQL 볼륨과 백엔드 원본 보관소를 함께 보존하면 불변 Run 버전과 원본 계보를 추적할 수 있다. `bootRun`의 기본 `./storage`는 `backend/storage/`에 해당한다. JAR를 다른 폴더에서 실행할 때는 `KPLASMA_STORAGE_ROOT`를 원하는 절대 경로로 설정한다.
 
 ## 분석 모드와 대화
 
-- 버전 선택의 `v2`는 표준 `v2`이며 새 설치의 기본 모드다. `v2_localLLM`은 독립 그래프 `v2_localLLM`이며 준비 및 웹 인증을 마친 배포에서 사용할 수 있다.
+- 버전 선택의 `v2`는 표준 `v2`이며 새 설치의 기본 모드다. `v2_localLLM`은 독립 그래프 `v2_localLLM`이며 로컬 워커와 백엔드가 준비된 환경에서 사용할 수 있다.
 - 첫 요청이 수락되면 실행 모드가 대화에 저장된다. 다른 모드를 사용하려면 새 대화에서 해당 버전을 선택한다. 과거 답변과 Run 참조는 이전 대화에서 다시 확인한다. 버전 정보 없이 저장된 답변이 있는 과거 대화에서는 새 질문을 보내려면 새 대화를 연다.
 - 백엔드의 `AGENT_SUPPORTED_GRAPH_VERSIONS`, `AGENT_DEFAULT_GRAPH_VERSION`과 프런트엔드의 `VITE_AGENT_SUPPORTED_GRAPH_VERSIONS`, `VITE_AGENT_DEFAULT_GRAPH_VERSION`을 서로 맞춘다. 이전 설정에 폐기된 모드가 섞여 있으면 활성 목록에서 제외된다. 이전 기본값은 일반 V2가 목록에 있는 경우에만 일반 V2로 바뀐다. 로컬 전용 기본값은 `v2_localLLM`으로 설정한다.
 - 의사결정 Agent는 표준 V2가 활성화된 환경에서 별도 대화방을 사용한다. `npm run dev:decision-demo`는 인공 Run을 쓰는 미리보기다. [대화방과 의사결정 흐름](development/conversation-rooms.md)
@@ -141,7 +141,7 @@ npm run verify:public-files
 
 Linux에서 브라우저 시스템 의존성이 없으면 `playwright install --with-deps chromium`을 사용한다. 기본 CI는 `test:agent`와 `test:agent:local`로 일반·로컬 V2 그래프, 평가기, 공통 계산을 검사한다. `test:ui:v2`는 기존 v2 비교 그래프·대화방·Run 태그·진행·스트리밍을 390/800/1008/1440px에서 확인한다.
 
-`test:e2e`는 인공 Run을 등록하고 독립 PostgreSQL·백엔드 JAR·워커·Vite를 시작한다. 일반 개념, 엄격한 검색 경계, 실험 선택 후 비교→max→검색과 네 화면 폭을 검사한다. 일반 모드에서는 의사결정 시연도 검사하고 로컬 모드에서는 로컬 인증을 사용한다. HTTP·그래프·체크포인트·수치 계산은 실제 구현을 쓰며 모델만 고정 응답으로 대체한다. 실제 LLM 판단 정확도 검증은 아니다. `npm run test:e2e:live`는 같은 v2 흐름에 실제 모델을 연결하며 키와 API 사용량이 필요하다. 제품 worker에는 테스트 모델 선택 옵션이 없다.
+`test:e2e`는 인공 Run을 등록하고 독립 PostgreSQL·백엔드 JAR·워커·Vite를 시작한다. 일반 개념, 엄격한 검색 경계, 실험 선택 후 비교→max→검색과 네 화면 폭을 검사한다. 일반 모드에서는 의사결정 시연도 검사하고 로컬 모드에서는 별도 브라우저 세션 없이 로컬 접속을 검사한다. HTTP·그래프·체크포인트·수치 계산은 실제 구현을 쓰며 모델만 고정 응답으로 대체한다. 실제 LLM 판단 정확도 검증은 아니다. `npm run test:e2e:live`는 같은 v2 흐름에 실제 모델을 연결하며 키와 API 사용량이 필요하다. 제품 worker에는 테스트 모델 선택 옵션이 없다.
 
 DB는 테스트 전용 이름과 임의 localhost 포트로 생성하며 자기 컨테이너만 정리한다. 다른 개발 DB나 서버를 재사용하지 않는다. Gradle build 출력과 project cache도 실행별로 나뉘고 복사한 JAR로 서버를 실행한다. 기본 제품 서버의 Clock을 변경하지 않는다. v2 검증 결과는 명령이 출력하는 임시 폴더에만 보관한다. 질문·응답·체크포인트·trace·토큰이 포함될 수 있는 연결 파일을 게시하지 않는다.
 

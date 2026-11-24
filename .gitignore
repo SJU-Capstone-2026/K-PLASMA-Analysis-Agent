@@ -1,4 +1,4 @@
-# Actual experiment data and runtime storage
+# Confidential company experiment data, raw Run payloads, and local runtime storage
 /backend/storage/
 /backend/.runtime/
 /backend/.local-data/
