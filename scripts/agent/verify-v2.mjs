@@ -7,7 +7,7 @@ import {command, freePort, repo} from '../reference/runtime.mjs';
 const live = process.argv.includes('--live');
 const output = await mkdtemp(join(tmpdir(), 'kplasma-v2-browser-'));
 console.log(`Browser evidence: ${output}`);
-const environment = await startV1Environment(output, live ? 'live' : 'stub-v2');
+const environment = await startV1Environment(output, live ? 'live' : 'stub-v2', {decisionDemo:!live});
 try {
   await command(join(repo, 'node_modules/.bin/playwright'), ['test', '--config', 'v2.playwright.config.ts'], {
     cwd: join(repo, 'frontend'),

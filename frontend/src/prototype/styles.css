@@ -119,17 +119,10 @@ textarea:focus-visible,
 
 .brand-mark,
 .loading-mark {
-  display: grid;
   width: 38px;
   height: 38px;
-  place-items: center;
+  object-fit: contain;
   flex: 0 0 auto;
-  color: #fff;
-  background: linear-gradient(145deg, var(--color-primary), var(--color-indigo));
-  border-radius: 11px;
-  box-shadow: 0 8px 18px rgba(65, 104, 232, 0.24);
-  font-size: 19px;
-  font-weight: 800;
 }
 
 .brand-copy {
@@ -386,7 +379,6 @@ textarea:focus-visible,
 .loading-state .loading-mark {
   width: 54px;
   height: 54px;
-  border-radius: 15px;
 }
 
 .loading-state h1 {
@@ -1438,7 +1430,6 @@ select:focus { border-color: var(--color-primary); box-shadow: 0 0 0 3px rgba(65
     padding-left: 22px;
   }
 
-  .brand-copy small,
   .context-chip { display: none; }
 
   .candidate-grid { grid-template-columns: 1fr; }
@@ -1689,7 +1680,6 @@ select:focus { border-color: var(--color-primary); box-shadow: 0 0 0 3px rgba(65
   box-shadow: 0 12px 34px rgba(36, 63, 117, .07);
 }
 
-.agent-welcome-mark,
 .agent-avatar {
   display: grid;
   place-items: center;
@@ -1702,9 +1692,7 @@ select:focus { border-color: var(--color-primary); box-shadow: 0 0 0 3px rgba(65
   width: 48px;
   height: 48px;
   margin-bottom: 14px;
-  border-radius: 15px;
-  font-size: 20px;
-  font-weight: 850;
+  object-fit: contain;
 }
 
 .agent-welcome h2 { margin: 0 0 7px; font-size: 23px; letter-spacing: -.025em; }
@@ -2885,6 +2873,7 @@ p.manual-limit { margin-bottom: 0; color: #826947; font-size: 9px; line-height: 
 .reference-tray-clear:hover { color: #294777; background: transparent; }
 .reference-tray button svg { display: block; }
 
+.agent-composer > .reference-tray { margin-bottom: 4px; }
 .agent-composer .reference-tray-runs,
 .agent-composer .reference-tray-more-grid {
   display: flex;
@@ -2895,22 +2884,22 @@ p.manual-limit { margin-bottom: 0; color: #826947; font-size: 9px; line-height: 
 .agent-composer > .reference-tray .run-context-chip {
   flex: 0 1 auto;
   width: fit-content;
-  min-height: 32px;
+  min-height: 28px;
   gap: 7px;
-  padding: 3px 7px 3px 9px;
-  border: 1px solid #dfe5f3;
-  border-radius: 8px;
+  padding: 1px 4px 1px 8px;
+  border: 1px solid #e2e8f2;
+  border-radius: 999px;
   background: #f6f8fc;
 }
 .agent-composer .run-context-chip button {
-  flex: 0 0 22px;
-  width: 22px;
-  min-width: 22px;
-  height: 22px;
-  min-height: 22px;
-  margin-left: 1px;
+  flex: 0 0 24px;
+  width: 24px;
+  min-width: 24px;
+  height: 24px;
+  min-height: 24px;
+  margin-left: 0;
   border: 0;
-  border-radius: 5px;
+  border-radius: 50%;
   font-size: 16px;
 }
 .agent-composer .run-context-chip button:hover { color: #315bc7; background: #e9efff; }
@@ -3199,7 +3188,7 @@ p.manual-limit { margin-bottom: 0; color: #826947; font-size: 9px; line-height: 
   position: relative;
   bottom: auto;
   margin-top: 0;
-  padding: 5px 8px;
+  padding: 6px 12px;
   border: 1px solid #d5dce6;
   border-radius: 22px;
   background: #fff;
@@ -3215,11 +3204,13 @@ p.manual-limit { margin-bottom: 0; color: #826947; font-size: 9px; line-height: 
   min-height: 36px;
   max-height: 12rem;
   resize: none;
-  padding: 7px 8px;
+  padding: 7px 0;
   border: 0;
   background: transparent;
   font-size: 14px;
 }
+.agent-composer .agent-composer-input textarea:focus { box-shadow: none; }
+.agent-composer.panel:has(.agent-composer-input textarea:focus-visible) { border-color: #9daecc; }
 .agent-composer .agent-composer-input textarea:placeholder-shown { field-sizing: fixed; }
 .agent-composer .agent-send {
   display: inline-grid;

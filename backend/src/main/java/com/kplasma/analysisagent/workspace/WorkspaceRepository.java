@@ -49,7 +49,7 @@ public class WorkspaceRepository {
     }
     private List<ConversationSummary> conversations(long workspace) {
         return jdbc.query("""
-            select c.conversation_epoch,c.created_at,c.updated_at,
+            select c.conversation_epoch,c.created_at,c.updated_at,c.decision_demo,
                 coalesce((select left(r.question,80) from agent_request r
                     where r.workspace_epoch=c.workspace_epoch and r.conversation_epoch=c.conversation_epoch
                     and r.question is not null order by r.created_at,r.id limit 1),
@@ -59,7 +59,8 @@ public class WorkspaceRepository {
             from workspace_conversation c where c.workspace_epoch=?
             order by c.updated_at desc,c.conversation_epoch desc
             """,(rs,n)->new ConversationSummary(rs.getLong("conversation_epoch"),rs.getString("title"),
-                rs.getTimestamp("created_at").toInstant().toString(),rs.getTimestamp("updated_at").toInstant().toString()),workspace);
+                rs.getTimestamp("created_at").toInstant().toString(),rs.getTimestamp("updated_at").toInstant().toString(),
+                rs.getBoolean("decision_demo")),workspace);
     }
     private void saveCurrentConversation() {
         jdbc.update("""
@@ -68,11 +69,13 @@ public class WorkspaceRepository {
             from workspace w where w.id=1 and c.workspace_epoch=w.workspace_epoch and c.conversation_epoch=w.conversation_epoch
             """);
     }
-    public void newConversation(StateToken token) {
+    public void newConversation(StateToken token,boolean decisionDemo) {
         saveCurrentConversation();
         long next=jdbc.queryForObject("select greatest(coalesce(max(conversation_epoch),0),?)+1 from workspace_conversation",Long.class,token.conversationEpoch());
-        jdbc.update("insert into workspace_conversation(workspace_epoch,conversation_epoch) values (?,?)",token.workspaceEpoch(),next);
-        jdbc.update("update workspace set conversation_epoch=?,active_run=null,candidate_reference=null,agent_graph_version=null,revision=revision+1 where id=1",next);
+        String graph = decisionDemo ? "v2" : null;
+        jdbc.update("insert into workspace_conversation(workspace_epoch,conversation_epoch,agent_graph_version,decision_demo) values (?,?,?,?)",
+            token.workspaceEpoch(),next,graph,decisionDemo);
+        jdbc.update("update workspace set conversation_epoch=?,active_run=null,candidate_reference=null,agent_graph_version=?,revision=revision+1 where id=1",next,graph);
     }
     public void activateConversation(StateToken token,long conversation) {
         if(!hasConversation(token.workspaceEpoch(),conversation))throw new IntakeException("NOT_FOUND",404,"Conversation not found");
@@ -84,9 +87,7 @@ public class WorkspaceRepository {
             from workspace_conversation c where w.id=1 and c.workspace_epoch=? and c.conversation_epoch=?
             """,token.workspaceEpoch(),conversation);
     }
-    public void clear(boolean reset) {
-        var token=jdbc.queryForObject("select workspace_epoch,conversation_epoch,revision from workspace where id=1",(rs,n)->new StateToken(rs.getLong(1),rs.getLong(2),rs.getLong(3)));
-        if(!reset){newConversation(token);return;}
+    public void reset(StateToken token) {
         agents.clearConversation(token.workspaceEpoch(),token.conversationEpoch(),true);
         jdbc.update("delete from conversation_turn where workspace_id=1");
         jdbc.update("delete from workspace_conversation");

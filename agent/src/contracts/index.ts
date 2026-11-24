@@ -69,7 +69,7 @@ export type ReferenceState = { kind: '단일 Run' | '후보 집합'; runs: RunRe
 export interface ReferenceWrite { stateToken: StateToken; candidateReference: ReferenceState; activeRun: RunRef | null }
 export interface Conversation { version: 1; activeRun: RunRef | null; turns: TurnSnapshot[]; agentGraphVersion?: GraphVersion | null }
 export interface AgentMessage {requestId:string;clientMessageId:string|null;createdAt:string;question:string;submittedRunRefs:RunRef[];status:AgentRequestStatus|'SENDING'|'SEND_UNCERTAIN';turnId:string|null;executionSummary?:import('./progress.js').AgentExecutionSummary|null}
-export interface ConversationSummary {conversationEpoch:number;title:string;createdAt:string;updatedAt:string}
+export interface ConversationSummary {conversationEpoch:number;title:string;createdAt:string;updatedAt:string;decisionDemo?:boolean}
 export interface WorkspaceView {conversations?:ConversationSummary[];agentMessages?:AgentMessage[]; stateToken: StateToken; conversation: Conversation; candidateReference: ReferenceState; activeAgentRequest?:AgentRequestView|null; failedAgentRequest?:AgentRequestView|null }
 export type Decision = 'ADOPT' | 'HOLD' | 'REJECT';
 export type ExperimentDecision = Decision | 'ALTERNATIVE' | 'COMPARISON';

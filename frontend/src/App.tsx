@@ -4,11 +4,13 @@ import {createExperimentRecord,type DecisionRecord,type ExperimentRecord,type Ru
 import {useConversation} from './features/agent/useConversation';
 import {TurnDetailDialog} from './features/agent/TurnDetailDialog';
 import {AgentPage} from './features/agent/AgentPage';
+import {DecisionAgentPage} from './features/decision-agent/DecisionAgentPage';
 import {ArchivePage,ArchiveDetail,EvidenceDialog,initialArchiveFilters} from './features/archive/ArchivePage';
 import {DecisionDialog} from './features/archive/DecisionDialog';
 import {fetchDecisions,saveDecision} from './api/decisions';
 import {fetchRuns,fetchRunVersion} from './api/runs';
 import {Modal} from './components/Modal';
+import {BrandMark} from './components/BrandMark';
 import {ConversationList} from './components/ConversationList';
 import {AnalysisPage,initialAnalysisState} from './features/analysis/AnalysisPage';
 import {CatalogPage,initialCatalogState} from './features/catalog/CatalogPage';
@@ -16,21 +18,41 @@ import {RunDetailDialog} from './features/analysis/RunDetail';
 import {FlowPage} from './features/flow/FlowPage';
 import {Toast,type ToastMessage} from './components/Toast';
 import './prototype/styles.css';
-export type View='agent'|'analysis'|'archive'|'catalog'|'flow';
+export type View='agent'|'decision'|'analysis'|'archive'|'catalog'|'flow';
 export interface ShellContext {navigate:(view:View)=>void;openRunDetail:(ref:RunRef)=>void;notify:(text:string,tone?:string)=>void}
 export interface AppProps {pages?:Partial<Record<View,(context:ShellContext)=>ReactNode>>;decisionCount?:number;onReference?:(ref:RunRef)=>void;onDecision?:(ref:RunRef)=>void;onReset?:()=>void;modal?:ReactNode}
-const labels:Record<View,string>={agent:'분석 Agent',analysis:'실험 데이터 탐색',archive:'의사결정 기록',catalog:'Run 데이터 관리',flow:'사용 방법'};
-const icons:Record<View,string>={agent:'⌁',analysis:'⌗',archive:'▤',catalog:'◫',flow:'?'};
-function PendingPage(){return <section className="loading-state" aria-label="프로토타입 준비 중"><div className="loading-mark" aria-hidden="true">K</div><h1>K-PLASMA Decision Studio</h1><p>검증된 Run 데이터를 불러오는 중입니다.</p></section>;}
+const labels:Record<View,string>={agent:'분석 Agent',decision:'의사결정 Agent',analysis:'실험 데이터 탐색',archive:'의사결정 기록',catalog:'Run 데이터 관리',flow:'사용 방법'};
+const icons:Record<View,string>={agent:'⌁',decision:'◇',analysis:'⌗',archive:'▤',catalog:'◫',flow:'?'};
+function PendingPage(){return <section className="loading-state" aria-label="프로토타입 준비 중"><BrandMark className="loading-mark"/><h1>PLASMATE</h1><p>검증된 Run 데이터를 불러오는 중입니다.</p></section>;}
 export function App({pages={},decisionCount:providedDecisionCount,onReference,onDecision,onReset,modal}:AppProps={}){
  const conversation=useConversation();const latestWorkspace=useRef(conversation.state);latestWorkspace.current=conversation.state;const [records,setRecords]=useState<DecisionRecord[]>([]);const decisionCount=providedDecisionCount??records.length;const [archiveFilters,setArchiveFilters]=useState(initialArchiveFilters);
  const [recordTarget,setRecordTarget]=useState<RunRef|null>(null);const [recordTurn,setRecordTurn]=useState<TurnSnapshot|null>(null);const [recordSource,setRecordSource]=useState<V2RecordSource|undefined>();const [archiveDetail,setArchiveDetail]=useState<DecisionRecord|null>(null);const [evidence,setEvidence]=useState<{turn:TurnSnapshot;runId:string}|null>(null);const [turnDetail,setTurnDetail]=useState<{ref:RunRef;turnId:string}|null>(null);const [resetOpen,setResetOpen]=useState(false);const [resetPending,setResetPending]=useState(false);
- const [activeView,setActiveView]=useState<View>('agent');const [mobileOpen,setMobileOpen]=useState(false);const [navigation,setNavigation]=useState(0);const root=useRef<HTMLElement>(null);const tools=useRef<HTMLDetailsElement>(null);
+ const [selectedView,setActiveView]=useState<View>('agent');
+ const rooms=conversation.state.conversations??[];
+ const activeRoom=rooms.find(room=>room.conversationEpoch===conversation.state.stateToken.conversationEpoch);
+ const demoRoom=rooms.find(room=>room.decisionDemo);
+ const activeView=selectedView==='agent'||selectedView==='decision'?(activeRoom?.decisionDemo?'decision':'agent'):selectedView;
+ const lastAnalysisRoom=useRef<number|undefined>(undefined);
+ const switchingRoom=useRef(false);const [changingRoom,setChangingRoom]=useState(false);const [mobileOpen,setMobileOpen]=useState(false);const [navigation,setNavigation]=useState(0);const root=useRef<HTMLElement>(null);const tools=useRef<HTMLDetailsElement>(null);
  const [analysisState,setAnalysisState]=useState(initialAnalysisState);const [catalogState,setCatalogState]=useState(initialCatalogState);const [detail,setDetail]=useState<RunRef|null>(null);const [toasts,setToasts]=useState<ToastMessage[]>([]);const sequence=useRef(0);
  const notify=useCallback((text:string,tone='success')=>setToasts(items=>[...items,{id:++sequence.current,text,tone}]),[]);const removeToast=useCallback((id:number)=>setToasts(items=>items.filter(item=>item.id!==id)),[]);
+ useEffect(()=>{if(activeRoom&&!activeRoom.decisionDemo)lastAnalysisRoom.current=activeRoom.conversationEpoch;},[activeRoom]);
  useEffect(()=>{if(!conversation.ready)return;const controller=new AbortController();fetchDecisions(controller.signal).then(next=>{if(!controller.signal.aborted)setRecords(current=>[...new Map([...next,...current].map(record=>[record.reviewId,record])).values()]);}).catch(error=>{if(!controller.signal.aborted)notify(error.message,'info');});return()=>controller.abort();},[conversation.ready,conversation.state.stateToken.workspaceEpoch,notify]);
  async function saveRecord(record:DecisionRecord,refs:RunRef[],key:string){const epoch=conversation.state.stateToken.workspaceEpoch;const saved=await saveDecision({workspaceEpoch:epoch,record,runRefs:refs},key);if(latestWorkspace.current.stateToken.workspaceEpoch!==epoch)throw new Error('초기화 이전 기록 응답을 폐기했습니다.');setRecords(current=>current.some(item=>item.reviewId===saved.reviewId)?current:[...current,saved]);notify(saved.version===2?`${saved.id} · 채택 1개와 후보 판단 ${saved.comparedRunIds.length}개를 기록했습니다.`:`${saved.reviewId} · 의사결정과 코멘트를 기록했습니다.`);}
- function useReference(ref:RunRef){if(onReference){onReference(ref);return;}conversation.setReference(conversation.state.candidateReference,ref).then(()=>{navigate('agent');requestAnimationFrame(()=>document.getElementById('agent-query')?.focus());notify(`${ref.runId}을 다음 질문의 기준으로 선택했습니다.`,'info');}).catch(error=>notify(error.message,'info'));}
+ async function useReference(ref:RunRef){
+  if(onReference){onReference(ref);return;}
+  try{
+   if(!await ensureAgentRoom(false))return;
+   await conversation.setReference(workspace=>{
+    if(workspace.conversations?.some(room=>room.conversationEpoch===workspace.stateToken.conversationEpoch&&room.decisionDemo))
+     throw new Error('분석 대화를 연 뒤 기준 Run을 선택해 주세요.');
+    return workspace.candidateReference;
+   },ref);
+   showView('agent');
+   requestAnimationFrame(()=>document.getElementById('agent-query')?.focus());
+   notify(`${ref.runId}을 다음 질문의 기준으로 선택했습니다.`,'info');
+  }catch(error){notify(error instanceof Error?error.message:String(error),'info');}
+ }
  function useDecision(ref:RunRef){if(onDecision){onDecision(ref);return;}setRecordTarget(ref);}
  async function runsDeleted(runIds:string[]){setAnalysisState(current=>runIds.includes(current.analysisRunId)?{...current,analysisRunId:''}:current);setDetail(current=>current&&runIds.includes(current.runId)?null:current);setRecordTarget(current=>current&&runIds.includes(current.runId)?null:current);await conversation.refresh();}
  async function loadDemo(){
@@ -40,15 +62,37 @@ export function App({pages={},decisionCount:providedDecisionCount,onReference,on
   notify('데모 기록 4건을 명시적으로 불러왔습니다.','info');
  }
  async function reset(){if(resetPending)return;setResetPending(true);try{await conversation.reset();setRecords([]);setArchiveFilters(initialArchiveFilters);setAnalysisState(initialAnalysisState);setResetOpen(false);notify('데모 데이터를 초기화했습니다.','info');}catch(error){notify(error instanceof Error?error.message:String(error),'info');}finally{setResetPending(false);}}
- function navigate(view:View){setActiveView(view);setMobileOpen(false);setNavigation(n=>n+1);if(tools.current)tools.current.open=view==='catalog'||view==='flow';}
- function openConversation(){navigate('agent');requestAnimationFrame(()=>window.scrollTo({top:document.documentElement.scrollHeight,behavior:'auto'}));}
+ async function ensureAgentRoom(decisionDemo:boolean){
+  if(switchingRoom.current)return false;
+  if(Boolean(activeRoom?.decisionDemo)===decisionDemo)return true;
+  if(!conversation.ready||conversation.sending)return false;
+  switchingRoom.current=true;setChangingRoom(true);
+  try{
+   const last=decisionDemo?demoRoom:rooms.find(room=>!room.decisionDemo&&room.conversationEpoch===lastAnalysisRoom.current);
+   const target=last??rooms.find(room=>Boolean(room.decisionDemo)===decisionDemo);
+   if(target)await conversation.selectConversation(target.conversationEpoch);
+   else await conversation.newConversation(decisionDemo);
+   return true;
+  }finally{switchingRoom.current=false;setChangingRoom(false);}
+ }
+ function showView(view:View){setActiveView(view);setMobileOpen(false);setNavigation(n=>n+1);if(tools.current)tools.current.open=view==='catalog'||view==='flow';}
+ function navigate(view:View){
+  if(switchingRoom.current)return;
+  if(view!=='agent'&&view!=='decision'){showView(view);return;}
+  if(Boolean(activeRoom?.decisionDemo)===(view==='decision')){showView(view);return;}
+  void ensureAgentRoom(view==='decision').then(opened=>{if(opened)showView(view);}).catch(error=>notify(error.message,'info'));
+ }
+ function openConversation(){showView('agent');requestAnimationFrame(()=>window.scrollTo({top:document.documentElement.scrollHeight,behavior:'auto'}));}
  useLayoutEffect(()=>{if(!navigation)return;window.scrollTo({top:0,behavior:'auto'});root.current?.focus({preventScroll:true});},[navigation]);
  const context:ShellContext={navigate,openRunDetail:ref=>setDetail({runId:ref.runId,runVersionId:ref.runVersionId}),notify};
- function nav(view:View){return <button key={view} className={`nav-item ${activeView===view?'is-active':''}`} type="button" data-view={view} aria-current={activeView===view?'page':undefined} onClick={()=>navigate(view)}><span className="nav-icon" aria-hidden="true">{icons[view]}</span><span>{labels[view]}</span>{view==='archive'&&<span className="nav-badge" id="archive-count" aria-label="저장된 결정 수">{decisionCount}</span>}</button>;}
+ function nav(view:View){return <button key={view} className={`nav-item ${activeView===view?'is-active':''}`} type="button" data-view={view} disabled={changingRoom||(view==='agent'||view==='decision')&&Boolean(activeRoom?.decisionDemo)!==(view==='decision')&&(!conversation.ready||conversation.sending)} aria-current={activeView===view?'page':undefined} onClick={()=>navigate(view)}><span className="nav-icon" aria-hidden="true">{icons[view]}</span><span>{labels[view]}</span>{view==='archive'&&<span className="nav-badge" id="archive-count" aria-label="저장된 결정 수">{decisionCount}</span>}</button>;}
  let page=pages[activeView]?.(context);
- if(page===undefined)page=activeView==='analysis'?<AnalysisPage state={analysisState} onStateChange={setAnalysisState} onReference={useReference} onDecision={useDecision}/>:activeView==='agent'?<AgentPage conversation={conversation} records={records} notify={notify} onDetail={(ref,turn)=>setTurnDetail({ref,turnId:turn.id})} onRecord={(turn,source,target)=>{setRecordSource(source);if(target){setRecordTurn(null);setRecordTarget(target);}else{setRecordTarget(null);setRecordTurn(turn);}}} onEvidence={(turn,runId)=>setEvidence({turn,runId})} onDemo={loadDemo}/>:activeView==='archive'?<ArchivePage records={records} filters={archiveFilters} onFiltersChange={setArchiveFilters} onDetail={setArchiveDetail} onAgent={()=>navigate('agent')}/>:activeView==='catalog'?<CatalogPage context={context} state={catalogState} onStateChange={setCatalogState} onReference={useReference} onDecision={useDecision} onDeleted={runsDeleted}/>:activeView==='flow'?<FlowPage decisionCount={decisionCount} onNavigate={navigate}/>:<PendingPage/>;
+ if(page===undefined)page=activeView==='analysis'?<AnalysisPage state={analysisState} onStateChange={setAnalysisState} onReference={useReference} onDecision={useDecision}/>:activeView==='agent'?<AgentPage conversation={conversation} records={records} notify={notify} onDetail={(ref,turn)=>setTurnDetail({ref,turnId:turn.id})} onRecord={(turn,source,target)=>{setRecordSource(source);if(target){setRecordTurn(null);setRecordTarget(target);}else{setRecordTarget(null);setRecordTurn(turn);}}} onEvidence={(turn,runId)=>setEvidence({turn,runId})} onDemo={loadDemo}/>:activeView==='archive'?<ArchivePage records={records} filters={archiveFilters} onFiltersChange={setArchiveFilters} onDetail={setArchiveDetail} onAgent={()=>navigate('agent')}/>:activeView==='catalog'?<CatalogPage context={context} state={catalogState} onStateChange={setCatalogState} onReference={useReference} onDecision={useDecision} onDeleted={runsDeleted}/>:activeView==='decision'?null:activeView==='flow'?<FlowPage decisionCount={decisionCount} onNavigate={navigate}/>:<PendingPage/>;
  const detailTurn=turnDetail?conversation.state.conversation.turns.find(turn=>turn.id===turnDetail.turnId):null;
  const selectedTab=turnDetail&&detailTurn?detailTurn.ui.runDetailTabs[turnDetail.ref.runId]:undefined;
  const activeModal=recordTurn||recordTarget?<DecisionDialog turn={recordTurn??undefined} target={recordTarget??undefined} source={recordSource} workspaceEpoch={conversation.state.stateToken.workspaceEpoch} onSave={saveRecord} onClose={()=>{setRecordTurn(null);setRecordTarget(null);setRecordSource(undefined);}}/>:archiveDetail?<ArchiveDetail record={archiveDetail} onClose={()=>setArchiveDetail(null)}/>:evidence?<EvidenceDialog {...evidence} onClose={()=>setEvidence(null)} onRecord={id=>{const record=records.find(record=>record.reviewId===id);if(record){setEvidence(null);setArchiveDetail(record);}}}/>:turnDetail&&detailTurn?<TurnDetailDialog runRef={turnDetail.ref} turnId={turnDetail.turnId} tab={selectedTab} onClose={()=>setTurnDetail(null)} onTabChange={tab=>conversation.updateTurnUi(turnDetail.turnId,{runDetailTabs:{[turnDetail.ref.runId]:tab}}).catch(error=>notify(error.message,'info'))}/>:resetOpen?<Modal titleId="reset-title" descriptionId="reset-description" role="alertdialog" className="confirm-modal" onClose={()=>setResetOpen(false)}><div className="confirm-icon confirm-icon--warning" aria-hidden="true">!</div><h2 id="reset-title">데모 데이터를 초기화할까요?</h2><p id="reset-description">저장된 대화 전체와 의사결정 코멘트 {records.length}건, 선택한 Run이 삭제됩니다.</p><div className="form-actions"><button className="button button--ghost" type="button" onClick={()=>setResetOpen(false)}>취소</button><button className="button button--danger" type="button" disabled={resetPending} onClick={()=>void reset()}>초기화</button></div></Modal>:detail?<RunDetailDialog runRef={detail} onClose={()=>setDetail(null)}/>:null;
- return <><a className="skip-link" href="#view-root">본문으로 건너뛰기</a><div id="app" className="app-shell"><aside id="sidebar" className={`sidebar ${mobileOpen?'is-open':''}`} aria-label="주요 메뉴"><div className="brand"><span className="brand-mark" aria-hidden="true">K</span><span className="brand-copy"><strong>K-PLASMA</strong><small>Decision Studio</small></span></div><nav className="nav-stack" aria-label="분석 메뉴"><p className="nav-label">WORKSPACE</p>{(['agent','analysis','archive'] as View[]).map(nav)}<details ref={tools} className="nav-tools"><summary className="nav-item"><span className="nav-icon" aria-hidden="true">···</span><span>도구 및 도움말</span><span className="nav-chevron" aria-hidden="true">⌄</span></summary><div className="nav-tool-list">{(['catalog','flow'] as View[]).map(nav)}</div></details><ConversationList rooms={conversation.state.conversations??[]} activeEpoch={conversation.state.stateToken.conversationEpoch} disabled={!conversation.ready||conversation.sending} onNew={conversation.newConversation} onSelect={conversation.selectConversation} onOpened={openConversation} onError={message=>notify(message,'info')}/></nav><div className="sidebar-foot"><div className="system-health"><span className="status-dot status-dot--success" aria-hidden="true"/><span><strong>로컬 모드</strong><small>로컬 데이터 · 백엔드 연결</small></span></div><button className="text-button" id="reset-demo" type="button" onClick={()=>onReset?onReset():setResetOpen(true)}>데모 데이터 초기화</button></div></aside><div className="app-main"><header id="topbar" className="topbar"><button className="icon-button mobile-menu" id="mobile-menu" type="button" aria-controls="sidebar" aria-expanded={mobileOpen} aria-label="메뉴 열기" onClick={()=>setMobileOpen(open=>!open)}>☰</button><div className="breadcrumb" aria-label="현재 위치"><span>Workspace</span><span aria-hidden="true">/</span><strong id="current-view-label">{labels[activeView]}</strong></div><div className="topbar-actions"><span className="context-chip"><span className="status-dot status-dot--success"/>등록된 Run · 예측 없음</span><button className="avatar-button" type="button" aria-label="사용자: 익명">익명</button></div></header><main ref={root} id="view-root" className="view-root" tabIndex={-1}>{page}</main></div></div><div id="modal-root"/>{modal??activeModal}<Toast messages={toasts} onRemove={removeToast}/></>;
+ return <><a className="skip-link" href="#view-root">본문으로 건너뛰기</a><div id="app" className="app-shell"><aside id="sidebar" className={`sidebar ${mobileOpen?'is-open':''}`} aria-label="주요 메뉴"><div className="brand"><BrandMark className="brand-mark"/><span className="brand-copy"><strong>PLASMATE</strong><small>플라즈마 공정 파트너</small></span></div><nav className="nav-stack" aria-label="분석 메뉴"><p className="nav-label">WORKSPACE</p>{(['agent','decision','analysis','archive'] as View[]).map(nav)}<details ref={tools} className="nav-tools"><summary className="nav-item"><span className="nav-icon" aria-hidden="true">···</span><span>도구 및 도움말</span><span className="nav-chevron" aria-hidden="true">⌄</span></summary><div className="nav-tool-list">{(['catalog','flow'] as View[]).map(nav)}</div></details><ConversationList rooms={rooms.filter(room=>!room.decisionDemo)} activeEpoch={conversation.state.stateToken.conversationEpoch} disabled={!conversation.ready||conversation.sending||changingRoom} onNew={conversation.newConversation} onSelect={conversation.selectConversation} onOpened={openConversation} onError={message=>notify(message,'info')}/></nav><div className="sidebar-foot"><div className="system-health"><span className="status-dot status-dot--success" aria-hidden="true"/><span><strong>로컬 모드</strong><small>로컬 데이터 · 백엔드 연결</small></span></div>{activeView!=='decision'&&<button className="text-button" id="reset-demo" type="button" onClick={()=>onReset?onReset():setResetOpen(true)}>데모 데이터 초기화</button>}</div></aside><div className="app-main"><header id="topbar" className="topbar"><button className="icon-button mobile-menu" id="mobile-menu" type="button" aria-controls="sidebar" aria-expanded={mobileOpen} aria-label="메뉴 열기" onClick={()=>setMobileOpen(open=>!open)}>☰</button><div className="breadcrumb" aria-label="현재 위치"><span>Workspace</span><span aria-hidden="true">/</span><strong id="current-view-label">{labels[activeView]}</strong></div><div className="topbar-actions"><span className="context-chip"><span className="status-dot status-dot--success"/>등록된 Run · 예측 없음</span><button className="avatar-button" type="button" aria-label="사용자: 익명">익명</button></div></header><main ref={root} id="view-root" className="view-root" tabIndex={-1}>{page}{demoRoom&&!pages.decision&&<div hidden={activeView!=='decision'}>
+ <DecisionAgentPage key={`${conversation.state.stateToken.workspaceEpoch}:${demoRoom.conversationEpoch}`}
+  active={activeView==='decision'} conversation={conversation}/>
+ </div>}</main></div></div><div id="modal-root"/>{modal??activeModal}<Toast messages={toasts} onRemove={removeToast}/></>;
 }

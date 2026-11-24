@@ -6,6 +6,25 @@ import org.junit.jupiter.api.Test;
 import static org.assertj.core.api.Assertions.*;
 
 class ConversationRoomsTest extends WorkspaceTestSupport {
+    @Test void decisionDemoStartsPinnedAndRestoresSeparately() throws Exception {
+        long analysis = token().get("conversationEpoch").longValue();
+        var demo = ok("POST", "/api/workspace/new-conversation",
+            Map.of("stateToken", token(), "decisionDemo", true), null);
+        long decision = demo.get("stateToken").get("conversationEpoch").longValue();
+        assertThat(decision).isNotEqualTo(analysis);
+        assertThat(demo.get("conversation").get("agentGraphVersion").stringValue()).isEqualTo("v2");
+        assertThat(demo.get("conversations").get(0).get("decisionDemo").booleanValue()).isTrue();
+        rejects("POST", "/api/agent/requests",
+            Map.of("stateToken", token(), "graphVersion", "v1", "text", "Synthetic question"),
+            "wrong-demo-graph", 409, "GRAPH_VERSION_MISMATCH");
+        var restored = ok("POST", "/api/workspace/conversations/" + analysis + "/activate",
+            Map.of("stateToken", token()), null);
+        assertThat(restored.get("conversation").get("agentGraphVersion").isNull()).isTrue();
+        var reopened = ok("POST", "/api/workspace/conversations/" + decision + "/activate",
+            Map.of("stateToken", token()), null);
+        assertThat(reopened.get("conversation").get("agentGraphVersion").stringValue()).isEqualTo("v2");
+    }
+
     @Test void roomsRestoreExactTurnsUiReferencesAndGraphVersion() throws Exception {
         long first=token().get("conversationEpoch").longValue();
         var original=turn();

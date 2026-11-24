@@ -97,7 +97,7 @@ export async function upload(api,root,mode,archive) {
 }
 export async function get(api,path) {const response=await fetch(new URL(path,api));if(!response.ok)throw new Error(`API ${path.split('/').slice(0,3).join('/')} returned HTTP ${response.status}`);return response.json();}
 export async function terminalBatch(api,id) {for(let count=0;count<1800;count++){const batch=await get(api,`/api/import-batches/${id}`);if(['SUCCESS','PARTIAL_SUCCESS','FAILED'].includes(batch.status))return batch;await sleep(500);}throw new Error('Import processing timed out.');}
-export async function syntheticFolder(output) {
+export async function syntheticFolder(output,{decisionDemo=false}={}) {
   const source=await readFile(join(repo,'backend/src/test/java/com/kplasma/analysisagent/ingestion/SyntheticRunFiles.java'),'utf8');
   const blocks=[...source.matchAll(/return """\n([\s\S]*?)\n\s*"""/g)].map(match=>match[1].split('\n').map(line=>line.replace(/^ {12}/,'')).join('\n')+'\n');
   const replace=(value,args)=>{let index=0;return value.replace(/%s/g,()=>args[index++]);};
@@ -105,6 +105,38 @@ export async function syntheticFolder(output) {
   for(const pressure of [2,4,6]){
     const files={'0d_setting.ini':replace(blocks[0],['0','0','\u0001']).replace('PRS=2',`PRS=${pressure}`),'0d_result/log/solver.log':replace(blocks[1],['OFF','','']).replace('Pressure = 2',`Pressure = ${pressure}`),'0d_result/log/residual.log':blocks[2],'0d_result/log/output.log':'INFO: Finished!\n'};
     for(const [name,value] of Object.entries(files)){const path=join(root,`artificial-${pressure}`,name);await mkdir(resolve(path,'..'),{recursive:true});await writeFile(path,value);}
+  }
+  if(decisionDemo){
+    const plot=(type,x,y,rows)=>`# type=${type}\n# gtype=1D\n# x=${x}\n# y=${y}\n# nx=${rows.length}\n${rows.join('\n')}\n`;
+    const grid=(type,x,y,rows,ny)=>`# type=${type}\n# gtype=2D\n# x=${x}\n# y=${y}\n# nx=2\n# ny=${ny}\n${rows.join('\n')}\n`;
+    const density=[0,1].flatMap(x=>Array.from({length:31},(_,y)=>`${x} ${y} 1`));
+    const graphs={
+      'IED/Ar+.txt':plot('IEDs','energy (eV)','IED (a.u.)',['0 1','1 2','2 1']),
+      'IAD/Ar+.txt':plot('IADs','angle (degrees)','IAD (a.u.)',Array.from({length:201},(_,angle)=>`${angle} 1`)),
+      'IEAD/Ar+.txt':grid('IEAD','angle (degrees)','energy (eV)',['0 0 1','0 1 2','1 0 1','1 1 2'],2),
+      'CUR/J0h_h.txt':plot('Current_density','time (rf cycle)','J0h_h (statampere/cm^2)',['0 0','1 1']),
+      'POT/pot.txt':plot('Pot','time (rf cycle)','pot (V)',['0 0','1 1']),
+      'DEN/Ar+.txt':grid('DENSITY','time (rf cycle)','distance (cm)',density,31),
+    };
+    for(const [bias,energy,flux] of [[0,16,20],[200,43,20],[400,70,20],[600,100,20],[800,104,24]]){
+      const biasOn=bias>0;
+      const files={
+        '0d_setting.ini':replace(blocks[0],[biasOn?'1':'0',String(bias),'\u0001']).replace('PRS=2','PRS=6').replace('Powerh=1.e2','Powerh=300'),
+        '0d_result/log/solver.log':replace(blocks[1],[biasOn?'ON':'OFF',
+          biasOn?`[BIAS POWER CONDITIONS]\nPower1h = ${bias} (W)`:'',
+          biasOn?'[BIAS PARAMETERS]\ndc-offset = -8 (V)\npeak-to-peak = 24 (V)':''])
+          .replace('Pressure = 2','Pressure = 6').replace('PowerH = 1.e2','PowerH = 300')
+          .replace('Ar+ 1.e14',`Ar+ ${flux}.e14`).replace('Ar+ 12.3456789',`Ar+ ${energy}`),
+        '0d_result/log/residual.log':blocks[2],
+        '0d_result/log/output.log':'INFO: Finished!\n',
+      };
+      if(biasOn)for(const [name,value] of Object.entries(graphs))files[`0d_result/output/${name}`]=value;
+      for(const [name,value] of Object.entries(files)){
+        const path=join(root,`decision-${bias}`,name);
+        await mkdir(resolve(path,'..'),{recursive:true});
+        await writeFile(path,value);
+      }
+    }
   }
   return root;
 }

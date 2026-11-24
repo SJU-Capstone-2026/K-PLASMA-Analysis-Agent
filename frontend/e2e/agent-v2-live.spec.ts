@@ -51,7 +51,7 @@ async function pick(page: Page, runs: RunSummary[]) {
 
 test('v2 browser answers', async ({page}) => {
   const allRuns = await (await page.request.get(`${api}/api/runs`)).json() as RunSummary[];
-  const runs = allRuns.filter(run => run.catalogStatus === 'READY').sort((a, b) => a.metrics.ionFlux - b.metrics.ionFlux);
+  const runs = allRuns.filter(run => run.catalogStatus === 'READY' && run.sourcePower === 100).sort((a, b) => a.metrics.ionFlux - b.metrics.ionFlux);
   expect(runs.map(run => run.metrics.ionFlux), 'synthetic boundary and its two sides').toEqual([1, 40, 60]);
   const selected = runs.slice(0, 2);
   const expected = runs.filter(run => run.metrics.ionFlux > Math.max(...selected.map(r => r.metrics.ionFlux)))
@@ -127,4 +127,63 @@ test('v2 browser answers', async ({page}) => {
       }
     }
   }
+});
+
+test('Decision Agent runs approved @ searches and candidate selection through standard V2',async({page})=>{
+  test.skip(process.env.KPLASMA_V2_MOCK!=='true','Scripted V2 integration only');
+  const runs=await (await page.request.get(`${api}/api/runs`)).json() as RunSummary[];
+  const baseline=runs.find(run=>run.pressure===6&&run.sourcePower===300&&run.biasPower===600)!;
+  const alternative=runs.find(run=>run.pressure===6&&run.sourcePower===100)!;
+  const candidate=runs.find(run=>run.pressure===6&&run.sourcePower===300&&run.biasPower===400)!;
+  expect(baseline.metrics.meanIonEnergy).toBe(100);
+  const before=await (await page.request.get(`${api}/api/workspace`)).json() as WorkspaceView;
+  await page.goto('/');
+  await page.getByRole('button',{name:'의사결정 Agent',exact:true}).click();
+  const input=page.getByRole('textbox',{name:'공정 데이터에 질문하기'});
+  await expect(page.getByRole('button',{name:`${baseline.runId} 채팅에서 제거`})).toBeVisible();
+  async function searchFor(run:RunSummary){
+    await input.fill('@');
+    const option=page.getByRole('option').filter({hasText:run.runId});
+    await expect(option).toBeVisible();
+    await option.click({timeout:7000});
+    await expect(input).toHaveValue('');
+    await expect(page.getByRole('button',{name:`${run.runId} 채팅에서 제거`})).toBeVisible();
+    await input.fill('지금 조건에서는 효율이 낮아. 어떻게 개선할까?');
+    await input.press('Enter');
+    await page.getByRole('button',{name:/손상 줄이기/}).click({timeout:7000});
+    const accepted=page.waitForResponse(response=>new URL(response.url()).pathname==='/api/agent/requests'&&response.request().method()==='POST',{timeout:15000});
+    await page.getByRole('button',{name:'이 해석으로 후보 찾기'}).click({timeout:7000});
+    const response=await accepted;
+    expect(response.ok()).toBe(true);
+    const request=await response.json() as AgentRequestView;
+    expect(request.graphVersion).toBe('v2');
+    expect(request.conversationEpoch).not.toBe(before.stateToken.conversationEpoch);
+    const result=await terminal(page,request.requestId);
+    expect(result.status).toBe('COMPLETED');
+    expect(result.answerSnapshot?.executionStatus).toBe('COMPLETE');
+    if(run===baseline)expect(result.answerSnapshot?.review).toMatchObject({status:'PASS'});
+    const reviews=(result.progress?.activities??result.executionSummary?.activities??[])
+      .filter(activity=>activity.code==='PLAN_REVIEW'&&activity.phase==='started');
+    expect(reviews).toHaveLength(1);
+  }
+  await searchFor(baseline);
+  await expect(page.getByRole('heading',{name:'조건을 만족한 후보 3개'})).toBeVisible({timeout:12000});
+  const progress=page.locator('.agent-progress-complete summary');
+  await expect(progress).toHaveCount(1);
+  await expect(page.getByText(/평균 이온 에너지도 낮게 관찰됐어요/)).toBeVisible();
+  await input.fill('에너지가 가장 낮은 후보를 고르면 될까?');
+  await input.press('Enter');
+  await expect(page.getByRole('table',{name:'선택지별 장단점'})).toBeVisible({timeout:12000});
+  await expect(page.getByText(/평균 이온 에너지가 가장 낮은 조건부터 고를 필요는 없어요/)).toBeVisible();
+  await expect(progress).toHaveCount(2);
+  await page.getByRole('button',{name:`${candidate.runId} 선택`,exact:true}).click({timeout:7000});
+  await expect(page.locator('.agent-user-message').filter({hasText:'이 조건으로 다음 실험을 해볼게요.'})).toContainText(candidate.runId);
+  await expect(page.getByRole('heading',{name:'다음 실험에서 확인할 조건'})).toBeVisible();
+  await searchFor(alternative);
+  await expect(page.getByRole('heading',{name:'조건을 만족한 후보 0개'})).toBeVisible({timeout:12000});
+  await page.getByRole('button',{name:'분석 Agent',exact:true}).click();
+  await expect(page.getByRole('combobox',{name:'Agent 버전'})).toBeVisible();
+  const after=await (await page.request.get(`${api}/api/workspace`)).json() as WorkspaceView;
+  expect(after.stateToken.conversationEpoch).toBe(before.stateToken.conversationEpoch);
+  expect(after.conversation).toEqual(before.conversation);
 });
