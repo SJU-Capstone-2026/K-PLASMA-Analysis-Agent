@@ -33,7 +33,7 @@ public final class GraphVersionPolicy {
     public boolean localOnly() { return allowsLocal() && supported.size() == 1; }
 
     public String resolve(String pinned, String requested) {
-        if ("v1".equals(pinned)) {
+        if (pinned != null && RETIRED.contains(pinned)) {
             throw new IntakeException("GRAPH_VERSION_RETIRED", 409, "이전 버전의 대화는 조회할 수 있습니다. 새 대화를 시작해 주세요.");
         }
         if ((requested != null && !supported.contains(requested)) || (pinned != null && !supported.contains(pinned))) {
