@@ -17,7 +17,7 @@ from .core.bindings import BlockedInput, resolve_comparison_entries, resolve_inp
 from .core.code_plan_checks import code_plan_checks
 from .core.composition import (
     assemble_answer, collect_comparison_coverage, collect_evidence, collect_numeric_values, collect_search_evidence, facts_only,
-    interpretation_review_payload,
+    interpretation_review_payload, reference_answer,
 )
 from .core.contracts import (
     AwaitInputStep, BudgetState, CandidateScope, CompareStep, DataAnswerDraft, GeneralAnswerDraft,
@@ -568,9 +568,13 @@ def build_v2_local_llm_graph(models, executions, checkpointer):
         if partial and state.get("partial_composes", 0):
             return {"route": "finalize"}
         role = "ANSWER_REWRITE" if rewrite else "PARTIAL_COMPOSE" if partial else "COMPOSE"
-        data, error, counts = model_call(state, role,
-            f"{role}:{state.get('plan_revision')}:{len(state.get('input_history', []))}", models.compose, payload,
-            numeric_values=numeric_values)
+        data = (reference_answer(state["question"], mode, results)
+                if mode == state.get("mode") and not (partial or rewrite or state.get("input_history")) else None)
+        error, counts = None, {}
+        if data is None:
+            data, error, counts = model_call(state, role,
+                f"{role}:{state.get('plan_revision')}:{len(state.get('input_history', []))}", models.compose, payload,
+                numeric_values=numeric_values)
         changes: State = {**counts, "evidence": full_evidence, "draft": data,
                           "partial_composes": state.get("partial_composes", 0) + int(partial)}
         try:
@@ -581,9 +585,14 @@ def build_v2_local_llm_graph(models, executions, checkpointer):
                 rendered = "\n\n".join([facts_only(evidence, issue), rendered])
         except (ValueError, TypeError) as exc:
             progress.discard_answer("invalid_draft")
-            if state.get("rewrites", 0) < 1 and not error and not partial:
-                return {**changes, "route": "rewrite", "feedback": str(exc)[:600],
-                        "validation_error": _validation_error(exc, "INVALID_ANSWER")}
+            generation = counts.get("generation_failure") or {}
+            invalid_completed_answer = (error == "MODEL_OUTPUT_INVALID"
+                                        and (generation.get("usage") or {}).get("status") == "completed")
+            if state.get("rewrites", 0) < 1 and not partial and (not error or invalid_completed_answer):
+                feedback = ("직전 답변의 형식이나 근거 참조가 검증되지 않았다. 이번 선택지로 전체 초안을 다시 작성한다."
+                            if invalid_completed_answer else str(exc)[:600])
+                return {**changes, "route": "rewrite", "feedback": feedback,
+                        "validation_error": generation.get("validation_error") or _validation_error(exc, "INVALID_ANSWER")}
             last = state.get("last_draft")
             if any(item.get("choice") == "overclaim" for item in (state.get("review") or {}).get("answers", [])):
                 last = None

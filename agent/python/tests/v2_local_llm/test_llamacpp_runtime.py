@@ -77,7 +77,7 @@ def test_runtime_profile_is_independent_of_app_addresses_and_bound_to_thinking(m
     assert runtime.runtime_profile(replace(settings,reasoning_effort="none"))!=profile
 
 
-@pytest.mark.parametrize("bad", [None, "batch", "ubatch", "duplicate", "executable", "cache", "cache-wrong", "cache-unexpected"])
+@pytest.mark.parametrize("bad", [None, "batch", "ubatch", "duplicate", "executable", "cache", "cache-wrong", "cache-unexpected", "timeout"])
 def test_runtime_requires_the_256_batch_profile_and_pinned_executable(tmp_path, monkeypatch, bad):
     import shlex
     key=tmp_path/"key"
@@ -86,7 +86,7 @@ def test_runtime_requires_the_256_batch_profile_and_pinned_executable(tmp_path, 
     options={"--model":settings.model_path,"--alias":settings.model,"--api-key-file":str(key),
         "--host":"127.0.0.1","--port":"8082","--ctx-size":str(settings.context_tokens),"--batch-size":"256",
         "--ubatch-size":"256","--parallel":"1","--sleep-idle-seconds":"1","--device":"MTL0",
-        "--gpu-layers":"all","--fit":"off","--timeout":"90","--reasoning":"auto",
+        "--gpu-layers":"all","--fit":"off","--timeout":"120","--reasoning":"auto",
         "--reasoning-format":"deepseek","--reasoning-budget":"2048"}
     if bad in {"cache", "cache-wrong"}:
         settings=replace(settings,qwen_plan_cache_enabled=True,qwen_plan_cache_dir=str(tmp_path/"cache"))
@@ -95,6 +95,8 @@ def test_runtime_requires_the_256_batch_profile_and_pinned_executable(tmp_path, 
         options["--slot-save-path"]=str(tmp_path/"cache")
     if bad in {"batch", "ubatch"}:
         options["--batch-size" if bad == "batch" else "--ubatch-size"] = "512"
+    if bad == "timeout":
+        options["--timeout"] = "90"
     binary="/synthetic/other-server" if bad=="executable" else "/synthetic/llama-server"
     args=[binary,*[part for item in options.items() for part in item],
           "--jinja","--offline","--no-context-shift","--no-webui"]

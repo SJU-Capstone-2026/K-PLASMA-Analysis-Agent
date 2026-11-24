@@ -4,13 +4,55 @@ import re
 from collections import Counter
 from typing import Any, cast
 
+from ..comparison_catalog import FIELD_META
 from ..domain.common import scalar
 from ..domain.reverse import check_rule
-from ..metric_registry import CONDITION_KEYS, LABELS, OUTPUT_METRICS, UNITS, format_value, is_finite
+from ..metric_registry import CONDITION_KEYS, OUTPUT_METRICS, UNITS, format_value, is_finite
 from .contracts import DataAnswerDraft, Evidence, GeneralAnswerDraft, Quantity, StepResult
+from .planner_input import _IEAD_UNIT_LIMITATION
 
 
 VALUE_REFERENCE = re.compile(r"\{\{value:([^{}|]+)(?:\|([^{}|]+))?\}\}")
+_ION_FLUX_FORMULA_REQUEST = re.compile(
+    r"이온\s*플럭스의\s*(?:(?:의미|정의)(?:와|및)\s*)?(?:기본\s*)?공식(?:을|를)\s*"
+    r"(?:간단히\s*|짧게\s*)?(?:설명해|알려)\s*줘[.!?]?"
+)
+
+
+def reference_answer(question, mode, results):
+    """Answer explicit reference questions from definitions or completed tool results."""
+    if len(question) > 512:
+        return None
+    text = " ".join(question.split())
+    if mode == "general_only" and _ION_FLUX_FORMULA_REQUEST.fullmatch(text):
+        return GeneralAnswerDraft(paragraphs=[
+            "이온 플럭스는 단위 시간에 단위 면적을 통과하는 이온의 수입니다.",
+            "기본식은 Γᵢ = nᵢ uᵢ입니다. nᵢ는 이온 수밀도(m⁻³), uᵢ는 면에 수직인 평균 이온 이동 속도(m/s)이며, "
+            "플럭스의 단위는 m⁻²s⁻¹입니다.",
+        ], sources=[]).model_dump(mode="json")
+    if mode != "data_request" or not _IEAD_UNIT_LIMITATION.fullmatch(text):
+        return None
+    comparisons = [result for result in results if result.status in {"verified", "partial"}
+                   and isinstance(tool := result.outputs.get("toolResult"), dict) and tool.get("kind") == "compare_runs"]
+    if len(comparisons) != 1:
+        return None
+    result = comparisons[0]
+    raw = result.outputs["toolResult"]
+    intensities = [run["metrics"].get("iead.maximum", {}) for run in raw["runs"]]
+    if not any(row.get("reason") == "UNIT_NOT_COMPARABLE" and is_finite((row.get("sourceValue") or {}).get("value"))
+               for row in intensities):
+        return None
+    metrics = ("iead.maximum", "iead.peakEnergy", "iead.peakAngle")
+    summaries = {row["source"].get("metric"): f"{result.executionId}:{row['id']}"
+                 for row in raw["observations"] if row["source"]["kind"] == "summary"}
+    if not all(metric in summaries for metric in metrics):
+        return None
+    return {"fact_ids": [summaries[metric] for metric in metrics], "interpretations": [], "limitations": [{
+        "id": "intensity_unit", "evidence_ids": [summaries["iead.maximum"]],
+        "text": "원본에 강도 수치는 있지만 물리 단위가 지정되지 않아 공통 단위로 환산하거나 "
+                "다른 실험의 실제 강도와 절대값을 비교할 수 없습니다. 피크 에너지와 입사각은 각 지표에 기록된 단위와 "
+                "데이터의 가용 범위에서 별도로 비교할 수 있습니다.",
+    }]}
 
 
 class InvalidAnswer(ValueError):
@@ -207,7 +249,7 @@ def _render_fact(evidence: Evidence) -> str:
         return str(evidence.value)
     if evidence.field == "candidates" and isinstance(evidence.value, list):
         return f"검색 결과 {len(evidence.value)}개" if evidence.value else "조건에 맞는 후보가 없습니다."
-    label = LABELS.get(evidence.field, evidence.field)
+    label = FIELD_META.get(evidence.field, {}).get("label", evidence.field)
     prefix = f"{evidence.runRef.runId}의 " if evidence.runRef else "계산된 "
     unit = f" {evidence.unit}" if evidence.unit and evidence.unit != "1" else ""
     return f"{prefix}{label}: {evidence.value}{unit}"

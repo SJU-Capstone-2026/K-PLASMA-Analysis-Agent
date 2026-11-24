@@ -135,6 +135,32 @@ def test_failed_explanation_is_marked_as_incomplete():
     assert answer["hasIncompleteWork"] is True
 
 
+@pytest.mark.parametrize(("code", "status", "always_fail", "calls", "execution"), [
+    ("MODEL_OUTPUT_INVALID", "completed", False, 2, "COMPLETE"),
+    ("MODEL_OUTPUT_INVALID", "completed", True, 2, "FAILED"),
+    ("MODEL_OUTPUT_INVALID", None, True, 1, "FAILED"),
+    ("MODEL_TIMEOUT", "completed", True, 1, "FAILED"),
+])
+def test_completed_but_invalid_answer_uses_only_one_existing_rewrite(code, status, always_fail, calls, execution):
+    details = {"code": "INVALID_ANSWER", "errors": [{"path": "/interpretations/0/evidence_ids", "type": "too_short"}]}
+
+    class Models(RecordingModel):
+        def compose(self, context):
+            result = super().compose(context)
+            if always_fail or len(self.compositions) == 1:
+                raise ModelError(code, usage={"status": status} if status else None,
+                                 response={"validation_error": details} if status else None)
+            return result
+
+    models = Models()
+    answer = invoke(models)["answer"]["answerSnapshot"]
+    assert answer["executionStatus"] == execution
+    assert len(models.compositions) == calls
+    assert answer["budget"]["answer_rewrites_used"] == calls - 1
+    if calls == 2:
+        assert models.compositions[1]["validation_error"] == details
+
+
 @pytest.mark.parametrize("always_fail", [False, True])
 def test_truncated_plan_recovery_uses_the_existing_replan_budget(always_fail):
     class Models(RecordingModel):
@@ -155,3 +181,38 @@ def test_truncated_plan_recovery_uses_the_existing_replan_budget(always_fail):
     assert failure["code"] == "MODEL_OUTPUT_TRUNCATED"
     assert failure["trailing_whitespace_chars"] == 3000
     assert len(failure["partial_arguments_tail"]) <= 500
+
+
+def test_reference_formula_uses_existing_general_answer_after_plan_review():
+    model = RecordingModel()
+    journal = Journal()
+    result = build_v2_local_llm_graph(model, journal, None).invoke({
+        "request_id": "formula", "question": "이온 플럭스의 정의와 기본 공식을 짧게 설명해줘.",
+        "context": {}, "input_history": [],
+    })
+    assert journal.calls == ["PLAN_INITIAL", "PLAN_REVIEW"]
+    assert model.compositions == []
+    answer = result["answer"]["answerSnapshot"]
+    assert answer["executionStatus"] == "COMPLETE"
+    assert "Γᵢ = nᵢ uᵢ" in answer["answer"]
+
+
+def test_source_unit_limitation_uses_only_completed_comparison_evidence():
+    from kplasma_agent.v2_local_llm.core.composition import assemble_answer, reference_answer
+
+    question = ("평균 이온 에너지가 100–120 eV인 모든 실제 Run의 IEAD 최대 강도와 피크 에너지·각도를 비교하고, "
+                "원본 강도 단위가 지정되지 않은 점이 해석에 주는 한계를 설명해줘.")
+    assert reference_answer(question, "data_request", []) is None
+    metrics = ["iead.maximum", "iead.peakEnergy", "iead.peakAngle"]
+    result = StepResult(executionId="compare", stepId="compare", status="partial", outputs={"toolResult": {
+        "kind": "compare_runs", "runs": [{"metrics": {"iead.maximum": {"reason": "UNIT_NOT_COMPARABLE",
+                                                                      "sourceValue": {"value": 3}}}}],
+        "observations": [{"id": field, "text": field, "source": {"kind": "summary", "metric": field}}
+                         for field in metrics],
+    }})
+    answer = reference_answer(question, "data_request", [result])
+    rendered, _ = assemble_answer(answer, "data_request", collect_evidence([result]))
+    assert answer["fact_ids"] == [f"compare:{metric}" for metric in metrics]
+    assert "원본에 강도 수치는 있지만 물리 단위가 지정되지 않아" in rendered
+    result.outputs["toolResult"]["runs"][0]["metrics"]["iead.maximum"]["reason"] = "INSUFFICIENT_DATA"
+    assert reference_answer(question, "data_request", [result]) is None

@@ -76,6 +76,75 @@ def test_planner_schema_requires_the_bound_for_each_operator():
                 assert properties[key] == {"type": "null"}
 
 
+@pytest.mark.parametrize(("operation", "operator", "field", "threshold"), [
+    ("max", "gt", "ionFlux", 130),
+    ("min", "lt", "meanIonEnergy", 100),
+    ("mean", "gt", "ionFlux", 115),
+])
+def test_submit_plan_links_a_selected_run_aggregate_to_the_search(operation, operator, field, threshold):
+    from kplasma_agent.v2_local_llm.core.bindings import resolve_inputs
+    from kplasma_agent.v2_local_llm.core.contracts import PlanDraft, Quantity, StepResult
+    from kplasma_agent.v2_local_llm.core.derivations import compute_derived
+    from kplasma_agent.v2_local_llm.core.plan_validation import validate_plan
+
+    question = "선택한 두 Run을 기준으로 조건에 맞는 Run을 찾아줘."
+    search = {"id": "search", "kind": "tool", "tool": "reverse_search", "requirement_ids": ["req"],
+              "inputs": {"constraints": [
+                  {"field": field, "operator": operator, "value": {
+                      "kind": "selected_runs_aggregate", "operation": operation}},
+                  {"field": "pressure", "operator": "gte", "value": {
+                      "kind": "literal", "value": 8, "unit": "mTorr",
+                      "source": {"message_key": "question", "quote": "조건에 맞는"}}},
+              ], "goals": [{"field": field, "direction": "maximize"}]}}
+    steps = [search]
+    if operation != "mean":
+        search["depends_on"] = ["compare"]
+        steps.insert(0, {"id": "compare", "kind": "tool", "tool": "compare_runs", "requirement_ids": ["req"],
+                         "inputs": {"runs": {"kind": "context_ref", "key": "selected_runs"}, "fields": [field]}})
+    arguments = {"schema_version": 2, "request_mode": "data_request", "base_revision": None,
+                 "requirements": [{"id": "req", "text": question,
+                                   "sources": [{"message_key": "question", "quote": question}],
+                                   "handled_by": [step["id"] for step in steps]}],
+                 "steps": steps}
+
+    def request(_instructions, _payload, tool, _span):
+        defs = tool["parameters"]["$defs"]
+        scalar, interval = defs["ConstraintInput"]["anyOf"]
+        assert {"$ref": "#/$defs/SelectedRunsAggregate"} in scalar["properties"]["value"]["anyOf"]
+        assert {"$ref": "#/$defs/SelectedRunsAggregate"} not in interval["properties"]["min"]["anyOf"]
+        return {"output": [{"type": "function_call", "name": "submit_plan", "call_id": "synthetic",
+                            "arguments": json.dumps(arguments)}]}, None
+
+    gateway = SimpleNamespace(planner=SimpleNamespace(_tool_request=request), input_guard=lambda *_: None)
+    refs = [{"runId": key, "runVersionId": key + "-frozen"} for key in ("R1", "R2")]
+    context = {"selected_runs": refs, "R1": refs[0], "R2": refs[1]}
+    result, _ = V2LocalLLMModelGateway.submit_plan(gateway, {"confirmed_run_keys": ["R1", "R2"]})
+    accepted = validate_plan(PlanDraft.model_validate(result), messages={"question": question},
+                             context_keys=set(context), selected_run_keys={"R1", "R2"})
+    compare, aggregate, search_step = accepted.steps
+    assert compare.inputs.fields == [field]
+    if operation != "mean":
+        assert compare.id == "compare"
+    assert aggregate.operation == operation and aggregate.depends_on == [compare.id]
+    assert search_step.inputs.constraints[0].value.step_id == aggregate.id
+    produced = StepResult(
+        executionId="test-comparison", stepId=compare.id, status="verified",
+        outputs={field: [{"field": field, "value": value, "unit": UNITS[field],
+                          "evidence_ids": [ref["runId"]], "run_ref": ref}
+                         for ref, value in zip(refs, (100, 130), strict=True)]},
+    )
+    inputs = resolve_inputs(aggregate, context, {compare.id: produced})
+    quantity = compute_derived(operation, [Quantity.model_validate(value) for value in inputs["values"]])
+    derived = StepResult(executionId="test-aggregate", stepId=aggregate.id, status="verified",
+                         outputs={"value": quantity.model_dump(mode="json")})
+    search_inputs = resolve_inputs(search_step, context, {aggregate.id: derived})
+    assert search_inputs["constraints"] == [
+        {"metric": field, "operator": operator, "value": threshold, "unit": UNITS[field]},
+        {"metric": "pressure", "operator": "gte", "value": 8, "unit": "mTorr"},
+    ]
+    assert search_inputs["goals"][0]["direction"] == "maximize"
+
+
 def test_between_drops_only_a_repeated_bound():
     low = {"kind": "literal", "value": 150, "unit": "eV"}
     high = {**low, "value": 160}
@@ -95,6 +164,8 @@ def test_local_models_are_fixed_to_qwen_and_d1(monkeypatch):
     settings = V2LocalLLMSettings.from_env(base)
     assert (settings.planner.model, settings.planner.reasoning_effort) == ("unsloth/Qwen3.5-9B-GGUF:Q4_K_M", "medium")
     assert settings.planner.model == settings.writer.model
+    assert settings.planner.timeout == 120
+    assert settings.writer.timeout == base.timeout == 90
     assert settings.decisions_model == "LiquidAI/d1-2B:MLX8"
     assert settings.decisions_url == "http://127.0.0.1:8083/v1/systemone"
 

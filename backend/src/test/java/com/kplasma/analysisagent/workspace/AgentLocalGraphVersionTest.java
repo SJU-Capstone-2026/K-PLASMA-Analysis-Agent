@@ -9,6 +9,7 @@ import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.context.TestPropertySource;
+import tools.jackson.databind.JsonNode;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -78,12 +79,27 @@ class AgentLocalGraphVersionTest extends WorkspaceTestSupport {
         assertPlanJournalKeepsOriginalJson(request.path("requestId").asString());
     }
 
+    private void assertLocalQwenPlanDeadlines(String requestId, JsonNode claim) throws Exception {
+        String path = "/requests/" + requestId + "/model-attempts";
+        for (var role : Map.of("PLAN_INITIAL", 120, "REPLAN", 120, "PLAN_REVIEW", 90, "COMPOSE", 90).entrySet()) {
+            var before = jdbc.queryForObject("select clock_timestamp()", java.sql.Timestamp.class).toInstant();
+            var response = exchange(workerRequest(path, Map.of("claimGeneration", claim.path("claimGeneration"),
+                "requestRevision", claim.path("requestRevision"), "kind", role.getKey(), "key", role.getKey())));
+            assertThat(response.statusCode()).describedAs(response.body()).isEqualTo(200);
+            var after = jdbc.queryForObject("select clock_timestamp()", java.sql.Timestamp.class).toInstant();
+            var deadline = jdbc.queryForObject("select deadline from agent_v2_model_attempt where id=?::uuid",
+                java.sql.Timestamp.class, json(response).path("attemptId").asString()).toInstant();
+            assertThat(deadline).isBetween(before.plusSeconds(role.getValue()), after.plusSeconds(role.getValue()));
+        }
+    }
+
     private void assertPlanJournalKeepsOriginalJson(String requestId) throws Exception {
         var claimed = exchange(workerRequest("/claim", Map.of(
             "workerId", "synthetic-local-worker", "leaseSeconds", 60,
             "supportedGraphVersions", List.of("v2_localLLM"))));
         assertThat(claimed.statusCode()).describedAs(claimed.body()).isEqualTo(200);
         var claim = json(claimed);
+        assertLocalQwenPlanDeadlines(requestId, claim);
         int revision = 0;
         for (String field : List.of("requires", "required_prior_outputs")) {
             var plan = mapper.readTree("""

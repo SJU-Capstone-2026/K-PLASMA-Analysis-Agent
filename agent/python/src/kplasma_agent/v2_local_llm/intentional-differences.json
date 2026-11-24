@@ -17,6 +17,7 @@
       "path": "config.py",
       "selectors": [
         "assign:PREFIX",
+        "assign:PLAN_TIMEOUT_SECONDS",
         "assign:REVIEW_MODELS",
         "class:Settings/assign:context_tokens",
         "class:Settings/assign:d1_batch_tokens",
@@ -169,7 +170,8 @@
         "import:kplasma_agent.v2_local_llm.core.contracts:DataAnswerDraft,GeneralAnswerDraft,PlanDraft,ReviewAnswer,ReviewDecision",
         "import:kplasma_agent.v2_local_llm.core.contracts:DataAnswerDraft as DataAnswerDraft,GeneralAnswerDraft,PlanDraft,ReviewAnswer,ReviewDecision",
         "import:kplasma_agent.v2_local_llm.core.selected_values:SelectedValues",
-        "import:kplasma_agent.v2_local_llm.config:REVIEW_MODELS,Settings",
+        "import:kplasma_agent.v2_local_llm.core.planner_input:SelectedRunsAggregate,expand_selected_runs_aggregates",
+        "import:kplasma_agent.v2_local_llm.config:PLAN_TIMEOUT_SECONDS,REVIEW_MODELS,Settings",
         "import:kplasma_agent.v2_local_llm.config:Settings",
         "import:kplasma_agent.v2_local_llm.core.code_plan_checks:code_plan_checks",
         "import:kplasma_agent.v2_local_llm.core.plan_checks:review_questions",
@@ -177,6 +179,7 @@
         "import:kplasma_agent.v2_local_llm.core.plan_review:parse_plan_review,review_result",
         "import:kplasma_agent.v2_local_llm.core.plan_review:execution_view,parse_plan_review,plan_digest,program_effects,review_result",
         "function:_plan_defaults",
+        "function:submit_plan_tool_schema",
         "class:V2LocalLLMModelGateway/function:__init__",
         "class:V2LocalLLMModelGateway/function:compose",
         "function:_review_input",
@@ -206,10 +209,26 @@
       ]
     },
     {
+      "path": "core/composition.py",
+      "selectors": [
+        "import:kplasma_agent.v2_local_llm.comparison_catalog:FIELD_META",
+        "import:kplasma_agent.v2_local_llm.metric_registry:CONDITION_KEYS,LABELS,OUTPUT_METRICS,UNITS,format_value,is_finite",
+        "import:kplasma_agent.v2_local_llm.metric_registry:CONDITION_KEYS,OUTPUT_METRICS,UNITS,format_value,is_finite",
+        "import:kplasma_agent.v2_local_llm.core.planner_input:_IEAD_UNIT_LIMITATION",
+        "assign:_ION_FLUX_FORMULA_REQUEST",
+        "function:reference_answer",
+        "function:_render_fact"
+      ],
+      "reason": "Render an explicitly requested basic definition or a verified source-unit limitation through the existing answer contracts when its reference is known, and use registered display labels for verified facts.",
+      "tests": ["tests/v2_local_llm/test_round3_recovery.py"]
+    },
+    {
       "path": "graph.py",
       "selectors": [
         "import:kplasma_agent.v2_local_llm.config:REVIEW_MODELS",
         "import:kplasma_agent.v2_local_llm.core.code_plan_checks:code_plan_checks",
+        "import:kplasma_agent.v2_local_llm.core.composition:assemble_answer,collect_comparison_coverage,collect_evidence,collect_numeric_values,collect_search_evidence,facts_only,interpretation_review_payload",
+        "import:kplasma_agent.v2_local_llm.core.composition:assemble_answer,collect_comparison_coverage,collect_evidence,collect_numeric_values,collect_search_evidence,facts_only,interpretation_review_payload,reference_answer",
         "function:_generation_failure",
         "function:build_v2_local_llm_graph"
       ],
@@ -270,12 +289,15 @@
       "path": "core/plan_validation.py",
       "selectors": [
         "import:re",
+        "import:kplasma_agent.v2_local_llm.core.code_plan_checks:use_explicit_comparison_results_only,use_explicit_search_intent",
+        "import:kplasma_agent.v2_local_llm.core.planner_input:connect_selected_comparison_threshold,include_causal_comparison_evidence,use_explicit_comparison_outputs,use_explicit_single_run_lookup",
         "assign:_KOREAN_PARTICLE_SUFFIX",
+        "function:_connect_comparison_choices",
         "function:_restore_quote_spacing",
         "function:_uses_builtin_difference",
         "function:validate_plan"
       ],
-      "reason": "LocalLLM_v2.2 names prerequisite guards required_prior_outputs, reads legacy requires without rewriting records, and explains predecessor-only semantics; dependency, execution and final answer rules are preserved. LocalLLM_v2.6 restores a unique original citation span for permitted spacing differences before plan review, including extra spaces before Korean particles and their combinations.",
+      "reason": "LocalLLM_v2.2 names prerequisite guards required_prior_outputs, reads legacy requires without rewriting records, and explains predecessor-only semantics. LocalLLM_v2.6 restores original citation spacing. Local plan validation normalizes duplicate comparison fields, connects baseline/axis choices before their target comparison, validates Run selection guards using their list type, and compiles selected-group thresholds. Fully recognized standalone searches preserve cited scientific flux thresholds. Explicit read-only search and comparison requests omit unsolicited explanations. Explicit selected comparisons use the named output fields.",
       "tests": [
         "tests/v2_local_llm/test_prior_outputs.py",
         "tests/v2_local_llm/test_plan_validation.py",
@@ -398,6 +420,15 @@
       "reason": "The writer selects request-local value choices in typed prose segments and enum-only evidence choices for fact_ids and evidence_ids; code compiles references and all citation IDs into the unchanged DataAnswerDraft and streams the existing public block names. Unknown choices, directly copied citation IDs and model-written reference syntax are rejected, including during rewrites. Graph, d1 review, numeric grounding and final answer contracts are preserved.",
       "tests": [
         "tests/v2_local_llm/test_selected_values.py",
+        "tests/v2_local_llm/test_model_gateway.py"
+      ]
+    },
+    {
+      "path": "core/planner_input.py",
+      "newFile": true,
+      "selectors": [],
+      "reason": "Expand Qwen's explicit aggregate search threshold over confirmed Runs into canonical compare, derive and search bindings before validating the durable plan.",
+      "tests": [
         "tests/v2_local_llm/test_model_gateway.py"
       ]
     },

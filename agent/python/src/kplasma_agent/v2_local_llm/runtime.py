@@ -17,7 +17,7 @@ from dataclasses import replace
 
 import httpx
 
-from .config import REVIEW_MODELS
+from .config import PLAN_TIMEOUT_SECONDS, REVIEW_MODELS
 from .network import local_http_client, validate_endpoint
 from .core.budget import MAX_INPUT_TOKENS
 from . import runtime_integrity
@@ -27,7 +27,7 @@ PROFILE_FIELDS = ("model_revision", "d1_revision", "runtime_version", "d1_runtim
 _VERIFIED_CONTRACTS: set[tuple[str, str, str]] = set()
 QWEN_RUNTIME_OPTIONS = {"--batch-size": 256, "--ubatch-size": 256, "--parallel": 1,
                         "--device": "MTL0", "--gpu-layers": "all", "--fit": "off",
-                        "--sleep-idle-seconds": 1, "--reasoning": "auto",
+                        "--sleep-idle-seconds": 1, "--timeout": PLAN_TIMEOUT_SECONDS, "--reasoning": "auto",
                         "--reasoning-format": "deepseek", "--reasoning-budget": 2048}
 
 
@@ -245,7 +245,7 @@ def _server_facts(settings, url, model_path, *, qwen=False):
     binary = Path(subprocess.check_output(["/bin/ps", "-p", pid, "-o", "comm="], text=True, timeout=5).strip())
     args = shlex.split(subprocess.check_output(["/bin/ps", "-p", pid, "-o", "command="], text=True, timeout=5))
     required = {**QWEN_RUNTIME_OPTIONS, "--ctx-size": settings.context_tokens,
-                "--host": httpx.URL(url).host, "--port": port, "--timeout": 90, "--alias": settings.model}
+                "--host": httpx.URL(url).host, "--port": port, "--alias": settings.model}
     flags = {"--offline", "--no-context-shift", "--no-webui", "--jinja"}
     if settings.qwen_plan_cache_enabled:
         required["--slot-save-path"] = settings.qwen_plan_cache_dir
@@ -347,7 +347,7 @@ def contract_probe(settings):
                               headers={"Authorization": "Bearer " + settings.d1_token}) as d1:
         runtime = ModelRuntime(settings, qwen, d1)
         runtime.prepare("plan")
-        model = ModelClient(settings)
+        model = ModelClient(replace(settings, timeout=PLAN_TIMEOUT_SECONDS))
         try:
             with tracing.span("local.synthetic.readiness", kind="LLM") as span:
                 native_plan, plan_usage = call_submit_plan(model,

@@ -144,6 +144,24 @@ def test_instructions_schemas_and_choice_meanings_match_the_frozen_source(frozen
     )
     before = before.replace(citation_guidance,
         "리터럴 source.quote에는 해당 수치와 명시된 단위가 들어 있는 원문 구절을 인용한다.\n", 1)
+    aggregate_guidance = (
+        'confirmed_run_keys에 두 개 이상 있고 그 Run들의 수치로 검색 기준을 구할 때는 다음 형식을 사용한다. 계산과 검색값 연결은 코드가 만든다.\n'
+        '- 두 Run 모두보다 높게: constraints의 operator는 gt, value는 {"kind":"selected_runs_aggregate","operation":"max"}.\n'
+        '- 두 Run 모두보다 낮게: constraints의 operator는 lt, value는 {"kind":"selected_runs_aggregate","operation":"min"}.\n'
+        '- 두 Run의 평균보다 높게: constraints의 operator는 gt, value는 {"kind":"selected_runs_aggregate","operation":"mean"}. 평균보다 낮게는 lt.\n'
+        '이 경우 별도 derive나 forward_lookup을 만들지 않는다. 비교 자체도 요청됐으면 inputs.runs가 selected_runs인 compare_runs를 둔다.\n'
+        '다른 수치 조건은 별도 constraints, 결과의 높은 순·낮은 순은 goals에 둔다.\n'
+    )
+    assert before.count(aggregate_guidance) == 1
+    before = before.replace(aggregate_guidance, "선택한 두 Run 모두보다 높은 값은 max 후 gt, 모두보다 낮은 값은 min 후 lt다.\n", 1)
+    for guidance in (
+        "사용자가 Run이나 기준을 고른 뒤 최댓값·최솟값의 기준 대비 수치만 비교하는 작업도 compare_runs에서 끝난다.\n",
+        "특정 공정 조건이 결과 변화의 원인인지 물으면 그 조건도 compare_runs의 fields에 포함해 비교 근거를 만든다.\n",
+    ):
+        assert before.count(guidance) == 1
+        before = before.replace(guidance, "", 1)
+    before = before.replace("선택 Run의 검색 기준은 위 selected_runs_aggregate 규칙을 적용한다. 다른 새 계산에는 derive를 사용한다.\n",
+                            "derive는 요청에 새 계산이 필요하거나 그 결과를 후속 도구의 입력으로 써야 할 때 사용한다.\n", 1)
     # Prerequisite and replan guidance evolve; the remaining cloned contracts stay pinned.
     after = """각 단계의 requirement_ids는 requirements[].id를, requirements[].handled_by는 steps[].id를 참조한다.
 이전 단계에서 만든 값을 쓰는 경우 depends_on에 그 단계의 ID를 넣는다.
@@ -164,8 +182,16 @@ generation_failure는 직전 생성 실패 정보다. 잘린 JSON을 그대로 �
 """
     original_compose = (before + legacy_references + "최댓값·최솟값의 부호와 비교 방향은" + after).replace(
         "실험 답변의 fact_ids에는 evidence_choices의 ref를 넣는다.", "실험 답변의 fact_ids에는 실제 근거 ID를 넣는다.")
+    original_compose = original_compose.replace(
+        "플라즈마에서 이온 플럭스의 기본식을 물으면 Γᵢ = nᵢ uᵢ를 제시하고, 밀도와 면에 수직인 평균 이동 속도의 곱이라는 뜻과 단위를 설명한다.\n",
+        "", 1,
+    )
     current["prompts"]["COMPOSE_INSTRUCTIONS"] = hashlib.sha256(original_compose.encode()).hexdigest()
     current["schemas"]["PlanDraft"] = original_plan_schema(current["schemas"]["PlanDraft"])
+    definitions = current["tool"]["parameters"]["$defs"]
+    del definitions["SelectedRunsAggregate"]
+    definitions["ConstraintInput"]["anyOf"][0]["properties"]["value"]["anyOf"].remove(
+        {"$ref": "#/$defs/SelectedRunsAggregate"})
     current["tool"]["parameters"] = original_plan_schema(current["tool"]["parameters"])
     assert current == frozen["contracts"]
 

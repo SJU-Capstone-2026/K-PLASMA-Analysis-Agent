@@ -10,13 +10,14 @@ from pydantic import ValidationError
 
 from .. import tracing
 from ..answer_stream import AnswerStreamProjector
-from ..config import REVIEW_MODELS, Settings
+from ..config import PLAN_TIMEOUT_SECONDS, REVIEW_MODELS, Settings
 from ..metric_registry import UNITS
 from ..model_client import ModelClient, ModelError, strict_schema
 from .code_plan_checks import code_plan_checks
 from .contracts import DataAnswerDraft as DataAnswerDraft, GeneralAnswerDraft, PlanDraft, ReviewAnswer, ReviewDecision
 from .selected_values import SelectedValues
 from .plan_checks import build_check_specs, review_questions
+from .planner_input import SelectedRunsAggregate, expand_selected_runs_aggregates
 from .plan_review import execution_view, parse_plan_review, plan_digest, program_effects, review_result
 
 PLAN_INSTRUCTIONS = """# 역할과 제출
@@ -29,6 +30,7 @@ PLAN_INSTRUCTIONS = """# 역할과 제출
 request_mode는 원문의 요구로 정한다. 순수 개념 설명만 general_only, 실제 Run 정보가 필요한 요청과 혼합 요청은 data_request다.
 데이터 도구를 빠뜨린 계획을 general_only로 우회하지 않는다. interpretation_requested 필드는 제출하지 않는다.
 설명이 필요할 때만 explain_answer를 마지막에 정확히 하나 둔다. 수치·목록·차이·그래프 표시만 요청했으면 설명 단계를 만들지 않는다.
+사용자가 Run이나 기준을 고른 뒤 최댓값·최솟값의 기준 대비 수치만 비교하는 작업도 compare_runs에서 끝난다.
 explain_answer.inputs.mode는 concept 또는 results다. concept는 정의·공식·일반 원리, results는 실제 결과의 의미·경향·가능한 이유 해석이다.
 혼합 질문에서 개념 설명만 요구하면 data_request와 concept를 함께 쓴다. 실제 결과 해석과 개념을 모두 요구하면 results 한 단계가 함께 설명한다.
 explain_answer는 다른 모든 실행 단계에 의존해야 한다. run_if와 required_prior_outputs는 빈 배열이며 뒤에 다른 단계를 두지 않는다.
@@ -63,7 +65,12 @@ unit은 스키마의 단위 중 같은 배율의 표준 표기를 사용한다. 
 Torr를 mTorr로, m⁻²s⁻¹를 10¹⁸ m⁻²s⁻¹로 바꾸지 않는다. value도 원문 수치를 유지한다.
 단위가 명시됐지만 지원되지 않으면 unsupported, 단위가 생략됐으면 null을 사용한다.
 한 검색에 압력과 이온 플럭스처럼 조건이 여럿이면 constraints에 각 조건을 별도 항목으로 넣는다.
-선택한 두 Run 모두보다 높은 값은 max 후 gt, 모두보다 낮은 값은 min 후 lt다.
+confirmed_run_keys에 두 개 이상 있고 그 Run들의 수치로 검색 기준을 구할 때는 다음 형식을 사용한다. 계산과 검색값 연결은 코드가 만든다.
+- 두 Run 모두보다 높게: constraints의 operator는 gt, value는 {"kind":"selected_runs_aggregate","operation":"max"}.
+- 두 Run 모두보다 낮게: constraints의 operator는 lt, value는 {"kind":"selected_runs_aggregate","operation":"min"}.
+- 두 Run의 평균보다 높게: constraints의 operator는 gt, value는 {"kind":"selected_runs_aggregate","operation":"mean"}. 평균보다 낮게는 lt.
+이 경우 별도 derive나 forward_lookup을 만들지 않는다. 비교 자체도 요청됐으면 inputs.runs가 selected_runs인 compare_runs를 둔다.
+다른 수치 조건은 별도 constraints, 결과의 높은 순·낮은 순은 goals에 둔다.
 
 # 비교 대상·사용자 선택
 비교마다 질문의 의미와 확인된 문맥으로 대상을 세 가지 중 하나로 정해 inputs.runs에 표현한다.
@@ -97,10 +104,11 @@ compare의 inputs.trend_axis는 null로 두면 코드가 확인 결과를 연결
 
 # 지표·추가 계산
 정확한 필드 이름은 ionFlux, meanIonEnergy, iedWidth, pressure, sourcePower, biasPower다.
+특정 공정 조건이 결과 변화의 원인인지 물으면 그 조건도 compare_runs의 fields에 포함해 비교 근거를 만든다.
 compare_runs는 기준 없는 두 Run의 동일 지표 절대 차이, 기준 대비 변화량, 여러 Run의 범위와 경향을 제공한다.
 두 Run의 최댓값·최솟값 차이를 보여주거나 해석하려면 해당 지표를 compare_runs의 fields에만 넣는다. derive를 추가하지 않는다.
 각 파형의 최댓값에서 최솟값을 뺀 폭은 potential.peakToPeak 또는 current.peakToPeak를 요청한다.
-derive는 요청에 새 계산이 필요하거나 그 결과를 후속 도구의 입력으로 써야 할 때 사용한다.
+선택 Run의 검색 기준은 위 selected_runs_aggregate 규칙을 적용한다. 다른 새 계산에는 derive를 사용한다.
 IEAD 분포 비교는 plot_ids에 iead를, fields에 iead.maximum, iead.peakEnergy, iead.peakAngle을 넣는다.
 비교 대상 전체의 수치를 계산한다. 화면에서 히트맵으로 볼 Run의 선택은 비교 대상을 제한하지 않는다.
 selected_runs와 R1 같은 문맥 키는 Run 참조이며 수치가 아니다. 측정값을 얻는 단계는 compare_runs다.
@@ -153,6 +161,7 @@ COMPOSE_INSTRUCTIONS = """# 설명 담당 범위
 explanation_step의 requirement_ids에 연결된 requirements와 사용자 원문을 읽고 그 설명 요구를 빠짐없이 처리한다.
 mode=general_only이면 개념 설명을 paragraphs에 작성한다. 전체 request_mode가 data_request여도 이 개념 설명은 실제 Run 결과 해석이 아니다.
 개념의 정의·공식·차이·일반 원리를 설명하고 특정 Run의 측정값이나 관측 결과를 일반 지식으로 만들어내지 않는다.
+플라즈마에서 이온 플럭스의 기본식을 물으면 Γᵢ = nᵢ uᵢ를 제시하고, 밀도와 면에 수직인 평균 이동 속도의 곱이라는 뜻과 단위를 설명한다.
 
 # 실제 결과 설명: mode=data_request
 사용자 질문과 확인된 근거로 한국어 답변을 구성한다.
@@ -209,7 +218,7 @@ class V2LocalLLMSettings:
     @classmethod
     def from_env(cls, base: Settings) -> "V2LocalLLMSettings":
         return cls(
-            planner=replace(base),
+            planner=replace(base, timeout=PLAN_TIMEOUT_SECONDS),
             writer=replace(base, reasoning_effort="none"),
             decisions_model=base.d1_model, decisions_url=base.d1_url, plan_review_enabled=True,
         )
@@ -226,11 +235,13 @@ def submit_plan_tool_schema():
     field = constraint["properties"]["field"]
     operators = constraint["properties"]["operator"]["enum"]
     binding = {"anyOf": [{"$ref": f"#/$defs/{name}"} for name in ("LiteralInput", "ContextRef", "ResultRef")]}
+    definitions["SelectedRunsAggregate"] = strict_schema(SelectedRunsAggregate)
+    scalar_binding = {"anyOf": [*binding["anyOf"], {"$ref": "#/$defs/SelectedRunsAggregate"}]}
     null = {"type": "null"}
     definitions["ConstraintInput"] = {"anyOf": [
         {**constraint, "properties": {
             "field": field, "operator": {"type": "string", "enum": [op for op in operators if op != "between"]},
-            "value": binding, "min": null, "max": null,
+            "value": scalar_binding, "min": null, "max": null,
         }},
         {**constraint, "properties": {
             "field": field, "operator": {"type": "string", "enum": ["between"]},
@@ -255,7 +266,7 @@ def _plan_defaults(value):
     return value
 
 
-def call_submit_plan(planner, instructions, payload, tool):
+def call_submit_plan(planner, instructions, payload, tool, *, confirmed_run_keys=()):
     with tracing.span("v2_localLLM.plan", kind="LLM") as span:
         response, usage = planner._tool_request(instructions, payload, tool, span)
     calls = [item for item in response["output"] if item["type"] == "function_call"]
@@ -285,7 +296,7 @@ def call_submit_plan(planner, instructions, payload, tool):
                         for name in ("required_prior_outputs", "requires"):
                             if name in step and step[name] is None:
                                 del step[name]
-        plan = PlanDraft.model_validate(_plan_defaults(arguments))
+        plan = PlanDraft.model_validate(expand_selected_runs_aggregates(_plan_defaults(arguments), confirmed_run_keys))
     except (ValueError, TypeError) as error:
         if isinstance(error, ValidationError):
             issues = [{"path": "/" + "/".join(map(str, item["loc"])),
@@ -512,7 +523,9 @@ class V2LocalLLMModelGateway:
         self.input_guard({"instructions": PLAN_INSTRUCTIONS, "input": payload, "tools": [tool]}, "plan")
         if cache is not None:
             cache.restore()
-        data, usage = call_submit_plan(self.planner, PLAN_INSTRUCTIONS, payload, tool)
+        data, usage = call_submit_plan(
+            self.planner, PLAN_INSTRUCTIONS, payload, tool, confirmed_run_keys=context.get("confirmed_run_keys", ()),
+        )
         if cache is not None:
             cache.save()
             usage = {**(usage or {}), "planCache": dict(cache.stats)}
@@ -538,7 +551,15 @@ class V2LocalLLMModelGateway:
         try:
             return (data if selection is None else selection.compile(data)), usage
         except ValueError as error:
-            raise ModelError("MODEL_OUTPUT_INVALID", usage=usage) from error
+            details = {"code": "INVALID_ANSWER"}
+            if isinstance(error, ValidationError):
+                details["errors"] = [{"path": "/" + "/".join(map(str, item["loc"])),
+                                      "message": item["msg"], "type": item["type"]}
+                                     for item in error.errors(include_input=False, include_context=False,
+                                                              include_url=False)]
+            else:
+                details["message"] = str(error)[:300]
+            raise ModelError("MODEL_OUTPUT_INVALID", usage=usage, response={"validation_error": details}) from error
 
     def stream_compose(self, context, *, on_block, numeric_values=None):
         return self.compose(context, on_block=on_block, numeric_values=numeric_values)

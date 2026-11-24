@@ -186,3 +186,13 @@ def test_data_answer_uses_writer_only_for_interpretation(needs_selection, interp
         assert snapshot["review"]["status"] == "PASS"
     else:
         assert snapshot["review"]["status"] == "SKIPPED"
+
+
+def test_verified_waveform_facts_use_the_registered_display_label():
+    from kplasma_agent.v2_local_llm.core.contracts import Evidence
+
+    evidence = Evidence(id="compare:minimum", executionId="compare", field="potential.minimum", value=-1.5, unit="V")
+    draft = {"fact_ids": [evidence.id], "interpretations": [], "limitations": []}
+    rendered, _ = assemble_answer(draft, "data_request", [evidence])
+    assert "전극 전위 최솟값: -1.5 V" in rendered
+    assert "potential.minimum" not in rendered

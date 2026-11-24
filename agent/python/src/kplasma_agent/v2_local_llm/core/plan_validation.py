@@ -9,9 +9,14 @@ from pydantic import BaseModel
 from ..comparison_catalog import FIELD_META, ComparisonField, PlotId
 from ..contracts import ConditionId, OutputMetric
 from ..metric_registry import NumericError, normalize_value
+from .code_plan_checks import use_explicit_comparison_results_only, use_explicit_search_intent
 from .contracts import (
     AwaitInputStep, ChoiceResultRef, CompareStep, ContextRef, ContextSelectionScope, DeriveStep, ForwardStep, LiteralInput,
     ExplainStep, PlanDraft, ResultRef, ReverseStep, RunScope, ScalarScope, SelectionScope, StepSpec,
+)
+from .planner_input import (
+    connect_selected_comparison_threshold, include_causal_comparison_evidence, use_explicit_comparison_outputs,
+    use_explicit_single_run_lookup,
 )
 
 
@@ -47,28 +52,44 @@ def _fields(step: StepSpec) -> set[str]:
 
 def _connect_comparison_choices(steps: dict[str, StepSpec]) -> None:
     for choice in list(steps.values()):
-        if not isinstance(choice, AwaitInputStep) or choice.confirmation not in {"baseline", "trend_axis"}:
+        if not isinstance(choice, AwaitInputStep):
             continue
         comparison = steps.get(choice.inputs.target_step_id)
         field = choice.confirmation
+        if field == "run_selection" and isinstance(comparison, CompareStep):
+            binding = comparison.inputs.runs
+            if (isinstance(binding, ResultRef) and binding.step_id == choice.id
+                    and binding.field == "selection" and isinstance(binding.scope, ScalarScope)):
+                for guard in comparison.required_prior_outputs:
+                    if guard.step_id == choice.id and guard.field == "selection" and guard.value_type == "quantity":
+                        guard.value_type = "run_refs"
+            continue
+        if field not in {"baseline", "trend_axis"}:
+            continue
         if not isinstance(comparison, CompareStep) or choice.inputs.field != field:
             raise InvalidPlan(f"{field} confirmation must target compare_runs.inputs.{field}")
         binding = getattr(comparison.inputs, field)
         if binding is not None and (not isinstance(binding, ResultRef) or binding.step_id != choice.id
-                                    or binding.field != "value" or not isinstance(binding.scope, ScalarScope)):
+                                    or binding.field not in {"value", "selection"}
+                                    or not isinstance(binding.scope, ScalarScope)):
             raise InvalidPlan(f"comparison {field} conflicts with its user confirmation")
 
         # Connect the confirmed value before accepting the plan; dependency order alone cannot bind it.
-        dependencies = choice.depends_on
+        dependencies = [step_id for step_id in choice.depends_on if step_id != comparison.id]
         if isinstance(comparison.inputs.runs, ResultRef):
             dependencies = list(dict.fromkeys([*dependencies, comparison.inputs.runs.step_id]))
         steps[choice.id] = choice.model_copy(update={
             "depends_on": dependencies, "inputs": choice.inputs.model_copy(update={"candidates": None}),
+            "required_prior_outputs": [guard for guard in choice.required_prior_outputs
+                                       if guard.step_id != comparison.id],
         })
         result = ChoiceResultRef(kind="result_ref", step_id=choice.id, field="value", scope=ScalarScope(kind="scalar"))
         steps[comparison.id] = comparison.model_copy(update={
             "depends_on": list(dict.fromkeys([*comparison.depends_on, choice.id])),
             "inputs": comparison.inputs.model_copy(update={field: result}),
+            "required_prior_outputs": [guard for guard in comparison.required_prior_outputs
+                                       if not (guard.step_id == choice.id and guard.field in {"value", "selection", field}
+                                               and guard.count in (None, 1))],
         })
 
 
@@ -214,6 +235,13 @@ def validate_plan(
     if plan.base_revision != base_revision:
         raise InvalidPlan("plan base revision is stale")
     plan = plan.model_copy(deep=True)
+    if messages.keys() == {"question"}:
+        plan = connect_selected_comparison_threshold(plan, messages["question"], selected_run_keys)
+        use_explicit_search_intent(plan, messages["question"])
+        use_explicit_comparison_outputs(plan, messages["question"], selected_run_keys)
+        use_explicit_comparison_results_only(plan, messages["question"])
+        use_explicit_single_run_lookup(plan, messages["question"])
+        include_causal_comparison_evidence(plan, messages["question"])
     explanations = [step for step in plan.steps if isinstance(step, ExplainStep)]
     work = [step for step in plan.steps if not isinstance(step, ExplainStep)]
     if len(explanations) > 1:
@@ -235,6 +263,9 @@ def validate_plan(
     by_id = {s.id: s for s in plan.steps}
     if len(by_id) != len(plan.steps):
         raise InvalidPlan("duplicate step ID")
+    for step in by_id.values():
+        if isinstance(step, CompareStep):
+            step.inputs.fields = list(dict.fromkeys(step.inputs.fields))
     _connect_comparison_choices(by_id)
     requirements = {r.id: r for r in plan.requirements}
     if len(requirements) != len(plan.requirements):

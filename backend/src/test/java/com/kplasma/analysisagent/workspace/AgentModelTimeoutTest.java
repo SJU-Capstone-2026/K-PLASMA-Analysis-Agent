@@ -20,7 +20,7 @@ class AgentModelTimeoutTest extends WorkspaceTestSupport {
             Map.of("text", "IED란?", "stateToken", token(), "graphVersion", "v2"), "model-timeout");
         var requestId = UUID.fromString(request.get("requestId").asString());
         var before = jdbc.queryForObject("select clock_timestamp()", Timestamp.class).toInstant();
-        var first = executions.reserveModel(requestId, 1, 0, "PLAN_INITIAL", "initial");
+        var first = executions.reserveModel(requestId, 1, 0, "PLAN_INITIAL", "initial", "v2");
         var after = jdbc.queryForObject("select clock_timestamp()", Timestamp.class).toInstant();
         var deadline = jdbc.queryForObject("select deadline from agent_v2_model_attempt where id=?::uuid",
             Timestamp.class, first.get("attemptId")).toInstant();

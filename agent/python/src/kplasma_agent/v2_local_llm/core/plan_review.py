@@ -74,7 +74,8 @@ class PlanReviewResult(ClosedModel):
                 raise ValueError("incomplete plan review checks")
             for check in self.checks:
                 if (self.schema_version == 2 and not check.probabilities
-                        and check.kind in {"ordering", "targets", "execution_guards", "confirmation_coverage"}
+                        and check.kind in {"ordering", "targets", "execution_guards", "confirmation_coverage",
+                                           "operation", "baseline", "outputs", "selection_targets"}
                         and check.choice != "unclear"
                         and check.choice in choices_for(check.kind) and check.confidence is None
                         and ((check.choice == "match") == (check.issue is None))):

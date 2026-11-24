@@ -161,9 +161,11 @@ cd agent/python
 
 ## Qwen 계획·응답과 캐시
 
-계획·재계획은 생각 ON(예산 2048, 전체 출력 최대 6000), 답변·재작성은 OFF(출력 최대 3000)이며 호출 제한 90초를 유지한다. 생각 문자열은 최종 답변이나 SSE에 합치지 않는다. 선택 extra `local-llm-analysis`의 CPU tokenizer 진단은 추정값이며 실제 입력 제한은 native tokenizer를 사용한다.
+계획·재계획은 호출당 120초와 생각 ON(예산 2048, 전체 출력 최대 6000)을 사용한다. llama.cpp는 `--timeout 120`으로 시작한다. 답변·재작성은 생각 OFF(출력 최대 3000)와 호출당 90초를 사용한다. 검토 제한도 90초다. 생각 문자열은 최종 답변이나 SSE에 합치지 않는다. 선택 extra `local-llm-analysis`의 CPU tokenizer 진단은 추정값이며 실제 입력 제한은 native tokenizer를 사용한다.
 
 planner는 `/v1/chat/completions`에 `tools=[submit_plan]`, `tool_choice=required`, `parallel_tool_calls=false`를 보내고 `message.tool_calls[].function.arguments`에서만 계획을 받는다. 본문의 계획 JSON을 대신 읽는 fallback은 없다. writer JSON schema·SSE projector도 유지한다.
+
+이미 확인된 Run 두 개 이상의 값 전체로 검색 기준을 계산하려면 Qwen은 `reverse_search`의 단일 조건 `value`에 `selected_runs_aggregate`와 `max`, `min`, `mean` 중 하나를 제출한다. 코드가 같은 지표를 읽는 `compare_runs`와 `derive`를 연결하고 검색에는 계산 결과의 단일 수치를 연결한다. 가능한 경우 기존 비교 단계를 재사용한다. Flash와 실행기는 확장된 기존 버전 2 계획을 받는다.
 
 Apple Silicon용 [llama.cpp 패치](../../agent/python/runtimes/llama_cpp/submit-plan-after-thinking.patch)는 Qwen에서 `submit_plan` 단일 호출이 필수일 때 생각 종료와 도구 호출 사이에 공백만 허용한다. 기존 도구 인자 문법과 생각 구간을 사용한다. 회귀 검사는 생각 뒤에 바로 호출하는 입력을 받고 JSON을 앞에 붙인 입력을 거부하는지 검사한다.
 

@@ -102,7 +102,7 @@ backend와 frontend를 시작한다. 동결 자료와 같은 Run 버전을 복�
 이 명령이 자체 worker를 시작하고 종료한다. 실제 사용자·팀 공용 앱에 연결하지 않는다.
 평가 중 문항마다 새 대화를 만들고 선택 태그·기준을 설정하므로 평가 전용 앱을 사용한다.
 
-backend는 `AGENT_MODEL_TIMEOUT_SECONDS=90`과 비밀 `AGENT_WORKER_TOKEN`을 설정한다.
+backend는 `AGENT_MODEL_TIMEOUT_SECONDS=90`과 비밀 `AGENT_WORKER_TOKEN`을 설정한다. `v2_localLLM`의 Qwen 계획·재계획 예약은 호출당 120초이며, 나머지 역할에 공통 제한을 적용한다.
 frontend의 `VITE_API_TARGET`도 해당 backend를 가리키게 한다.
 연결 파일은 Git 밖에 저장하고 다음 형태로 구성한다. `container`는 이 backend가
 사용하는 Docker PostgreSQL의 이름이며, DB 이름·사용자는 `kplasma`다.

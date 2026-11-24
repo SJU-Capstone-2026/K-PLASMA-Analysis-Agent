@@ -22,6 +22,7 @@ public class V2ExecutionRepository {
     private static final Map<String, Integer> MODEL_LIMITS = Map.of(
         "PLAN_INITIAL", 1, "REPLAN", 2, "PLAN_REVIEW", 3, "COMPOSE", 3,
         "ANSWER_REWRITE", 1, "PARTIAL_COMPOSE", 1, "REVIEW", 5);
+    private static final int LOCAL_PLAN_TIMEOUT_SECONDS = 120;
     private static final Set<String> TOOLS = Set.of("forward_lookup", "reverse_search", "compare_runs", "decision_records");
     private final JdbcTemplate jdbc;
     private final ObjectMapper mapper;
@@ -200,7 +201,8 @@ public class V2ExecutionRepository {
         return Map.of("result", result);
     }
 
-    public Map<String, Object> reserveModel(UUID request, long generation, long inputRevision, String kind, String key) {
+    public Map<String, Object> reserveModel(UUID request, long generation, long inputRevision, String kind, String key,
+                                            String graphVersion) {
         check(kind != null && MODEL_LIMITS.containsKey(kind) && key != null && !key.isBlank() && key.length() <= 200,
             "invalid model reservation");
         var previous = jdbc.query(
@@ -218,10 +220,12 @@ public class V2ExecutionRepository {
             && count("select count(*) from agent_v2_model_attempt where request_id=? and kind=?", request, kind)
                < MODEL_LIMITS.get(kind), "model budget exhausted");
         UUID id = UUID.randomUUID();
+        double timeoutSeconds = "v2_localLLM".equals(graphVersion) && ("PLAN_INITIAL".equals(kind) || "REPLAN".equals(kind))
+            ? LOCAL_PLAN_TIMEOUT_SECONDS : modelTimeoutSeconds;
         String deadline = jdbc.queryForObject("""
             insert into agent_v2_model_attempt(id,request_id,attempt_key,kind,claim_generation,input_revision,deadline)
             values (?,?,?,?,?,?,clock_timestamp()+(? * interval '1 second')) returning deadline::text
-            """, String.class, id, request, key, kind, generation, inputRevision, modelTimeoutSeconds);
+            """, String.class, id, request, key, kind, generation, inputRevision, timeoutSeconds);
         var result = reservation("attemptId", id, true, "outcome", null);
         result.put("deadline", deadline);
         return result;

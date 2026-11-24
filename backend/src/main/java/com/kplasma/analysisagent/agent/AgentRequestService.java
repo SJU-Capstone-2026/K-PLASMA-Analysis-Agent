@@ -262,11 +262,12 @@ public class AgentRequestService {
         return publicEvents.worker(id,body,payload);
     }
 
-    private void v2Fence(UUID id, V2Write body) {
+    private AgentRequestRepository.Row v2Fence(UUID id, V2Write body) {
         var current = workspace.lock();
         var row = fence(id, body.claimGeneration(), body.requestRevision());
         epochs(row, current);
         require(GraphVersionPolicy.isComposite(row.graphVersion()), "This endpoint requires graph v2");
+        return row;
     }
 
     @Transactional public Map<String,Object> acceptV2Plan(UUID id, V2Write body) {
@@ -321,8 +322,8 @@ public class AgentRequestService {
     }
 
     @Transactional public Map<String,Object> reserveV2Model(UUID id, V2Write body) {
-        v2Fence(id, body);
-        return v2.reserveModel(id, body.claimGeneration(), body.requestRevision(), body.kind(), body.key());
+        var row = v2Fence(id, body);
+        return v2.reserveModel(id, body.claimGeneration(), body.requestRevision(), body.kind(), body.key(), row.graphVersion());
     }
 
     @Transactional public Map<String,Object> completeV2Model(UUID id, UUID attemptId, V2Write body) {

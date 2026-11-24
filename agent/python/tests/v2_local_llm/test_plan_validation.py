@@ -4,7 +4,7 @@ from pydantic import ValidationError
 from kplasma_agent.v2_local_llm.core.bindings import BlockedInput, resolve_inputs
 from kplasma_agent.v2_local_llm.core.contracts import PlanDraft, StepResult
 from kplasma_agent.v2_local_llm.core.plan_validation import InvalidPlan, validate_plan
-from .plan_review_cases import constraint, plan, search
+from .plan_review_cases import constraint, interval, plan, result_ref, search
 
 
 def draft(*steps):
@@ -20,6 +20,198 @@ def draft(*steps):
 def comparison():
     return {"id": "compare", "kind": "tool", "tool": "compare_runs",
             "inputs": {"runs": {"kind": "context_ref", "key": "selected_runs"}, "fields": ["ionFlux"]}}
+
+
+@pytest.mark.parametrize("extra", [
+    {"id": "choose", "kind": "await_input", "confirmation": "run_selection", "depends_on": ["search"],
+     "inputs": {"target_step_id": "search", "field": "runs", "selection_count": 2}},
+    {"id": "explain", "kind": "tool", "tool": "explain_answer", "depends_on": ["search"],
+     "inputs": {"mode": "results"}},
+])
+def test_standalone_sorted_search_does_not_require_a_new_selection_or_interpretation(extra):
+    question = "압력이 7 mTorr 이상인 실제 Run을 찾아서 평균 이온 에너지가 높은 순으로 보여줘."
+    lookup = search([constraint("pressure", "gte", 7, "mTorr", "압력이 7 mTorr 이상")],
+                    goals=[{"field": "meanIonEnergy", "direction": "maximize"}])
+    candidate = plan(question, [lookup, extra])
+    output = validate_plan(candidate, messages={"question": question}, context_keys=set())
+    assert [step.id for step in output.steps] == ["search"]
+    assert output.requirements[0].handled_by == ["search"]
+    assert output.steps[0].inputs.constraints == candidate.steps[0].inputs.constraints
+    assert output.steps[0].inputs.goals == candidate.steps[0].inputs.goals
+    with_followup = question + " 결과가 의미하는 바를 설명해줘."
+    assert len(validate_plan(candidate, messages={"question": with_followup}, context_keys=set()).steps) == 2
+
+
+@pytest.mark.parametrize(("value", "unit", "expected"), [
+    (7.5, "10¹⁸ m⁻²s⁻¹", (7.5e20, "m⁻²s⁻¹")),
+    (750, "10¹⁸ m⁻²s⁻¹", (750, "10¹⁸ m⁻²s⁻¹")),
+])
+def test_standalone_search_preserves_explicit_flux_exponent(value, unit, expected):
+    quote = "이온 플럭스가 7.5e20 m^-2 s^-1 이상이고"
+    question = f"{quote} 평균 이온 에너지가 100 eV 이상 120 eV 이하인 실제 Run을 찾아서 플럭스가 높은 순으로 보여줘."
+    lookup = search([constraint("ionFlux", "gte", value, unit, quote)],
+                    goals=[{"field": "ionFlux", "direction": "maximize"}])
+    candidate = plan(question, [lookup])
+    output = validate_plan(candidate, messages={"question": question}, context_keys=set())
+    binding = output.steps[0].inputs.constraints[0].value
+    assert (binding.value, binding.unit) == expected
+    assert binding.source.quote == quote
+    assert candidate.steps[0].inputs.constraints[0].value.value == value
+
+
+def test_search_excludes_explicit_endpoints_without_extra_explanation():
+    question = ("평균 이온 에너지가 100 eV보다 크고 120 eV보다 작은 실제 Run만 찾아줘. "
+                "100 eV와 120 eV는 둘 다 제외해줘.")
+    explain = {"id": "explain", "kind": "tool", "tool": "explain_answer", "depends_on": ["search"],
+               "inputs": {"mode": "results"}}
+    candidate = plan(question, [search([interval(100, 120, question)]), explain])
+    accepted = validate_plan(candidate, messages={"question": question}, context_keys=set())
+    lookup, = accepted.steps
+    assert [(c.operator, c.value.value) for c in lookup.inputs.constraints] == [("gt", 100), ("lt", 120)]
+    assert accepted.requirements[0].handled_by == ["search"]
+    other = question.replace("100 eV와 120 eV는", "99 eV와 120 eV는")
+    changed = plan(other, [search([interval(100, 120, other)])])
+    assert validate_plan(changed, messages={"question": other}, context_keys=set()).steps[0].inputs.constraints[0].operator == "between"
+
+
+def test_grouped_search_uses_the_exact_second_range_quote_and_sort():
+    question = ("평균 이온 에너지가 100–110 eV인 후보와 120–130 eV인 후보를 각각 찾아줘. "
+                "두 그룹을 따로 보여주고 각 그룹 안에서는 이온 플럭스가 높은 순으로 정렬해줘.")
+    explain = {"id": "explain", "kind": "tool", "tool": "explain_answer", "depends_on": ["first", "second"],
+               "inputs": {"mode": "results"}}
+    candidate = plan(question, [search([interval(100, 110, "평균 이온 에너지가 100–110 eV")], id="first"),
+                                search([interval(120, 130, "평균 이온 에너지가 120–130 eV")], id="second"), explain])
+    accepted = validate_plan(candidate, messages={"question": question}, context_keys=set())
+    assert [step.id for step in accepted.steps] == ["first", "second"]
+    for step in accepted.steps:
+        goal, = step.inputs.goals
+        assert (goal.field, goal.direction) == ("ionFlux", "maximize")
+    bound, = accepted.steps[1].inputs.constraints
+    assert bound.min.source.quote == bound.max.source.quote == "120–130 eV"
+
+
+@pytest.mark.parametrize("mode", ["empty_lookup", "run_refs_as_bias", "lookup_candidates"])
+def test_selected_distribution_comparison_keeps_its_confirmed_runs(mode):
+    question = ("선택한 바이어스 전력 200 W인 두 Run의 IAD 최대 강도와 피크 입사각을 비교해줘. "
+                "원본 데이터가 없으면 그 이유를 명확히 알려줘.")
+    lookup = {"id": "lookup", "kind": "tool", "tool": "forward_lookup", "inputs": {}}
+    compare = comparison()
+    if mode == "run_refs_as_bias":
+        lookup["inputs"]["bias_power"] = {"kind": "context_ref", "key": "selected_runs"}
+    if mode == "lookup_candidates":
+        lookup["inputs"]["bias_power"] = constraint("biasPower", "eq", 200, "W", "바이어스 전력 200 W")["value"]
+        compare["inputs"]["runs"] = result_ref("lookup")
+    compare.update(depends_on=["lookup"], required_prior_outputs=[
+        {"step_id": "lookup", "field": "candidates", "value_type": "run_refs"},
+    ])
+    explain = {"id": "explain", "kind": "tool", "tool": "explain_answer", "depends_on": ["compare"],
+               "inputs": {"mode": "results"}}
+    candidate = plan(question, [lookup, compare, explain])
+    accepted = validate_plan(candidate, messages={"question": question}, context_keys={"selected_runs"},
+                             selected_run_keys={"R1", "R2"})
+    assert [step.id for step in accepted.steps] == ["compare", "explain"]
+    assert accepted.steps[0].inputs.fields == ["iad.maximum", "iad.peakAngle"]
+    assert accepted.steps[0].depends_on == accepted.steps[0].required_prior_outputs == []
+    assert accepted.requirements[0].handled_by == ["compare", "explain"]
+
+
+def test_distribution_comparison_uses_the_registered_features_for_the_candidate_group():
+    question = ("압력이 9 mTorr 이상인 실제 Run 중 이온 플럭스가 60 × 10¹⁸ m⁻²s⁻¹ 이상인 전체 Run의 IAD를 비교해줘. "
+                "데이터가 없는 Run도 누락 이유를 보여줘.")
+    compare = comparison()
+    compare["inputs"].update(runs=result_ref("search"), fields=["iad.maximum"], plot_ids=["iad"])
+    compare["depends_on"] = ["search"]
+    candidate = plan(question, [search([constraint("pressure", "gte", 9, "mTorr", "압력이 9 mTorr 이상")]), compare])
+    accepted = validate_plan(candidate, messages={"question": question}, context_keys=set())
+    assert accepted.steps[1].inputs.fields == ["iad.maximum", "iad.peakAngle"]
+    assert accepted.steps[1].inputs.runs.model_dump() == result_ref("search")
+
+
+def test_explanation_of_one_exact_run_uses_a_forward_lookup():
+    question = ("이온 플럭스가 무엇인지 짧게 설명하고, 압력 9 mTorr, 소스 전력 400 W, "
+                "바이어스 전력 700 W인 실제 Run의 이온 플럭스와 평균 이온 에너지를 근거로 결과를 설명해줘.")
+    lookup = search([constraint("pressure", "eq", 9, "mTorr", "9 mTorr"),
+                     constraint("sourcePower", "eq", 400, "W", "400 W"),
+                     constraint("biasPower", "eq", 700, "W", "700 W")])
+    compare = comparison()
+    compare["depends_on"] = ["search"]
+    compare["inputs"]["runs"] = result_ref("search")
+    explain = {"id": "explain", "kind": "tool", "tool": "explain_answer", "depends_on": ["search", "compare"],
+               "inputs": {"mode": "results"}}
+    candidate = plan(question, [lookup, compare, explain])
+    accepted = validate_plan(candidate, messages={"question": question}, context_keys=set())
+    forward, answer = accepted.steps
+    assert forward.tool == "forward_lookup" and answer.depends_on == [forward.id]
+    assert (forward.inputs.pressure.value, forward.inputs.source_power.value, forward.inputs.bias_power.value) == (9, 400, 700)
+    assert accepted.requirements[0].handled_by == ["search", "explain"]
+
+
+@pytest.mark.parametrize(("question", "supplied", "expected"), [
+    ("선택한 두 Run의 전극 전위 최댓값과 최솟값을 공정 조건에 따른 경향으로 비교해줘. "
+     "경향을 볼 공정 조건 축은 내가 직접 선택하게 해줘.", ["potential.peakToPeak"],
+     ["potential.maximum", "potential.minimum"]),
+    ("선택한 압력 8 mTorr인 두 Run의 IAD 최대 강도와 피크 입사각을 비교해줘. "
+     "원본 데이터가 없으면 그 이유를 명확히 알려줘.", ["iad.maximum", "iead.peakAngle"],
+     ["iad.maximum", "iad.peakAngle"]),
+])
+def test_selected_comparison_uses_explicitly_named_outputs(question, supplied, expected):
+    step = comparison()
+    step["inputs"]["fields"] = supplied
+    candidate = plan(question, [step])
+    output = validate_plan(candidate, messages={"question": question}, context_keys={"selected_runs"},
+                           selected_run_keys={"R1", "R2"})
+    assert output.steps[0].inputs.fields == expected
+    assert candidate.steps[0].inputs.fields == supplied
+    qualified = question + " 다른 분포도 함께 넣어줘."
+    assert validate_plan(candidate, messages={"question": qualified}, context_keys={"selected_runs"},
+                         selected_run_keys={"R1", "R2"}).steps[0].inputs.fields == supplied
+
+
+def test_comparison_normalizes_repeated_output_fields_before_tool_validation():
+    step = comparison()
+    step["inputs"]["fields"] = ["ionFlux", "meanIonEnergy", "ionFlux"]
+    accepted = validate_plan(draft(step), messages={"question": "비교해줘"}, context_keys={"selected_runs"})
+    assert accepted.steps[0].inputs.fields == ["ionFlux", "meanIonEnergy"]
+
+
+def test_explanation_can_use_the_comparison_of_an_explicitly_named_causal_condition():
+    question = "선택한 두 Run의 플럭스를 비교하고, 압력만이 원인인지 설명해줘."
+    explain = {"id": "explain", "kind": "tool", "tool": "explain_answer",
+               "depends_on": ["compare"], "inputs": {"mode": "results"}}
+    accepted = validate_plan(draft(comparison(), explain), messages={"question": question},
+                             context_keys={"selected_runs"}, selected_run_keys={"R1", "R2"})
+    assert accepted.steps[0].inputs.fields == ["ionFlux", "pressure"]
+    assert accepted.steps[1].id == "explain"
+
+
+def test_baseline_choice_precedes_the_comparison_it_configures():
+    choice = {
+        "id": "choose", "kind": "await_input", "confirmation": "baseline", "depends_on": ["compare"],
+        "required_prior_outputs": [{"step_id": "compare", "field": "ionFlux", "value_type": "quantities"}],
+        "inputs": {"target_step_id": "compare", "field": "baseline"},
+    }
+    accepted = validate_plan(draft(comparison(), choice), messages={"question": "비교해줘"},
+                             context_keys={"selected_runs"})
+    choose, compare = accepted.steps
+    assert choose.id == "choose" and choose.depends_on == [] and choose.required_prior_outputs == []
+    assert compare.depends_on == ["choose"] and compare.inputs.baseline.step_id == "choose"
+
+
+@pytest.mark.parametrize("provided_field", [None, "selection"])
+def test_baseline_reference_does_not_require_a_numeric_output_from_selection(provided_field):
+    compare = comparison()
+    compare["depends_on"] = ["choose"]
+    if provided_field:
+        compare["inputs"]["baseline"] = {"kind": "result_ref", "step_id": "choose", "field": provided_field,
+                                         "scope": {"kind": "scalar"}}
+    compare["required_prior_outputs"] = [{"step_id": "choose", "field": "value", "count": 1,
+                                           "value_type": "quantity", "unit": "eV"}]
+    choose = {"id": "choose", "kind": "await_input", "confirmation": "baseline",
+              "inputs": {"target_step_id": "compare", "field": "baseline"}}
+    accepted = validate_plan(draft(choose, compare), messages={"question": "비교해줘"},
+                             context_keys={"selected_runs"})
+    assert accepted.steps[1].required_prior_outputs == []
+    assert accepted.steps[1].inputs.baseline.step_id == "choose"
 
 
 @pytest.mark.parametrize("message_key", ["question", "input_0"])
@@ -114,6 +306,69 @@ def test_single_confirmed_run_measurement_is_a_valid_numeric_threshold():
     accepted = validate_plan(draft(comparison(), search), messages={"question": "비교해줘"},
                              context_keys={"selected_runs", "R1"}, selected_run_keys={"R1"})
     assert [step.id for step in accepted.steps] == ["compare", "search"]
+
+
+@pytest.mark.parametrize(("field", "scope"), [
+    ("ionFlux", {"kind": "context_selection", "key": "selected_runs"}), ("value", {"kind": "scalar"}),
+])
+def test_explicit_selected_group_threshold_repairs_an_older_comparison_reference(field, scope):
+    question = ("선택한 두 Run의 이온 플럭스를 비교한 뒤, 두 Run 모두보다 플럭스가 높고 "
+                "압력이 7 mTorr 이상인 Run을 찾아줘.")
+    step = {"id": "search", "kind": "tool", "tool": "reverse_search", "depends_on": ["compare"],
+            "inputs": {"constraints": [{"field": "ionFlux", "operator": "gt", "value": {
+                "kind": "result_ref", "step_id": "compare", "field": field, "scope": scope,
+            }}]}}
+    if field == "value":
+        step["required_prior_outputs"] = [{"step_id": "compare", "field": field, "value_type": "quantity"}]
+    accepted = validate_plan(draft(comparison(), step), messages={"question": question},
+                             context_keys={"selected_runs"}, selected_run_keys={"R1", "R2"})
+    compare, calculated, search_step = accepted.steps
+    assert calculated.operation == "max" and calculated.depends_on == [compare.id]
+    assert search_step.inputs.constraints[0].value.step_id == calculated.id
+    assert search_step.inputs.constraints[0].value.scope.kind == "scalar"
+    assert search_step.required_prior_outputs == []
+
+
+def test_explicit_two_run_min_uses_the_selected_group_without_nested_operands():
+    question = ("선택한 두 Run의 이온 플럭스를 비교한 뒤, 두 Run 모두보다 플럭스가 낮고 "
+                "압력이 7 mTorr 이상인 실제 Run을 찾아줘.")
+    producer = comparison()
+    aggregation = {"id": "aggregate", "kind": "derive", "operation": "mean", "depends_on": ["compare"],
+                   "inputs": {"values": [difference_ref("ionFlux")]},
+                   "required_prior_outputs": [{"step_id": "compare", "field": "ionFlux", "value_type": "quantities"}]}
+    lookup = search([{"field": "ionFlux", "operator": "lt", "value": result_ref("aggregate", "value", "scalar")}])
+    lookup["depends_on"] = ["aggregate"]
+    candidate = plan(question, [producer, aggregation, lookup])
+    accepted = validate_plan(candidate, messages={"question": question}, context_keys={"selected_runs"},
+                             selected_run_keys={"R1", "R2"})
+    step = accepted.steps[1]
+    assert step.operation == "min"
+    assert step.inputs.values.model_dump() == difference_ref("ionFlux")
+    assert step.required_prior_outputs == []
+
+
+@pytest.mark.parametrize("operand", [
+    {"kind": "context_ref", "key": "selected_runs"},
+    {"kind": "result_ref", "step_id": "average", "field": "value", "scope": {"kind": "scalar"}},
+])
+def test_explicit_selected_average_supplies_comparison_values_to_a_dangling_calculation(operand):
+    question = ("선택한 두 Run의 이온 플럭스 평균을 계산하고, 그 평균보다 플럭스가 낮은 Run을 찾아줘.")
+    average = {"id": "average", "kind": "derive", "operation": "mean", "inputs": {"values": [operand]}}
+    search_step = {"id": "search", "kind": "tool", "tool": "reverse_search", "depends_on": ["average"],
+                   "required_prior_outputs": [{"step_id": "average", "field": "value", "count": 1,
+                                               "value_type": "quantity"}],
+                   "inputs": {"constraints": [{"field": "ionFlux", "operator": "lt", "value": {
+                       "kind": "result_ref", "step_id": "average", "field": "value", "scope": {"kind": "scalar"},
+                   }}]}}
+    candidate = draft(average, search_step)
+    candidate.requirements[0].sources[0].quote = question
+    accepted = validate_plan(candidate, messages={"question": question},
+                             context_keys={"selected_runs"}, selected_run_keys={"R1", "R2"})
+    compare, calculated, search_step = accepted.steps
+    assert compare.inputs.runs.key == "selected_runs" and compare.inputs.fields == ["ionFlux"]
+    assert calculated.id == "average" and calculated.inputs.values.step_id == compare.id
+    assert calculated.inputs.values.scope.key == "selected_runs"
+    assert search_step.required_prior_outputs == [] and search_step.inputs.constraints[0].value.step_id == "average"
 
 
 def derive(field="ionFlux"):
@@ -234,3 +489,206 @@ def test_planned_candidate_group_uses_every_saved_candidate_without_phrase_match
     invalid = {**compare, "inputs": {**compare["inputs"], "runs": {**confirmed, "field": "runs"}}}
     with pytest.raises(ValidationError, match="field"):
         validate_plan(draft(search, confirm, invalid), messages={"question": "후보 중 두 Run 비교"}, context_keys=set())
+
+
+def test_search_with_simultaneous_conditions_does_not_require_explanation():
+    question = "압력이 9 mTorr 이하이면서 바이어스 전력이 500 W 이상인 실제 Run을 모두 찾아줘."
+    lookup = search([constraint("pressure", "lte", 9, "mTorr", "압력이 9 mTorr 이하"),
+                     constraint("biasPower", "gte", 500, "W", "바이어스 전력이 500 W 이상")])
+    extra = {"id": "explain", "kind": "tool", "tool": "explain_answer", "depends_on": ["search"],
+             "inputs": {"mode": "results"}}
+    candidate = plan(question, [lookup, extra])
+    accepted = validate_plan(candidate, messages={"question": question}, context_keys=set())
+    assert [step.id for step in accepted.steps] == ["search"]
+    assert accepted.steps[0].inputs.constraints == candidate.steps[0].inputs.constraints
+
+
+def test_iead_unit_limitation_uses_the_actual_comparison_and_exact_source():
+    phrase = "원본 강도 단위가 지정되지 않은 점이 해석에 주는 한계를 설명해줘"
+    question = f"평균 이온 에너지가 100–120 eV인 모든 실제 Run의 IEAD 최대 강도와 피크 에너지·각도를 비교하고, {phrase}."
+    compare = comparison()
+    compare["inputs"].update(runs=result_ref("search"), fields=["iead.maximum"], plot_ids=["iead"])
+    compare["depends_on"] = ["search"]
+    explain = {"id": "explain", "kind": "tool", "tool": "explain_answer", "depends_on": ["compare"],
+               "inputs": {"mode": "concept"}, "required_prior_outputs": [{"step_id": "compare", "field": "iead.maximum"}]}
+    candidate = plan(question, [search([interval(100, 120, "100–120 eV")]), compare, explain])
+    candidate.steps[-1].requirement_ids = ["limitation"]
+    candidate.requirements[0].handled_by.remove("explain")
+    original = candidate.requirements[0]
+    candidate.requirements.append(original.model_copy(update={
+        "id": "limitation", "handled_by": ["explain"], "sources": [original.sources[0].model_copy(
+            update={"quote": phrase.replace("한계를", "한계")})],
+    }))
+    accepted = validate_plan(candidate, messages={"question": question}, context_keys=set())
+    assert accepted.steps[-1].inputs.mode == "results"
+    assert accepted.steps[-1].required_prior_outputs == []
+    assert accepted.requirements[-1].sources[0].quote == phrase
+
+
+def test_baseline_choice_guard_can_use_the_name_of_the_confirmed_input():
+    compared = comparison()
+    compared["depends_on"] = ["choose"]
+    compared["required_prior_outputs"] = [{"step_id": "choose", "field": "baseline"}]
+    choice = {"id": "choose", "kind": "await_input", "confirmation": "baseline",
+              "inputs": {"target_step_id": "compare", "field": "baseline"}}
+    accepted = validate_plan(draft(choice, compared), messages={"question": "비교해줘"}, context_keys={"selected_runs"})
+    assert accepted.steps[-1].required_prior_outputs == []
+    assert accepted.steps[-1].inputs.baseline.field == "value"
+
+
+def test_explicit_sort_uses_search_order_without_a_redundant_candidate_comparison():
+    question = "평균 이온 에너지가 100–120 eV인 실제 Run만 찾아서 이온 플럭스가 높은 순으로 보여줘."
+    compare = comparison()
+    compare["depends_on"] = ["search"]
+    compare["inputs"]["runs"] = result_ref("search")
+    candidate = plan(question, [search([interval(100, 120, "100–120 eV")]), compare])
+    accepted = validate_plan(candidate, messages={"question": question}, context_keys=set())
+    lookup, = accepted.steps
+    goal, = lookup.inputs.goals
+    assert (goal.field, goal.direction) == ("ionFlux", "maximize")
+    assert lookup.inputs.constraints == candidate.steps[0].inputs.constraints
+    combined = question + " 그리고 찾은 Run의 플럭스를 비교해줘."
+    assert len(validate_plan(candidate, messages={"question": combined}, context_keys=set()).steps) == 2
+
+
+def test_iead_group_comparison_uses_the_named_family_and_features():
+    question = "평균 이온 에너지가 100–120 eV인 모든 실제 Run의 IEAD 최대 강도와 피크 에너지·각도를 비교해줘."
+    compare = comparison()
+    compare["depends_on"] = ["search"]
+    compare["inputs"].update(runs=result_ref("search"), fields=["iad.maximum", "iad.peakAngle"], plot_ids=["iead"])
+    accepted = validate_plan(plan(question, [search([interval(100, 120, "100–120 eV")]), compare]),
+                             messages={"question": question}, context_keys=set())
+    assert accepted.steps[1].inputs.fields == ["iead.maximum", "iead.peakEnergy", "iead.peakAngle"]
+    assert accepted.steps[1].inputs.runs.model_dump() == result_ref("search")
+
+
+def test_candidate_comparison_keeps_structured_results_and_explicit_explanations():
+    question = "이온 플럭스가 60 × 10¹⁸ m⁻²s⁻¹ 이상인 실제 Run을 모두 찾아서, 찾은 전체 Run의 압력을 비교해줘."
+    find = search([constraint("ionFlux", "gte", 60, "10¹⁸ m⁻²s⁻¹", "이온 플럭스가 60 × 10¹⁸ m⁻²s⁻¹ 이상")])
+    compare = {**comparison(), "depends_on": ["search"],
+               "inputs": {"runs": result_ref("search"), "fields": ["pressure"]}}
+    explain = {"id": "explain", "kind": "tool", "tool": "explain_answer", "depends_on": ["compare"],
+               "inputs": {"mode": "results"}}
+    candidate = plan(question, [find, compare, explain])
+    accepted = validate_plan(candidate, messages={"question": question}, context_keys=set())
+    assert [step.id for step in accepted.steps] == ["search", "compare"]
+    assert accepted.requirements[0].handled_by == ["search", "compare"]
+    extended = question + " 결과가 의미하는 바도 알려줘."
+    assert len(validate_plan(candidate, messages={"question": extended}, context_keys=set()).steps) == 3
+
+
+def test_selected_threshold_search_does_not_request_a_separate_explanation():
+    question = ("선택한 두 Run의 이온 플럭스를 비교한 뒤, 두 Run 모두보다 플럭스가 낮고 "
+                "압력이 7 mTorr 이상인 실제 Run을 찾아줘.")
+    aggregation = {**derive(), "operation": "min"}
+    find = search([{"field": "ionFlux", "operator": "lt", "value": result_ref("derive", "value", "scalar")},
+                   constraint("pressure", "gte", 7, "mTorr", "압력이 7 mTorr 이상")])
+    find["depends_on"] = ["compare", "derive"]
+    explain = {"id": "explain", "kind": "tool", "tool": "explain_answer",
+               "depends_on": ["compare", "search"], "inputs": {"mode": "results"}}
+    candidate = plan(question, [comparison(), aggregation, find, explain])
+    opts = {"context_keys": {"selected_runs"}, "selected_run_keys": {"R1", "R2"}}
+    accepted = validate_plan(candidate, messages={"question": question}, **opts)
+    assert [s.id for s in accepted.steps] == ["compare", "derive", "search"]
+    assert accepted.steps[-1].inputs.constraints == candidate.steps[2].inputs.constraints
+    extended = question + " 결과가 이유를 뒷받침하는지도 알려줘."
+    assert len(validate_plan(candidate, messages={"question": extended}, **opts).steps) == 4
+
+
+def test_comparison_uses_the_selected_run_list_when_an_implicit_guard_claims_it_is_numeric():
+    question = ("압력이 7 mTorr 이상인 실제 Run을 찾아줘. 그 중 정확히 두 개를 내가 고를 테니 선택창을 띄우고, "
+                "선택한 두 개의 이온 플럭스를 비교해줘.")
+    find = search([constraint("pressure", "gte", 7, "mTorr", "압력이 7 mTorr 이상")])
+    choice = {"id": "choose", "kind": "await_input", "confirmation": "run_selection", "depends_on": ["search"],
+              "inputs": {"target_step_id": "compare", "field": "runs", "selection_count": 2,
+                         "candidates": result_ref("search")}}
+    compare = {**comparison(), "depends_on": ["choose"],
+               "inputs": {"runs": result_ref("choose", "selection", "scalar"), "fields": ["ionFlux"]},
+               "required_prior_outputs": [{"step_id": "choose", "field": "selection", "count": 2,
+                                           "value_type": "quantity"}]}
+    explain = {"id": "explain", "kind": "tool", "tool": "explain_answer", "depends_on": ["compare"],
+               "inputs": {"mode": "results"}}
+    accepted = validate_plan(plan(question, [find, choice, compare, explain]), messages={"question": question},
+                             context_keys=set())
+    assert [step.id for step in accepted.steps] == ["search", "choose", "compare"]
+    assert accepted.steps[1].inputs.selection_count == 2
+    guard, = accepted.steps[-1].required_prior_outputs
+    assert guard.value_type == "run_refs" and guard.count == 2
+
+
+def test_exact_forward_lookup_explanation_does_not_need_a_redundant_run_list_guard():
+    question = ("이온 플럭스가 무엇인지 짧게 설명하고, 압력 9 mTorr, 소스 전력 400 W, "
+                "바이어스 전력 700 W인 실제 Run의 이온 플럭스와 평균 이온 에너지를 근거로 결과를 설명해줘.")
+    forward = {"id": "lookup", "kind": "tool", "tool": "forward_lookup", "inputs": {
+        "pressure": constraint("pressure", "eq", 9, "mTorr", "9 mTorr")["value"],
+        "source_power": constraint("sourcePower", "eq", 400, "W", "400 W")["value"],
+        "bias_power": constraint("biasPower", "eq", 700, "W", "700 W")["value"],
+    }}
+    explain = {"id": "explain", "kind": "tool", "tool": "explain_answer", "depends_on": ["lookup"],
+               "inputs": {"mode": "results"}, "required_prior_outputs": [
+                   {"step_id": "lookup", "field": "candidates", "value_type": "run_refs"},
+               ]}
+    candidate = plan(question, [forward, explain])
+    accepted = validate_plan(candidate, messages={"question": question}, context_keys=set())
+    assert [step.id for step in accepted.steps] == ["lookup", "explain"]
+    assert accepted.steps[-1].required_prior_outputs == []
+    assert accepted.steps[-1].depends_on == ["lookup"]
+    conditional = question + " 찾은 결과가 세 개일 때만 설명해줘."
+    with pytest.raises(InvalidPlan, match="last, unconditional"):
+        validate_plan(candidate, messages={"question": conditional}, context_keys=set())
+
+
+@pytest.mark.parametrize("lookup_kind", ["one_per_selected_run", "redundant_filter"])
+def test_selected_distribution_comparison_ignores_queries_that_replace_confirmed_runs(lookup_kind):
+    question = ("선택한 바이어스 전력 200 W인 두 Run의 IAD 최대 강도와 피크 입사각을 비교해줘. "
+                "원본 데이터가 없으면 그 이유를 명확히 알려줘.")
+    compare = comparison()
+    compare["inputs"]["fields"] = ["iad.maximum", "iad.peakAngle"]
+    if lookup_kind == "one_per_selected_run":
+        lookups = [{"id": f"lookup_{key}", "kind": "tool", "tool": "forward_lookup",
+                    "inputs": dict.fromkeys(("pressure", "source_power", "bias_power"),
+                                            {"kind": "context_ref", "key": key})}
+                   for key in ("R1", "R2")]
+    else:
+        find = search([constraint("biasPower", "eq", 200, "W", "바이어스 전력 200 W")])
+        lookups = [find]
+        compare["inputs"]["runs"] = result_ref("search")
+        compare["required_prior_outputs"] = [{"step_id": "search", "field": "candidates", "value_type": "run_refs"}]
+    compare["depends_on"] = [step["id"] for step in lookups]
+    explain = {"id": "explain", "kind": "tool", "tool": "explain_answer",
+               "inputs": {"mode": "results"}, "depends_on": [*compare["depends_on"], "compare"]}
+    accepted = validate_plan(plan(question, [*lookups, compare, explain]), messages={"question": question},
+                             context_keys={"selected_runs", "R1", "R2"}, selected_run_keys={"R1", "R2"})
+    verified, explanation = accepted.steps
+    assert verified.id == "compare" and verified.inputs.runs.key == "selected_runs"
+    assert verified.depends_on == verified.required_prior_outputs == []
+    assert explanation.depends_on == ["compare"]
+
+
+def test_one_result_explanation_carries_both_concept_and_lookup_evidence_requirements():
+    concept = "이온 플럭스가 무엇인지 짧게 설명하고"
+    results = ("압력 9 mTorr, 소스 전력 400 W, 바이어스 전력 700 W인 실제 Run의 이온 플럭스와 "
+               "평균 이온 에너지를 근거로 결과를 설명해줘")
+    question = f"{concept}, {results}."
+    forward = {"id": "lookup", "kind": "tool", "tool": "forward_lookup", "inputs": {
+        "pressure": constraint("pressure", "eq", 9, "mTorr", "9 mTorr")["value"],
+        "source_power": constraint("sourcePower", "eq", 400, "W", "400 W")["value"],
+        "bias_power": constraint("biasPower", "eq", 700, "W", "700 W")["value"],
+    }}
+    explain = {"id": "explain", "kind": "tool", "tool": "explain_answer", "depends_on": ["lookup"],
+               "inputs": {"mode": "results"}, "required_prior_outputs": [
+                   {"step_id": "lookup", "field": "value", "value_type": "quantities"},
+               ]}
+    definition = {"id": "definition", "kind": "tool", "tool": "explain_answer", "inputs": {"mode": "concept"}}
+    candidate = plan(question, [definition, forward, explain])
+    candidate.steps[0].requirement_ids = ["concept"]
+    candidate.requirements[0].handled_by.remove("definition")
+    requirement = candidate.requirements[0]
+    candidate.requirements.append(requirement.model_copy(update={"id": "concept", "handled_by": ["definition"],
+        "sources": [requirement.sources[0].model_copy(update={"quote": concept})]}))
+    accepted = validate_plan(candidate, messages={"question": question}, context_keys=set())
+    assert [step.id for step in accepted.steps] == ["lookup", "explain"]
+    assert accepted.steps[-1].required_prior_outputs == []
+    assert accepted.steps[-1].requirement_ids == ["r", "concept"]
+    assert accepted.requirements[-1].handled_by == ["explain"]
+    assert accepted.requirements[-1].sources[0].quote == concept

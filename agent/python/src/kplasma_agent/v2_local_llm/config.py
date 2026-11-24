@@ -8,6 +8,7 @@ from dotenv import dotenv_values
 from .network import validate_endpoint
 
 PREFIX = "AGENT_V2_LOCAL_LLM_"
+PLAN_TIMEOUT_SECONDS = 120
 REVIEW_MODELS = {
     "q8": ("LiquidAI/d1-2B:MLX8", "MLX-affine8-g64/BF16-embedding"),
     "bf16": ("LiquidAI/d1-2B:BF16", "BF16"),
@@ -184,7 +185,7 @@ class Settings:
             "d1Input": {"profile": self.d1_input_profile, "version": D1_INPUT_VERSION,
                         "sha256": hashlib.sha256((root / "core/d1_input.py").read_bytes()).hexdigest()},
             "d1Context": context_identity(self.d1_context_mode),
-            "timeout": self.timeout, "planReviewEnabled": True,
+            "timeout": self.timeout, "planTimeout": PLAN_TIMEOUT_SECONDS, "planReviewEnabled": True,
             "memoryPolicy": self.memory_policy,
             "cloneManifestHash": hashlib.sha256((root / "clone-manifest.json").read_bytes()).hexdigest(),
             "intentionalDifferencesHash": hashlib.sha256((root / "intentional-differences.json").read_bytes()).hexdigest(),
