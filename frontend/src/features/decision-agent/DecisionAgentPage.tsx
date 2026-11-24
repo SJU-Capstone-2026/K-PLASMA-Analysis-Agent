@@ -269,7 +269,7 @@ export function DecisionAgentPage({active,conversation}:{active:boolean;conversa
           </div>
         </DecisionCard>
       </>}
-      <div ref={latest} className="decision-latest"/>
+      {question&&<div ref={latest} className="decision-latest"/>}
     </div>
 
     <div className="agent-composer-dock">

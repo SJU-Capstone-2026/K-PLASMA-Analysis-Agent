@@ -224,7 +224,8 @@ npm run measure:agent:local -- --env-file .env.local-llm
 ## 공통 backend와 화면
 
 분석 Agent의 기본 실행 모드는 일반 V2다. 로컬 워커와 백엔드가 준비된 환경에서는
-버전 선택에서 `v2_localLLM`을 고를 수 있다. 모드를 바꾸려면 새 대화에서 원하는 버전을 선택한다. 저장된 질문·답변·Run 참조는 기존 대화에서 읽을 수 있다.
+`로컬` 버튼에서 독립 로컬 V2를 선택할 수 있다. 이미 요청을 저장한 대화에서 실행
+모드를 바꾸면 새 대화를 열며, 저장된 질문·답변·Run 참조는 기존 대화에서 읽을 수 있다.
 실행 모드 정보가 없는 과거 대화도 읽을 수 있으며, 새 질문은 새 대화에서 보낸다.
 
 기존 `DB_URL`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `KPLASMA_STORAGE_ROOT`는 보존한다. 상용 `AGENT_WORKER_TOKEN`과 로컬 `AGENT_LOCAL_WORKER_TOKEN`은 다르게 설정하고, 로컬 worker의 `AGENT_V2_LOCAL_LLM_WORKER_TOKEN`은 로컬 키와 일치시킨다. 혼합 배포에서 키가 없거나 같으면 시작을 거부한다. local-only 배포의 기존 worker token 방식도 호환한다.
@@ -243,7 +244,7 @@ VITE_API_TARGET=http://127.0.0.1:8080 npm run dev
 
 서버와 워커를 시작한 뒤 브라우저에서 [로컬 화면](http://127.0.0.1:5173)을 바로 연다. 백엔드는 로컬 접속과 설정된 UI 주소의 요청을 허용한다. worker와 모델 API는 각자의 토큰으로 인증한다.
 
-상용 키는 로컬 요청·context·checkpoint·입출력을 읽거나 쓸 수 없고 반대 방향도 제한한다. 화면에서는 기존 저장 판단 기록을 볼 수 있지만 상용 worker의 기억 조회에는 상용 출처로 확인된 기록만 제공한다. 서버 내부 `decision.origin_graph_version`으로 출처를 보존하고 공개 응답 JSON은 유지한다. 출처 불명확 기록도 상용 worker에서는 제외한다. 대화의 실행 모드는 첫 질문에 고정된다. 새 대화에서 원하는 실행 모드를 고른다. 로컬 전용 배포는 지원 목록과 기본값을 모두 `v2_localLLM`으로 설정한다.
+상용 키는 로컬 요청·context·checkpoint·입출력을 읽거나 쓸 수 없고 반대 방향도 제한한다. 화면에서는 기존 저장 판단 기록을 볼 수 있지만 상용 worker의 기억 조회에는 상용 출처로 확인된 기록만 제공한다. 서버 내부 `decision.origin_graph_version`으로 출처를 보존하고 공개 응답 JSON은 유지한다. 출처 불명확 기록도 상용 worker에서는 제외한다. 대화의 실행 모드는 첫 질문에 고정된다. 화면에서 다른 모드를 눌러 새 대화를 시작한다. 로컬 전용 배포는 지원 목록과 기본값을 모두 `v2_localLLM`으로 설정한다.
 
 ## worker 명령과 데이터 전송 범위
 

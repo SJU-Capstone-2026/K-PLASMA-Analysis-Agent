@@ -1,7 +1,7 @@
 import {memo,useCallback,useLayoutEffect,useRef,useState,type SetStateAction} from 'react';
-import {isCompositeAnswerSnapshot,isCompositeGraphVersion,queryDefaultUnits} from 'agent';
+import {isCompositeAnswerSnapshot} from 'agent';
 import {graphDeployment,isAnalysisGraphVersion,pinnedConversationGraph} from './graph-versions';
-import {metricNames,searchGroups,snapshotResult,type SearchResult} from './agent-contract';
+import {searchGroups,snapshotResult,type SearchResult} from './agent-contract';
 import type {AgentMessage,DecisionRecord,ReferenceState,RunRef,Snapshot,TurnSnapshot,V2RecordSource} from 'agent';
 import {ReferenceTray} from '../../components/ReferenceTray';
 import {BrandMark} from '../../components/BrandMark';
@@ -13,30 +13,37 @@ import {answerTextSize} from './progress-events';
 import {RunMentionComposer} from './RunMentionComposer';
 import {AgentUserMessage} from './AgentUserMessage';
 import type {ConversationController} from './useConversation';
-export interface AgentPageProps {conversation:ConversationController;records:DecisionRecord[];notify:(text:string,tone?:string)=>void;onDetail:(ref:RunRef,turn:TurnSnapshot)=>void;onRecord:(turn:TurnSnapshot,source?:V2RecordSource,target?:RunRef)=>void;onEvidence:(turn:TurnSnapshot,runId:string)=>void;onDemo:()=>Promise<void>}
+import './analysis-agent.css';
+export interface AgentPageProps {conversation:ConversationController;records:DecisionRecord[];notify:(text:string,tone?:string)=>void;onDetail:(ref:RunRef,turn:TurnSnapshot)=>void;onRecord:(turn:TurnSnapshot,source?:V2RecordSource,target?:RunRef)=>void;onEvidence:(turn:TurnSnapshot,runId:string)=>void}
 import {appendRunReferences,candidateRefs,displayAnswer,removeRunReference,resolveCandidateRef} from './references';
 export {candidateRefs} from './references';
 const reference=(refs:RunRef[]):ReferenceState=>refs.length?{kind:refs.length===1?'단일 Run':'후보 집합',runs:refs}:null;
-const examples=[['example-forward','Run 조건 조회','8 mTorr · Source 300 W · Bias 600 W','압력 8 mTorr, 소스 300 W, 바이어스 600 W 결과를 보여줘'],['example-constraint','조건 일치 전체 조회','조건에 맞는 실제 Run 모두 보기','Ion Flux가 400 이상이고 Mean Ion Energy가 140–180 eV인 실제 Run을 모두 보여줘'],['example-reverse','목표 후보 탐색','Flux는 높게 · Energy는 범위에 가깝게','Ion Flux는 높게, Mean Ion Energy는 150–160 eV에 가깝게 후보를 찾아줘'],['example-comparison','Run 비교','기준 Run과 선택 Run의 수치 차이','기준 Run과 선택한 Run의 평균 이온 에너지와 이온 플럭스를 비교해줘'],['example-explanation','변화 설명','소스 전력 변화가 결과에 미친 영향','소스 전력을 올렸는데 플럭스는 많이 변하고 평균 이온 에너지는 상대적으로 적게 변했어. 왜 그런 거야?'],['example-concept','개념 설명','평균 이온 에너지가 뭐야?','평균 이온 에너지가 뭐야?']];
+const exampleQuestions = [
+ ['example-forward', '압력 8 · 소스 300 · 바이어스 600 결과는?', '압력 8 mTorr, 소스 300 W, 바이어스 600 W 결과를 보여줘'],
+ ['example-constraint', 'Flux 400 이상 · Energy 140–180 eV인 Run은?', 'Ion Flux가 400 이상이고 Mean Ion Energy가 140–180 eV인 실제 Run을 모두 보여줘'],
+ ['example-reverse', 'Flux는 높고 Energy는 150–160 eV에 가까운 후보는?', 'Ion Flux는 높게, Mean Ion Energy는 150–160 eV에 가깝게 후보를 찾아줘'],
+ ['example-comparison', '기준 Run과 선택한 Run의 수치 차이는?', '기준 Run과 선택한 Run의 평균 이온 에너지와 이온 플럭스를 비교해줘'],
+ ['example-explanation', '소스 전력을 올리면 왜 플럭스가 더 변해?', '소스 전력을 올렸는데 플럭스는 많이 변하고 평균 이온 에너지는 상대적으로 적게 변했어. 왜 그런 거야?'],
+ ['example-concept', '평균 이온 에너지가 뭐야?', '평균 이온 에너지가 뭐야?'],
+ ['v2-search-compare', '150–160 eV Run의 압력과 플럭스를 비교해줘', '평균 이온 에너지가 150–160 eV인 실제 Run을 모두 찾아서, 찾은 Run 전체의 압력과 이온 플럭스를 비교해줘.'],
+ ['v2-two-searches', '두 에너지 범위의 후보를 Flux 높은 순으로 보여줘', '평균 이온 에너지가 140–149 eV인 후보와 150–160 eV인 후보를 각각 찾아줘. 두 그룹을 따로 보여주고 각 그룹 안에서는 이온 플럭스가 높은 순으로 정렬해줘.'],
+ ['v2-derived-search', '선택한 두 Run보다 Flux가 높은 후보는?', '선택한 두 Run의 이온 플럭스와 평균 이온 에너지를 비교해줘. 그런 다음 두 Run 모두보다 이온 플럭스가 높고, 평균 이온 에너지가 150–160 eV인 후보를 찾아줘.'],
+] as const;
+const graphModes = [{version:'v2',label:'일반'},{version:'v2_localLLM',label:'로컬'}] as const;
+type AnalysisGraphMode=typeof graphModes[number]['version'];
 type TurnAction=(turnId:string,name:string,element:HTMLElement)=>void;
-const v2Examples = [
- ['v2-search-compare', '검색 후 비교', '범위 안 후보의 압력과 Flux 비교',
-  '평균 이온 에너지가 150–160 eV인 실제 Run을 모두 찾아서, 찾은 Run 전체의 압력과 이온 플럭스를 비교해줘.'],
- ['v2-two-searches', '두 조건 따로 검색', '에너지 범위별로 Flux 높은 순',
-  '평균 이온 에너지가 140–149 eV인 후보와 150–160 eV인 후보를 각각 찾아줘. 두 그룹을 따로 보여주고 각 그룹 안에서는 이온 플럭스가 높은 순으로 정렬해줘.'],
- ['v2-derived-search', '비교값으로 다시 검색', '선택한 두 Run의 Flux를 기준으로 검색',
-  '선택한 두 Run의 이온 플럭스와 평균 이온 에너지를 비교해줘. 그런 다음 두 Run 모두보다 이온 플럭스가 높고, 평균 이온 에너지가 150–160 eV인 후보를 찾아줘.'],
-];
 const ConversationTurn=memo(function ConversationTurn({turn,message,onAction}:{turn:TurnSnapshot;message?:AgentMessage;onAction:TurnAction}){
  const saved=displayAnswer(turn.answerSnapshot).reference;
  const refs=message?.submittedRunRefs??(saved?.ids?.length?saved.ids.flatMap((id:string)=>turn.answerRunRefs.find(ref=>ref.runId===id)??[]):turn.context?[turn.context]:[]);
  return <article className="agent-turn" data-turn-id={turn.id}><AgentUserMessage question={message?.question??turn.question} refs={refs}/><section className="agent-response agent-response--inline"><CompletedAgentProgress summary={message?.executionSummary}/><div id={`turn-answer-${turn.id}`}><AnswerView turn={turn} onAction={(name,element)=>onAction(turn.id,name,element)}/></div></section></article>;
 });
-export function AgentPage({conversation,notify,onDetail,onRecord,onEvidence,onDemo}:AgentPageProps){
+export function AgentPage({conversation,notify,onDetail,onRecord,onEvidence}:AgentPageProps){
  const {state,pending}=conversation;const colorScope=`${state.stateToken.workspaceEpoch}.${state.stateToken.conversationEpoch}`;const turns=state.conversation.turns;const active=state.conversation.activeRun;const composer=state.candidateReference??(active?reference([active]):null);
  const graphVersions=graphDeployment().versions;
+ const [changingMode,setChangingMode]=useState(false);
  const pinnedGraph=pinnedConversationGraph(state.conversation);
  const archivedConversation=!!pinnedGraph&&(!isAnalysisGraphVersion(pinnedGraph)||!graphVersions.includes(pinnedGraph));
+ const hasConversation=!!(turns.length||conversation.activeRequest||state.conversation.agentGraphVersion||state.agentMessages?.length);
  const [drafts,setDrafts]=useState<Record<string,string>>({});
  const text=drafts[colorScope]??'';
  function setText(update:SetStateAction<string>){
@@ -56,7 +63,7 @@ export function AgentPage({conversation,notify,onDetail,onRecord,onEvidence,onDe
    return false;
   }
  }
- async function run(text:string,clarification?:Snapshot){if(archivedConversation)return;followingLatest.current=true;setShowLatestButton(false);try{const submitted=conversation.submit(text,clarification);setText(current=>current===text?'':current);await submitted;}catch(e){setText(current=>current||text);catchError(e);}}
+ async function run(text:string,clarification?:Snapshot){if(changingMode||archivedConversation)return;followingLatest.current=true;setShowLatestButton(false);try{const submitted=conversation.submit(text,clarification);setText(current=>current===text?'':current);await submitted;}catch(e){setText(current=>current||text);catchError(e);}}
  async function action(turn:TurnSnapshot,name:string,element:HTMLElement){const runId=element.dataset.runId;const ref=runId?(element.dataset.runVersionId?{runId,runVersionId:element.dataset.runVersionId}:resolveCandidateRef(turn,runId)):undefined;try{
   if(name==='select-candidate-card')await conversation.updateTurnUi(turn.id,{selectedCandidateRunId:turn.ui.selectedCandidateRunId===runId?null:runId!});
   else if(name==='candidate-group')await conversation.updateTurnUi(turn.id,{activeCandidateGroup:element.dataset.groupId!});
@@ -186,23 +193,46 @@ export function AgentPage({conversation,notify,onDetail,onRecord,onEvidence,onDe
   else if(liveAnswerSize>previous.size||liveResultRevision!==previous.result&&liveResultRevision!==undefined)setShowLatestButton(true);
  },[colorScope,conversation.ready,liveAnswerSize,liveAnswerRevision,liveResultRevision,jumpToLatest]);
 
- return <RunColorsProvider key={colorScope} scope={colorScope} enabled={conversation.ready}><div className="agent-page agent-page--wide"><header className="agent-page-header"><div><span className="eyebrow">CONVERSATIONAL EVIDENCE ANALYSIS</span><h1>PLASMATE 분석 Agent</h1><p>결론과 실제 수치를 먼저 보고, 필요한 실험 상세만 펼쳐 확인합니다.</p></div><div className="agent-page-actions"><label className="agent-graph-choice">Agent 버전 <select aria-label="Agent 버전" value={archivedConversation?"":conversation.graphVersion} disabled={archivedConversation||!conversation.ready||pending||!!conversation.provisionalMessage||!!state.conversation.agentGraphVersion||turns.length>0} onChange={event=>{if(isAnalysisGraphVersion(event.target.value))conversation.selectGraphVersion(event.target.value);}}>{archivedConversation&&<option value="">이전 대화</option>}{graphVersions.map(version=><option key={version} value={version}>{version}</option>)}</select></label><div className="agent-trust-row"><span><i className="status-dot status-dot--success"/>등록된 실제 Run</span><span>예측·보간 없음</span></div><button className="button button--ghost button--small" type="button" data-action="new-conversation" disabled={!turns.length&&!conversation.activeRequest&&!state.conversation.agentGraphVersion&&!state.agentMessages?.length} onClick={()=>conversation.newConversation().catch(catchError)}>새 대화</button></div></header><section ref={liveRegion} className="agent-conversation agent-conversation--wide"><details className="agent-help"><summary>사용 도움말</summary><details className="v1-unit-help"><summary>단위 없이도 조회할 수 있어요 · 기본 단위 보기</summary><ul>{Object.entries(queryDefaultUnits).map(([metric,unit])=><li key={metric}>{metricNames[metric]} <strong>{unit}</strong></li>)}</ul><p>예: 압력 8, 소스 300, 바이어스 600 · 이온 플럭스 400 이상</p><p>단위를 쓰면 입력한 단위를 우선합니다. 생략하면 적용한 기본 단위를 답변에서 알려드립니다.</p></details>{active?<div className="agent-quick-followups"><span>이 Run에서 이어서</span>{[['전체 결과·분포','이 Run의 전체 결과와 이온 에너지 분포 보여줘'],['Energy만 조금 높게','이 결과에서 이온 에너지만 조금 더 높은 실제 조건 찾아줘'],['왜 이런 결과인지','왜 이런 결과가 나왔는지 설명해줘']].map(([label,prompt])=><button key={label} type="button" data-action="use-followup" data-prompt={prompt} disabled={archivedConversation||pending} onClick={()=>void run(prompt)}>{label}</button>)}</div>:null}<div className="memory-demo-actions"><span>기록 활용 시연 데이터가 필요하다면</span><button className="button button--ghost button--small" type="button" data-action="memory-demo" onClick={()=>onDemo().catch(catchError)}>데모 기록 불러오기</button><small>실제 사용자 기록과 구분되어 이 브라우저에만 저장됩니다.</small></div></details>
- <div className="agent-example-groups">
-  <div className="agent-examples" aria-label="분석 예시">{examples.map(([action,label,title,prompt])=><button key={action} type="button" data-action={action} disabled={archivedConversation||pending||!conversation.ready} onClick={()=>void run(prompt)}><span>{label}</span><strong>{title}</strong></button>)}</div>
-  {isCompositeGraphVersion(conversation.graphVersion)&&<section className="agent-v2-examples" aria-label="v2 평가 예시">
-   <p>v2 복합 질문 평가</p>
-   <div className="agent-examples">
-    {v2Examples.map(([action,label,title,prompt])=><button key={action} type="button" data-action={action}
-      title={prompt} disabled={archivedConversation||pending||!conversation.ready} onClick={()=>void run(prompt)}>
-      <span>{label}</span><strong>{title}</strong>
-    </button>)}
-   </div>
-  </section>}
- </div>
- <div className="agent-thread" aria-live="polite">{thread.length?thread.map(item=>item.turn?<ConversationTurn key={item.id} turn={item.turn} message={item.message} onAction={dispatchAction}/>:<div key={item.id}><AgentUserMessage question={item.message!.question} refs={item.message!.submittedRunRefs}/>{item.message!.requestId!==conversation.activeRequest?.requestId&&['FAILED','CANCELLED'].includes(item.message!.status)&&(item.message!.status==='CANCELLED'?<CompletedAgentProgress status="CANCELLED" summary={item.message!.executionSummary}/>:<p className="v1-limitation">분석을 완료하지 못했습니다.</p>)}</div>):!conversation.provisionalMessage&&!conversation.activeRequest?<div className="agent-welcome panel"><BrandMark className="agent-welcome-mark"/><h2>실제 Run과 공정 원리를 함께 설명합니다</h2><p>조건 조회, 목표 후보 탐색, 결과 변화와 기본 개념을 한 대화에서 이어갈 수 있습니다.</p><div><span>Registered Runs</span><span>예측·보간 없음</span><span>개념·근거 구분</span></div></div>:null}{conversation.provisionalMessage&&!state.agentMessages?.some(message=>message.clientMessageId===conversation.provisionalMessage?.clientMessageId||message.requestId===conversation.provisionalMessage?.requestId)&&!turns.some(turn=>turn.id===conversation.provisionalMessage?.requestId)&&<AgentUserMessage question={conversation.provisionalMessage.question} refs={conversation.provisionalMessage.submittedRunRefs}/>}{conversation.activeRequest&&!state.agentMessages?.some(message=>message.requestId===conversation.activeRequest?.requestId)&&!conversation.provisionalMessage&&!turns.some(turn=>turn.id===conversation.activeRequest?.requestId)&&<AgentUserMessage question={conversation.activeRequest.question} refs={[]}/>}</div>
+ async function changeMode(version:AnalysisGraphMode){
+  if(changingMode||version===conversation.graphVersion)return;
+  setChangingMode(true);
+  try{
+   if(hasConversation)await conversation.newConversation();
+   conversation.selectGraphVersion(version);
+  }catch(error){catchError(error);}
+  finally{setChangingMode(false);}
+ }
+
+ return <RunColorsProvider key={colorScope} scope={colorScope} enabled={conversation.ready}>
+ <div className="agent-page agent-page--wide analysis-agent">
+ <header className="agent-page-header analysis-agent-header">
+  {hasConversation&&<button className="button button--ghost button--small" type="button" data-action="new-conversation"
+   disabled={changingMode} onClick={()=>conversation.newConversation().catch(catchError)}>새 대화</button>}
+  <div className="analysis-agent-modes" role="group" aria-label="분석 실행 모드">
+   {graphModes.map(({version,label})=><button key={version} type="button"
+    aria-pressed={conversation.graphVersion===version}
+    disabled={!graphVersions.includes(version)||!conversation.ready||pending&&!archivedConversation||changingMode||!!conversation.provisionalMessage}
+    onClick={()=>void changeMode(version)}>{label}</button>)}
+  </div>
+ </header>
+ <section ref={liveRegion} className="agent-conversation agent-conversation--wide">
+ <div className="agent-thread" aria-live="polite">{thread.length?thread.map(item=>item.turn?<ConversationTurn key={item.id} turn={item.turn} message={item.message} onAction={dispatchAction}/>:<div key={item.id}><AgentUserMessage question={item.message!.question} refs={item.message!.submittedRunRefs}/>{item.message!.requestId!==conversation.activeRequest?.requestId&&['FAILED','CANCELLED'].includes(item.message!.status)&&(item.message!.status==='CANCELLED'?<CompletedAgentProgress status="CANCELLED" summary={item.message!.executionSummary}/>:<p className="v1-limitation">분석을 완료하지 못했습니다.</p>)}</div>):!conversation.provisionalMessage&&!conversation.activeRequest?<section className="agent-welcome">
+  <BrandMark className="agent-welcome-mark"/>
+  <h1>실험 결과를 함께 살펴봐요</h1>
+  <p>조건을 입력하거나 채팅창에서 <strong>@</strong>로 Run을 골라 비교해 보세요.</p>
+  <details className="analysis-agent-examples">
+   <summary>대표 질문으로 시작해 보세요</summary>
+   <ul aria-label="대표 질문">
+    {exampleQuestions.map(([action,label,prompt])=><li key={action}>
+     <button type="button" data-action={action} title={prompt} aria-label={prompt} disabled={pending||changingMode||!conversation.ready}
+      onClick={()=>void run(prompt)}>{label}</button>
+    </li>)}
+   </ul>
+  </details>
+ </section>:null}{conversation.provisionalMessage&&!state.agentMessages?.some(message=>message.clientMessageId===conversation.provisionalMessage?.clientMessageId||message.requestId===conversation.provisionalMessage?.requestId)&&!turns.some(turn=>turn.id===conversation.provisionalMessage?.requestId)&&<AgentUserMessage question={conversation.provisionalMessage.question} refs={conversation.provisionalMessage.submittedRunRefs}/>}{conversation.activeRequest&&!state.agentMessages?.some(message=>message.requestId===conversation.activeRequest?.requestId)&&!conversation.provisionalMessage&&!turns.some(turn=>turn.id===conversation.activeRequest?.requestId)&&<AgentUserMessage question={conversation.activeRequest.question} refs={[]}/>}</div>
  {!archivedConversation&&conversation.activeRequest&&<PendingRequest request={conversation.activeRequest} resultPreview={conversation.resultPreview} hideQuestion sending={conversation.sending} onResume={conversation.resume} onCancel={conversation.cancel} onError={catchError}/>}
  {conversation.provisionalMessage&&!conversation.sending&&!conversation.activeRequest&&<div className="v1-card-actions"><span>{conversation.provisionalMessage.status==='SEND_UNCERTAIN'?'전송 수락 여부를 확인하지 못했습니다.':'아직 전송하지 않은 질문입니다.'}</span><button type="button" className="button button--ghost button--small" onClick={()=>void run(conversation.provisionalMessage!.question)}>같은 질문 다시 보내기</button></div>}
- {archivedConversation&&<p>이전 대화입니다. 새 대화에서 질문을 이어갈 수 있어요.</p>}
+ {archivedConversation&&<p className="analysis-agent-history-note">이전 대화입니다. 새 대화에서 질문을 이어갈 수 있어요.</p>}
  {conversation.error&&<div className="alert alert--danger" role="alert">{conversation.error}</div>}<div className="agent-composer-dock">
   {showLatestButton&&<button className="agent-jump-latest" type="button" aria-label="최신 답변으로 이동"
     title="최신 답변으로 이동" onClick={jumpToLatest}>
@@ -211,5 +241,5 @@ export function AgentPage({conversation,notify,onDetail,onRecord,onEvidence,onDe
      <path d="M12 5v14m-6-6 6 6 6-6"/>
     </svg>
   </button>}
-  <form id="agent-query-form" className="agent-composer panel" onSubmit={event=>{event.preventDefault();void run(text);}}>{composer&&<ReferenceTray references={composer.runs} onRemove={()=>void clear()} onRemoveRun={ref=>void conversation.setReference(state=>removeRunReference(state,ref)).catch(catchError)}/>}<RunMentionComposer text={text} onText={setText} add={ref=>addRunTag(ref,'catalog')} disabled={archivedConversation||pending||!conversation.ready} onStop={canStop?()=>conversation.cancel().catch(catchError):undefined}/></form></div></section></div></RunColorsProvider>;
+  <form id="agent-query-form" className="agent-composer panel" onSubmit={event=>{event.preventDefault();void run(text);}}>{composer&&<ReferenceTray references={composer.runs} onRemove={()=>void clear()} onRemoveRun={ref=>void conversation.setReference(state=>removeRunReference(state,ref)).catch(catchError)}/>}<RunMentionComposer text={text} onText={setText} add={ref=>addRunTag(ref,'catalog')} disabled={pending||changingMode||archivedConversation||!conversation.ready} onStop={canStop?()=>conversation.cancel().catch(catchError):undefined}/></form></div></section></div></RunColorsProvider>;
 }

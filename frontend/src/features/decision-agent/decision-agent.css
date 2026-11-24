@@ -13,19 +13,6 @@
   color: var(--decision-text);
 }
 .decision-agent .agent-page-header { justify-content: flex-end; align-items: flex-end; }
-.decision-agent .agent-thread:has(> .agent-welcome) {
-  flex: 1 0 auto;
-  align-content: center;
-}
-.decision-agent .agent-welcome {
-  border: 0;
-  background: none;
-  box-shadow: none;
-}
-.decision-agent .agent-welcome p {
-  word-break: keep-all;
-  text-wrap: balance;
-}
 .decision-card {
   min-width: 0;
   padding: 5px 0 0;
