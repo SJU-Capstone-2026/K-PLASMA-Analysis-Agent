@@ -16,7 +16,7 @@ class AgentProgressEventsTest extends WorkspaceTestSupport {
     private JsonNode accepted(String version) throws Exception {
         return ok("POST","/api/agent/requests",Map.of("text","인공 설명","stateToken",token(),"graphVersion",version),UUID.randomUUID().toString());
     }
-    private JsonNode claim() throws Exception {return internal("/claim",Map.of("workerId","synthetic","leaseSeconds",60,"supportedGraphVersions",List.of("v1","v2")));}
+    private JsonNode claim() throws Exception {return internal("/claim",Map.of("workerId","synthetic","leaseSeconds",60,"supportedGraphVersions",List.of("v2")));}
     private String path(JsonNode request) {return "/requests/"+request.path("requestId").asString();}
     private Map<String,Object> mutation(JsonNode claim,String field,Object value) {
         var body=new LinkedHashMap<String,Object>();body.put("claimGeneration",claim.path("claimGeneration").longValue());body.put("requestRevision",claim.path("requestRevision").longValue());body.put(field,value);return body;
@@ -33,12 +33,11 @@ class AgentProgressEventsTest extends WorkspaceTestSupport {
     private JsonNode start(JsonNode request,JsonNode claim,String stream) throws Exception {
         return internal(path(request)+"/events",event(claim,"r0:"+stream+":start","answer.start",Map.of("streamId",stream,"mode","general","rewrite",false)));
     }
-    private Map<String,Object> answer() {return Map.of("intent","CONCEPT_EXPLANATION","status","SUCCESS","candidates",List.of(),"usedRunRefs",List.of(),
-        "answerSnapshot",Map.of("implementationId","v1","kind","explain_concept","summary","인공 설명"));}
+    private Map<String,Object> answer() throws Exception {return v2GeneralAnswer("인공 설명","인공 설명");}
 
     @ParameterizedTest @ValueSource(strings={"run_selection","baseline","condition"})
     void lifecycleActivitiesPairAcrossClaimGenerationsAndCloseInputWaitsOnResume(String inputKind) throws Exception {
-        var job=accepted("v1");var claimed=claim();String path=path(job);
+        var job=accepted("v2");var claimed=claim();String path=path(job);
         assertPaired(claimed.path("request"),"QUEUED",0);
         Map<String,Object> pending=new LinkedHashMap<>(Map.of("id","input-1","message","인공 입력 요청"));
         Map<String,Object> input;
@@ -70,7 +69,7 @@ class AgentProgressEventsTest extends WorkspaceTestSupport {
     }
 
     @Test void durableOrderExactReplaySnapshotsAndAnswerFences() throws Exception {
-        var job=accepted("v1");var claim=claim();String path=path(job);
+        var job=accepted("v2");var claim=claim();String path=path(job);
         var started=start(job,claim,"draft-1");long revision=started.path("payload").path("answerRevision").longValue();
         var delta=event(claim,"r0:draft:chunk0","answer.delta",Map.of("streamId","draft-1","answerRevision",revision,"blockId","paragraphs:0","text","첫 본문","chunkIndex",0));
         var first=internal(path+"/events",delta);
@@ -93,7 +92,7 @@ class AgentProgressEventsTest extends WorkspaceTestSupport {
     }
 
     @Test void runningTimeExcludesInputAndQueueAndIsStableAfterFinalization() throws Exception {
-        var job=accepted("v1");var claim=claim();String path=path(job);String id=job.path("requestId").asString();
+        var job=accepted("v2");var claim=claim();String path=path(job);String id=job.path("requestId").asString();
         jdbc.update("update agent_request set running_started_at=clock_timestamp()-interval '5 seconds' where id=?::uuid",id);
         internal(path+"/needs-input",mutation(claim,"pendingInput",Map.of("id","input-1","message","조건을 알려주세요","type","condition")));
         long first=jdbc.queryForObject("select running_duration_ms from agent_request where id=?::uuid",Long.class,id);
@@ -114,7 +113,7 @@ class AgentProgressEventsTest extends WorkspaceTestSupport {
     }
 
     @Test void recoveryClampsAbandonedIntervalToItsLeaseAndLegacyDurationsStayUnknown() throws Exception {
-        var job=accepted("v1");var old=claim();String path=path(job);String id=job.path("requestId").asString();
+        var job=accepted("v2");var old=claim();String path=path(job);String id=job.path("requestId").asString();
         start(job,old,"lost-draft");
         jdbc.update("update agent_request set running_started_at=clock_timestamp()-interval '10 seconds',lease_until=clock_timestamp()-interval '5 seconds' where id=?::uuid",id);
         var fresh=claim();
@@ -128,7 +127,7 @@ class AgentProgressEventsTest extends WorkspaceTestSupport {
     }
 
     @Test void openSseDoesNotHoldRequestLocksAndTerminalReplayStopsReconnection() throws Exception {
-        var job=accepted("v1");var claimed=claim();String path=path(job);
+        var job=accepted("v2");var claimed=claim();String path=path(job);
         var client=HttpClient.newHttpClient();
         var stream=client.send(HttpRequest.newBuilder(URI.create("http://localhost:"+port+"/api/agent"+path+"/events"))
             .header("Accept","text/event-stream").header("Last-Event-ID",job.path("progress").path("lastEventSeq").asString())
@@ -151,7 +150,7 @@ class AgentProgressEventsTest extends WorkspaceTestSupport {
     }
 
     @Test void cancelAndResetFenceLateEventsAndEraseAllPublicContent() throws Exception {
-        var job=accepted("v1");var claimed=claim();String path=path(job);start(job,claimed,"private-draft");
+        var job=accepted("v2");var claimed=claim();String path=path(job);start(job,claimed,"private-draft");
         var cancelled=ok("POST","/api/agent"+path+"/cancel",null,null);
         assertThat(cancelled.path("progress").path("answer").path("status").asString()).isEqualTo("interrupted");
         assertThat(cancelled.path("executionSummary").path("durationMs").isNumber()).isTrue();
@@ -164,7 +163,7 @@ class AgentProgressEventsTest extends WorkspaceTestSupport {
     }
 
     @Test void failureToPersistTheCompletionEventRollsBackTurnStatusAndTiming() throws Exception {
-        var job=accepted("v1");var claimed=claim();String path=path(job);String id=job.path("requestId").asString();
+        var job=accepted("v2");var claimed=claim();String path=path(job);String id=job.path("requestId").asString();
         long cursor=claimed.path("request").path("progress").path("lastEventSeq").longValue();
         jdbc.execute("""
             create function synthetic_reject_completion() returns trigger language plpgsql as $$

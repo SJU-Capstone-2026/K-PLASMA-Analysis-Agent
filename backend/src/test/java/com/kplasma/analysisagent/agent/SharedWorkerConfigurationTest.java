@@ -16,19 +16,19 @@ class SharedWorkerConfigurationTest {
 
     @Test void mixedDeploymentRequiresDistinctWorkerKeys() {
         for (String local : new String[]{"", "synthetic-cloud"}) {
-            context.withPropertyValues("kplasma.agent.supported-graph-versions=v1,v2,v2_localLLM",
+            context.withPropertyValues("kplasma.agent.supported-graph-versions=v2,v2_localLLM",
                 "kplasma.agent.default-graph-version=v2", "kplasma.agent.worker-token=synthetic-cloud",
                 "kplasma.agent.local-worker-token=" + local)
                 .run(c -> assertThat(c).hasFailed());
         }
-        context.withPropertyValues("kplasma.agent.supported-graph-versions=v1,v2,v2_localLLM",
+        context.withPropertyValues("kplasma.agent.supported-graph-versions=v2,v2_localLLM",
             "kplasma.agent.default-graph-version=v2", "kplasma.agent.worker-token=synthetic-cloud",
             "kplasma.agent.local-worker-token=synthetic-local")
             .run(c -> assertThat(c).hasNotFailed());
     }
 
     @Test void existingSingleRuntimeConfigurationsKeepTheirOriginalKey() {
-        for (String versions : new String[]{"v1,v2", "v2_localLLM"}) {
+        for (String versions : new String[]{"v2", "v2_localLLM"}) {
             context.withPropertyValues("kplasma.agent.supported-graph-versions=" + versions,
                 "kplasma.agent.default-graph-version=" + versions.split(",")[0],
                 "kplasma.agent.worker-token=synthetic-existing")

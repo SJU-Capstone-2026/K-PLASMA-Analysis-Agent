@@ -101,16 +101,44 @@ class AgentGraphVersionTest extends WorkspaceTestSupport {
         assertThat(entry.path("origin").path("kind").asString()).isEqualTo("catalog_tag");
     }
 
-    @Test void pinsFirstRequestAndDoesNotAssignItToOldWorker() throws Exception {
-        var body = Map.of("text", "IED란?", "stateToken", token(), "graphVersion", "v2");
+    @Test void defaultsToV2AndRejectsRetiredWorkerVersions() throws Exception {
+        var body = Map.of("text", "IED란?", "stateToken", token());
         var request = ok("POST", "/api/agent/requests", body, "graph-v2");
         assertThat(request.get("graphVersion").asString()).isEqualTo("v2");
         assertThat(state().get("conversation").get("agentGraphVersion").asString()).isEqualTo("v2");
         assertThat(ok("POST", "/api/agent/requests", body, "graph-v2").get("requestId"))
             .isEqualTo(request.get("requestId"));
-        assertThat(claim(Map.of("workerId", "old-worker", "leaseSeconds", 60)).get("request").isNull()).isTrue();
+        for (var oldClaim : List.of(Map.of("workerId", "old-worker", "leaseSeconds", 60),
+                Map.of("workerId", "old-worker", "leaseSeconds", 60, "supportedGraphVersions", List.of("v1")))) {
+            var rejected = sendInternal("/claim", oldClaim);
+            assertThat(rejected.statusCode()).isEqualTo(400);
+            assertThat(json(rejected).path("code").asString()).isEqualTo("INVALID_AGENT_REQUEST");
+        }
         var v2 = claim(Map.of("workerId", "v2-worker", "leaseSeconds", 60, "supportedGraphVersions", List.of("v2")));
         assertThat(v2.get("request").get("requestId")).isEqualTo(request.get("requestId"));
+    }
+
+    @Test void retiredGraphRequestsStayReadableAndCannotReenterExecution() throws Exception {
+        var request = ok("POST", "/api/agent/requests",
+            Map.of("text", "이전 버전 인공 질문", "stateToken", token()), "historical-v1-request");
+        String id = request.path("requestId").asString();
+        String root = "/requests/" + id;
+        jdbc.update("""
+            update agent_request set graph_version='v1', status='NEEDS_INPUT',
+                pending_input='{"id":"historical-input","message":"이전 입력 요청"}'::jsonb where id=?::uuid
+            """, id);
+        var saved = ok("GET", "/api/agent" + root, null, null);
+        assertThat(saved.path("graphVersion").asString()).isEqualTo("v1");
+        assertThat(saved.path("question")).isEqualTo(request.path("question"));
+        rejects("POST", "/api/agent" + root + "/resume", Map.of("expectedRequestRevision", 0,
+            "pendingInputId", "historical-input", "input", Map.of("text", "인공 답변")),
+            "retired-input", 409, "GRAPH_VERSION_RETIRED");
+        assertThat(sendInternal(root + "/context", Map.of("claimGeneration", 0, "requestRevision", 0))
+            .statusCode()).isEqualTo(403);
+        jdbc.update("update agent_request set status='QUEUED', pending_input=null where id=?::uuid", id);
+        assertThat(claim(Map.of("workerId", "v2-worker", "leaseSeconds", 60, "supportedGraphVersions", List.of("v2")))
+            .path("request").isNull()).isTrue();
+        assertThat(ok("GET", "/api/agent" + root, null, null).path("status").asString()).isEqualTo("QUEUED");
     }
 
     @Test void modelReservationIsDurableAndCannotAuthorizeADuplicateCall() throws Exception {
@@ -236,13 +264,8 @@ class AgentGraphVersionTest extends WorkspaceTestSupport {
             "requestRevision",claim.get("requestRevision"),"pendingInput",Map.of("type","run_selection",
                 "id","v2-picker","message","검색한 후보 중 두 Run을 선택해 주세요.","sourceExecutionId",execution,"minSelections",2,"maxSelections",2)));
         var picker=ok("GET","/api/agent"+root+"/run-options?pendingInputId=v2-picker",null,null);
-        for(String suffix:List.of("/run-options?format=2&pendingInputId=v2-picker",
-                "/run-options/count?pendingInputId=v2-picker","/run-selection?pendingInputId=v2-picker")) {
-            assertThat(send("GET","/api/agent"+root+suffix,null,null).statusCode()).isEqualTo(409);
-        }
-        assertThat(send("POST","/api/agent"+root+"/run-selection",Map.of(
-            "pendingInputId","v2-picker","expectedRequestRevision",0,"expectedSelectionRevision",0,
-            "operation","all"),"wrong-picker-format").statusCode()).isEqualTo(409);
+        assertThat(send("GET","/api/agent"+root+"/run-options?format=2&pendingInputId=v2-picker",
+            null,null).statusCode()).isEqualTo(409);
         assertThat(jdbc.queryForObject("select count(*) from agent_run_selection",Integer.class)).isZero();
         assertThat(ok("GET","/api/agent"+root+"/run-options?pendingInputId=v2-picker",null,null)).isEqualTo(picker);
         var criteria=picker.path("searchCriteria");

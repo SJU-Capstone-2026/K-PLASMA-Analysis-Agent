@@ -8,11 +8,11 @@ info:
     Uploaded JS is never executed.
 paths:
   /api/agent/requests/{id}/events:
-    $ref: '../contracts/agent-v1.openapi.yaml#/paths/~1api~1agent~1requests~1{id}~1events'
+    $ref: '../contracts/agent.openapi.yaml#/paths/~1api~1agent~1requests~1{id}~1events'
   /api/agent/requests/{id}/results:
-    $ref: '../contracts/agent-v1.openapi.yaml#/paths/~1api~1agent~1requests~1{id}~1results'
+    $ref: '../contracts/agent.openapi.yaml#/paths/~1api~1agent~1requests~1{id}~1results'
   /internal/agent/requests/{id}/events:
-    $ref: '../contracts/agent-v1.openapi.yaml#/paths/~1internal~1agent~1requests~1{id}~1events'
+    $ref: '../contracts/agent.openapi.yaml#/paths/~1internal~1agent~1requests~1{id}~1events'
   /api/health:
     get:
       operationId: getApiHealth
@@ -383,7 +383,7 @@ paths:
   /api/workspace/new-conversation:
     post:
       operationId: postApiWorkspaceNewConversation
-      description: Preserve the current conversation and activate an empty one with a fresh conversationEpoch. Existing requests continue in their original conversation. A decision demo conversation is pinned to standard v2.
+      description: Preserve the current conversation and activate an empty one with a fresh conversationEpoch. Existing requests continue in their original conversation. A decision demo conversation is pinned to standard v2. Creating one requires standard v2 in the deployment configuration.
       responses:
         '200':
           description: Success
@@ -1127,7 +1127,7 @@ components:
         submittedRunRefs: { type: array, items: { $ref: '#/components/schemas/RunRef' }, description: Immutable original submitted tags; independent of later HITL selection. }
         status: { enum: [QUEUED, RUNNING, NEEDS_INPUT, COMPLETED, FAILED, CANCELLED] }
         turnId: { type: [string, 'null'] }
-        executionSummary: { $ref: '../contracts/agent-v1.openapi.yaml#/components/schemas/ExecutionSummary' }
+        executionSummary: { $ref: '../contracts/agent.openapi.yaml#/components/schemas/ExecutionSummary' }
     WorkspaceView:
       type: object
       additionalProperties: false

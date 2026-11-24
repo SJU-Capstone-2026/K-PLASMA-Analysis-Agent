@@ -1,10 +1,11 @@
 # 후보 카드·상세 그래프 탭의 즉시 표시 검증
 
+> 당시 검증 기록이다. 현재 화면 검증은 [팀 실행 가이드](../development.md#검증)를 따른다.
+
 이 문서는 `44899b5`의 즉시 표시와 `2b12c18`의 실측 정정을 기록한다. 이후 확인한 렌더링 병목의 제품 수정과 새 실제 전후 측정은 [답변 렌더링 성능 검증](agent-answer-rendering-performance.md)에 별도로 남긴다. 아래 역사적 수치를 새 측정과 합산하지 않는다.
 
 - 날짜: 2026-10-08
 - 비교 기준: `d26f6e7c421bd52d56871a7ed445f2993862ead2`
-- 반영 브랜치: `feat/agent-graph-v1`, PR #12
 - 범위: 프론트엔드 화면 선택 상태와 질문 전송 전 선택 확인. 수치 엔진·물리 단위·Python 그래프·API 계약·DB 스키마는 변경하지 않음.
 
 ## 동작
@@ -100,7 +101,7 @@ KPLASMA_UI_PERF_API=http://127.0.0.1:8080 KPLASMA_UI_BASELINE_FILE=/tmp/kplasma-
 | `npm run lint` | 통과 |
 | `npm run build` | 통과 |
 | `git diff --check` | 통과 |
-| `cd frontend && npx playwright test --config src/features/agent/agent-v1.playwright.config.ts agent-v1.pw.ts` | **4/4** 통과, **390/800/1008/1440px** |
+| 당시 화면 회귀 검사 | **4/4** 통과, **390/800/1008/1440px** |
 
 실측 추가에서는 실제 HTTP/DB 성능 명령 **4/4**, `npm run typecheck`, `npm run lint`, `npm run verify:public-files`, `git diff --check`를 통과했다. 각 성능 실행의 인공 지연 시험은 모드에 따라 명시 skip했다. 이번에는 제품 단위 테스트·빌드·네 폭 UI 시험을 별도로 반복하지 않았으며 위 기능 변경의 통과 기록과 구분한다.
 

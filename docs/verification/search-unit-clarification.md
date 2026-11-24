@@ -1,6 +1,6 @@
-# v1 순·역방향 단위 정규화와 재질문
+# 순·역방향 단위 정규화와 재질문
 
-2026-10-06 사용자 요청에 따른 수정. `feat/agent-graph-v1`에서 일반 개념 설명 구조와 JS fallback은 변경하지 않는다.
+2026-10-06 사용자 요청에 따른 수정.
 
 ## 원인과 정책
 
@@ -12,9 +12,9 @@
 - 단위만 답하면 그래프가 기다리던 `unitMetric`에 연결한다. 기존 숫자·범위·연산자·정렬을 유지하며, checkpoint를 재구성한 worker에서도 이어진다. 여러 단위가 누락되면 물리량별로 묻는다.
 - 별도 tool 호출도 숫자의 단위 누락을 거부한다. 잘못된 숫자나 단위 크기를 단위 재질문으로 덮어쓰지 않는다. `킬로 와트`·`킬로 전자 볼트` 등의 접두사를 제거하지 않는다.
 
-JSON interpretation schema는 단위 미확정 요청을 담기 위해 optional unit을 유지한다. 공개 pendingInput은 원래 확장 가능한 object이며 단위 질문에 `reason=MISSING_UNIT`, `unitMetric`을 포함한다. 검색 엔진이 반환하는 숫자 조건에는 단위가 확정되어 있다. 기존 `defaultedUnits` 필드는 호환성을 위해 유지하되 새 v1 수치 요청에서는 빈 배열이다.
+JSON interpretation schema는 단위 미확정 요청을 담기 위해 optional unit을 유지한다. 공개 pendingInput은 원래 확장 가능한 object이며 단위 질문에 `reason=MISSING_UNIT`, `unitMetric`을 포함한다. 검색 엔진이 반환하는 숫자 조건에는 단위가 확정되어 있다. 기존 `defaultedUnits` 필드는 호환성을 위해 유지하되 당시 신규 수치 요청에서는 빈 배열이다.
 
-`graphBuildId=v1-2026-10-06.3`, `promptVersion=interpret-4`. 완료 답변·이전 checkpoint의 계산을 덮어쓰지 않는다. 변경 전 정책으로 대기 중인 요청은 새 질문으로 다시 제출해야 한다.
+검증 당시 프롬프트 버전은 `interpret-4`이다. 완료 답변·이전 checkpoint의 계산을 덮어쓰지 않는다. 변경 전 정책으로 대기 중인 요청은 새 질문으로 다시 제출해야 한다.
 
 ## 검증
 

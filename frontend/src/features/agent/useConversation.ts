@@ -5,7 +5,7 @@ import {applyProgressEvent,mergeRequestSnapshot} from './progress-events';
 import {ApiClientError} from '../../api/client';
 import {resolveCandidateRef,explicitReferences} from './references';
 import {activateConversation,fetchWorkspace,patchTurnUi,replaceConversation,writeReference} from '../../api/workspace';
-import {graphDeployment} from './graph-versions';
+import {graphDeployment,isAnalysisGraphVersion,pinnedConversationGraph} from './graph-versions';
 export const emptyWorkspace:WorkspaceView={stateToken:{workspaceEpoch:0,conversationEpoch:0,revision:0},conversation:{version:1,activeRun:null,turns:[]},candidateReference:null};
 export const initialTurnUi:TurnUiSnapshot={collapsed:false,openRunIds:[],runDetailTabs:{},activeCandidateGroup:'common',continuedRunId:null,lookupExpanded:false,selectedCandidateRunId:null};
 const sameEpoch=(a:StateToken,b:StateToken)=>a.workspaceEpoch===b.workspaceEpoch&&a.conversationEpoch===b.conversationEpoch;
@@ -126,11 +126,15 @@ export function useConversation(){
   return()=>{clearTimeout(timer);c.abort();controllers.current.delete(c);};
  },[activeRequest?.requestId,resultRevision,subscriptionRevision]);
  async function submit(text:string,_clarification?:Snapshot,requestContext?:{candidateReference:ReferenceState;activeRun:RunRef|null;room?:StateToken}):Promise<void>{
-  if(!text.trim()||!ready)return;if(reservation.current||busy.current||inProgress(active.current))throw new Error('진행 중인 요청을 완료하거나 취소해 주세요.');
+  if(!text.trim()||!ready)return;
+  const pinned=pinnedConversationGraph(current.current.conversation);
+  if(pinned&&!isAnalysisGraphVersion(pinned))throw new Error('이전 대화에서는 새 대화를 시작해 주세요.');
+  if(pinned&&!deployment.versions.includes(pinned))throw new Error('이 대화의 실행 모드를 사용할 수 없습니다. 새 대화를 시작해 주세요.');
+  if(reservation.current||busy.current||inProgress(active.current))throw new Error('진행 중인 요청을 완료하거나 취소해 주세요.');
   if(requestContext?.room&&!sameEpoch(requestContext.room,current.current.stateToken))throw new Error('대화방이 바뀌었습니다. 의사결정 Agent에서 다시 실행해 주세요.');
   reservation.current=true;setSending(true);
   const token={...current.current.stateToken};const intendedSelection=selectedCandidate(displayedWorkspace());
-  try{if(!submission.current){const explicit=explicitReferences(displayedWorkspace(),requestContext);const key=crypto.randomUUID();submission.current={key,posted:false,body:{text,stateToken:token,...(!current.current.conversation.agentGraphVersion&&draftGraph.current!=='v1'?{graphVersion:draftGraph.current}:{}),attachedRunRefs:explicit.refs.map(asRef),referenceOrigins:explicit.origins,...(intendedSelection?{selectedRunRef:asRef(intendedSelection)}:{}),...(requestContext?.activeRun?{baseline:asRef(requestContext.activeRun)}:{}),...(requestContext?.candidateReference?{candidateReferences:requestContext.candidateReference.runs.map(asRef)}:{})}};showMessage({requestId:key,clientMessageId:key,createdAt:new Date().toISOString(),question:text,submittedRunRefs:explicit.refs.map(asRef),status:'SENDING',turnId:null});saveOutbox();}}catch(e){reservation.current=false;setSending(false);throw e;}
+  try{if(!submission.current){const explicit=explicitReferences(displayedWorkspace(),requestContext);const key=crypto.randomUUID();submission.current={key,posted:false,body:{text,stateToken:token,...(!pinned?{graphVersion:draftGraph.current}:{}),attachedRunRefs:explicit.refs.map(asRef),referenceOrigins:explicit.origins,...(intendedSelection?{selectedRunRef:asRef(intendedSelection)}:{}),...(requestContext?.activeRun?{baseline:asRef(requestContext.activeRun)}:{}),...(requestContext?.candidateReference?{candidateReferences:requestContext.candidateReference.runs.map(asRef)}:{})}};showMessage({requestId:key,clientMessageId:key,createdAt:new Date().toISOString(),question:text,submittedRunRefs:explicit.refs.map(asRef),status:'SENDING',turnId:null});saveOutbox();}}catch(e){reservation.current=false;setSending(false);throw e;}
   const newSubmission=submission.current;const recoveringDifferentText=newSubmission.body.text!==text;
   // The reservation precedes every await; clicks and Enter cannot allocate a second key.
   try{
@@ -198,13 +202,13 @@ export function useConversation(){
   });
  }
  function selectGraphVersion(version:GraphVersion){
-  if(!deployment.versions.includes(version))return;
+  if(!isAnalysisGraphVersion(version)||!deployment.versions.includes(version))return;
   if(!ready||reservation.current||busy.current||submission.current||inProgress(active.current)
     ||current.current.conversation.agentGraphVersion||current.current.conversation.turns.length)return;
   draftGraph.current=version;setDraftGraphVersion(version);
  }
  return {state,ready,error,provisionalMessage,selectGraphVersion,selectConversation,
-  graphVersion:state.conversation.agentGraphVersion??draftGraphVersion,
+  graphVersion:pinnedConversationGraph(state.conversation)??draftGraphVersion,
 pending:sending||polling(activeRequest)||activeRequest?.status==='NEEDS_INPUT',activeRequest,resultPreview,sending,submit,resume,cancel,updateTurnUi,setReference,refresh,newConversation:(decisionDemo=false)=>replace(false,decisionDemo),reset:()=>replace(true)};
 }
 export type ConversationController=Omit<ReturnType<typeof useConversation>,'resultPreview'>&{resultPreview?:AgentResultProjection|null};

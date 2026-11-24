@@ -37,24 +37,9 @@ def worker_command(graph_version, env_file=None):
     return [sys.executable, "-m", module, *(["--env-file", str(env_file)] if env_file else [])]
 
 
-def bootstrap_local_session(client, web, token, *, session_cookie=None):
-    """Consume one bootstrap before any data API call; retain the HttpOnly session in the client."""
-    if client.cookies.get("KPLASMA_LOCAL_SESSION"):
-        raise ValueError("LOCAL_SESSION_ALREADY_BOOTSTRAPPED")
+def configure_local_origin(client, web):
     client.headers["Origin"] = local_origin(web)
     client.headers["Sec-Fetch-Site"] = "same-site"
-    if session_cookie is not None:
-        match = re.fullmatch(r"KPLASMA_LOCAL_SESSION=([A-Za-z0-9_-]{32,128})", session_cookie)
-        if match is None:
-            raise ValueError("LOCAL_SESSION_INVALID")
-        client.cookies.set("KPLASMA_LOCAL_SESSION", match[1], domain=client.base_url.host, path="/api")
-        return
-    if not isinstance(token, str) or len(token) < 16:
-        raise ValueError("LOCAL_BOOTSTRAP_REQUIRED")
-    response = client.post("/api/local-runtime/session", headers={"X-Local-Bootstrap": token})
-    response.raise_for_status()
-    if not client.cookies.get("KPLASMA_LOCAL_SESSION"):
-        raise ValueError("LOCAL_SESSION_NOT_ESTABLISHED")
 
 
 def dump(path, value):
@@ -255,9 +240,7 @@ class Browser:
         try:
             response = self.send(
                 {"cmd": "init", "api": API, "web": WEB, "output": str(ROOT), "headless": HEADLESS,
-                 "graphVersion": GRAPH_VERSION,
-                 "sessionCookie": ("KPLASMA_LOCAL_SESSION=" + CLIENT.cookies.get("KPLASMA_LOCAL_SESSION"))
-                    if GRAPH_VERSION == "v2_localLLM" else None}
+                 "graphVersion": GRAPH_VERSION}
             )
             if not response.get("ok"):
                 raise RuntimeError("Browser initialization failed; inspect browser.stderr.log")
@@ -458,8 +441,7 @@ def main():
                                          qwenPlanTimeoutSeconds=configured.planner.timeout,
                                          qwenPlanCacheEnabled=settings.qwen_plan_cache_enabled)
             CLIENT = local_http_client(API, timeout=30)
-            bootstrap_local_session(CLIENT, WEB, connection.get("bootstrapToken"),
-                                    session_cookie=connection.get("sessionCookie"))
+            configure_local_origin(CLIENT, WEB)
         else:
             CLIENT = httpx.Client(base_url=API, timeout=30, transport=httpx.HTTPTransport(retries=0))
         catalog = {

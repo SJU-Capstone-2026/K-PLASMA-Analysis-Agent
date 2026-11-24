@@ -19,7 +19,7 @@
 ## Global Constraints
 
 - wire ID `v2_localLLM`, Python namespace `kplasma_agent.v2_local_llm`, 계획 스키마 2·최종 답변 스키마 1을 유지한다.
-- v2·v3 구현, local 그래프의 노드·분기·계산·HITL·검증 규칙·프롬프트와 최종 UI/응답 양식을 바꾸지 않는다. v3 실제 평가는 하지 않는다.
+- 보호 대상 그래프 구현, local 그래프의 노드·분기·계산·HITL·검증 규칙·프롬프트와 최종 UI/응답 양식을 바꾸지 않는다.
 - planner는 실제 `submit_plan` 도구 호출 1개를 `message.tool_calls[].function.arguments`에서 받는다. 본문 JSON 우회, 필드명 변경, 문법 자동 수선, 스키마 완화는 하지 않는다.
 - d1 모델·`/v1/systemone`·판단 규칙은 유지한다. 계획 검토 ON, 최대 재계획 2회, 최대 답변 재작성 1회, 호출 timeout 90초, 요청 예산 600초·13회 모델 호출을 유지한다.
 - 입력 최대 16,000토큰, context 32,768, 동시 요청 1개를 출발점으로 한다. 초과 입력을 자르지 않는다. 실패를 숨기거나 예산·입력 한도를 임의로 완화하지 않는다.
@@ -149,7 +149,7 @@ PYTHONPATH=agent/python/src:agent/python agent/python/.venv/bin/python -m evals.
 
 **Interfaces:** 기존 `flow_grader.grade`, `export_request`, `summarize`와 `result.json`/`results.jsonl`을 재사용한다. 최초 계획 통과와 재계획 후 최종 통과를 분리하고 모델 호출·시간·failure code를 실제 journal에서 집계한다.
 
-- [ ] 아래 오프라인 회귀를 실행한다. clone·응답 계약 검사에 포함되는 v2/v3 소스 비교는 유지하되 v3 서버·모델·실데이터 평가는 실행하지 않는다.
+- [ ] 아래 오프라인 회귀를 실행한다. clone·응답 계약 검사에 포함되는 보호 대상 그래프 소스 비교는 유지한다.
 
 ```sh
 # 저장소 루트. local unit tests + 평가기 검사이며 실모델 평가가 아니다.

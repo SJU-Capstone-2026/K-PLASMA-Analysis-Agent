@@ -1,5 +1,7 @@
 # 역방향 조회 A/B/C 벤치마크
 
+> 전체 Agent(M3) 재현은 해당 측정 커밋을 별도 체크아웃하고, 그 버전의 전용 벤치마크 DB에서 실행합니다. 아래 명령은 당시 측정 절차입니다.
+
 실제 서비스 `.env`나 DB를 사용하지 않는다. 전용 container label과 DB 이름을 확인하며, seed는 이 DB만 초기화한다. 원시 출력은 `.local/performance/reverse-lookup/`에 저장한다.
 
 - A: 제품 변경 전 main commit `bbe01beb`의 Java 실행 파일·Python 소스를 보존해 실행한다.

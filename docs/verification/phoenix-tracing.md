@@ -1,6 +1,6 @@
 # Phoenix Cloud 추적 검증
 
-2026-10-06 사용자 요청으로 Graph v1의 실행과 응답을 개인 Phoenix Cloud의 지정 프로젝트에서 관찰하도록 추가했다. 전체 노드 상태와 LLM 입출력을 포함하며 키·내부 인증 토큰은 제외한다. 실험 데이터를 생성하거나 질문 해석·수치·Run 버전·UI·checkpoint 계약을 바꾸지 않는다.
+2026-10-06 사용자 요청으로 당시 Agent 실행과 응답을 개인 Phoenix Cloud의 지정 프로젝트에서 관찰하도록 추가했다. 전체 노드 상태와 LLM 입출력을 포함하며 키·내부 인증 토큰은 제외한다. 실험 데이터를 생성하거나 질문 해석·수치·Run 버전·UI·checkpoint 계약을 바꾸지 않는다.
 
 ## 실행 경계
 
@@ -33,4 +33,4 @@ checkpoint와 사용자 승인 범위의 추적에서만 보존한다.
 REST API의 `/v1/projects/K-PLASMA/spans`를 읽어 노드/LLM의 입출력·토큰·session을
 확인했다. 이 추적으로 잘못된 관찰 ID와 조건 수치 재인용, 추가 입력의 문맥 오해를
 분리해 확인하고 수정했다. 원문 실패 답변과 연결 정보는 ignored runtime에만
-남겼다. 최신 결과와 검증 경계는 [전환 검증](agent-v1-tool-calling-and-answers.md)을 따른다.
+남겼다. 최신 결과와 검증 경계는 [팀 실행 가이드](../development.md#일반-v2의-선택적-phoenix-cloud-추적)을 따른다.

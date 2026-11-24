@@ -56,6 +56,12 @@ public abstract class WorkspaceTestSupport {
     protected JsonNode ok(String method,String path,Object body,String key) throws Exception {var response=send(method,path,body,key);assertThat(response.statusCode()).describedAs(response.body()).isEqualTo(200);return json(response);}
     protected JsonNode state() throws Exception {return ok("GET","/api/workspace",null,null);}
     protected JsonNode token() throws Exception {return state().get("stateToken");}
+    protected Map<String,Object> v2GeneralAnswer(String question,String answer) throws Exception {
+        var snapshot=(ObjectNode)mapper.readTree(getClass().getResourceAsStream("/v2/contracts.json")).get("general_answer").deepCopy();
+        snapshot.put("question",question).put("answer",answer);
+        ((ObjectNode)snapshot.get("draft")).set("paragraphs",mapper.valueToTree(List.of(answer)));
+        return Map.of("intent","GENERAL_ANSWER","status","ANSWER_READY","candidates",List.of(),"usedRunRefs",List.of(),"answerSnapshot",snapshot);
+    }
     protected ObjectNode turn() {
         return (ObjectNode)mapper.valueToTree(Map.of("id",UUID.randomUUID().toString(),"askedAt","2026-01-01T00:00:00Z","question","artificial <script>note</script>","intent","REVERSE_SEARCH","context",refs.get(0),"answerRunRefs",refs.subList(0,2),"answerSnapshot",Map.of("summary","frozen answer","candidateRunRefs",List.of(refs.get(1)),"memoryRequest",Map.of("referenceRunRefs",List.of(refs.get(0))),"runSummary",Map.of("runId","SYNTHETIC-1","metrics",Map.of("ionFlux",1),"qualityStatus","VERIFIED")),"ui",Map.of("collapsed",false,"openRunIds",List.of(),"runDetailTabs",Map.of(),"activeCandidateGroup","common","lookupExpanded",false)));
     }

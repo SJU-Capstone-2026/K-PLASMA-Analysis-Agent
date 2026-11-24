@@ -23,7 +23,7 @@
 | `npm run lint` | 통과 |
 | `npm run build` | 통과 |
 | `npm exec --workspace frontend -- vitest run src/features/agent/chat-references.test.tsx src/components/modal.test.tsx src/features/agent/answer-v2-wire.test.tsx` | 태그 표시 보완 후 15 통과 |
-| `npx playwright test --config frontend/src/features/agent/agent-v1.playwright.config.ts` | 12 통과, 외부 프로토타입 환경이 필요한 8건 생략 |
+| 당시 화면 회귀 검사 | 12 통과, 외부 프로토타입 환경이 필요한 8건 생략 |
 | `npm run verify:public-files` | 통과 |
 | `git diff --check` | 통과 |
 
@@ -43,7 +43,7 @@
 
 변경은 입력창 내부 CSS에 한정한다. 과거 질문의 참조 표시, 추가·제거·전체 해제·접기 정책, 저장과 정확한 Run 버전 전송은 유지한다. 브라우저 검증에는 8개 펼침→7개로 제거했을 때 마지막 태그가 늘어나지 않는지와 이름 잘림 여부를 추가했다.
 
-최종 `npx playwright test --config frontend/src/features/agent/agent-v1.playwright.config.ts`는 **12 통과 / 외부 프로토타입 전용 8 생략**이었다. 390 / 800 / 1008 / 1440px 스크린샷도 직접 확인했다. `npm run typecheck`, `npm run lint`, `npm run build`, `npm run verify:public-files`, `git diff --check`를 통과했다. 순수 표시 변경이므로 LLM·DB·성능 측정은 재실행하지 않았다.
+당시 마지막 화면 회귀 검사는 **12 통과 / 외부 프로토타입 전용 8 생략**이었다. 390 / 800 / 1008 / 1440px 스크린샷도 직접 확인했다. `npm run typecheck`, `npm run lint`, `npm run build`, `npm run verify:public-files`, `git diff --check`를 통과했다. 순수 표시 변경이므로 LLM·DB·성능 측정은 재실행하지 않았다.
 
 후속 중앙 정렬 보완: 태그 삭제 및 전체 해제의 `×` 문자를 대칭 SVG로 교체하고 블록으로 표시했다. 폰트 기준선에 따른 시각적 처짐을 제거하며 버튼 크기·이름·삭제 동작은 유지한다. 네 폭의 `chat-references.pw.ts` **4/4** 및 관련 `modal.test.tsx`, `chat-references.test.tsx` **8/8**, typecheck·lint·build·공개 파일 guard·diff 검사를 통과했다. 작은 표시 수정으로 별도 리뷰 도구 대신 변경한 두 제품 파일을 직접 검토했다.
 
@@ -62,7 +62,7 @@
 | `npm exec --workspace frontend -- vitest run src/components/run-colors.test.tsx src/features/agent/chat-references.test.tsx` | 9 통과: 색 배정·삭제·버전/순서 변경·reload·대화 초기화·초기 로딩·저장소 장애·반복 난수 확인 |
 | `DEBUG_PRINT_LIMIT=300 npm test` | 프론트엔드 199 통과, TypeScript Agent 33 통과/외부 기준 4 생략, 참조 검증 스크립트 34 통과 |
 | `npm run typecheck`, `npm run lint`, `npm run build` | 통과 |
-| `npx playwright test --config frontend/src/features/agent/agent-v1.playwright.config.ts` | 12 통과 / 외부 프로토타입 환경 전용 8 생략 |
+| 당시 화면 회귀 검사 | 12 통과 / 외부 프로토타입 환경 전용 8 생략 |
 | `git diff --check` | 통과 |
 
 390 / 800 / 1008 / 1440px에서 첫 다섯 고정색, 8개 서로 다른 색, 삭제·reload·재추가 후 색 유지, 입력창의 넘침과 삭제 버튼 정렬을 확인하고 인공 데이터 스크린샷을 직접 검토했다. 제품 변경을 단독 검토했으며 독립 리뷰 또는 팀원 승인을 대신하지 않는다. 실제 LLM/Phoenix 호출·실험 데이터 검증·부하 측정은 수행하지 않았다. 성능 개선율은 산출하지 않는다.

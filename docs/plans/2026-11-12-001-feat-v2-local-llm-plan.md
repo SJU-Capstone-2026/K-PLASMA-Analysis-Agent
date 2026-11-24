@@ -11,13 +11,15 @@ execution: code
 
 # v2_localLLM Independent Graph - Plan
 
+> 2026-11-12 초기 설계 기록이다. 당시 모델 조합과 독립 배포 검증을 담았다. 현재 공용 웹과 모델 구성은 [LocalLLM 가이드](../development/agent-v2-local-llm.md)를 따른다.
+
 ## Goal Capsule
 
-- **목표:** `v2`, `v3`, `v2_localLLM`을 서로 다른 소스·객체·설정·worker·복구 상태를 가진 세 독립 그래프로 운영한다. local은 Qwen3.5-9B 4비트와 d1-2B Q8_0를 사용한다.
-- **보존:** 기존 v2·v3의 그래프 구현과 v2 기준의 구조·프롬프트·계산·근거 검증·응답 양식을 보존한다. 새 그래프 식별자와 로컬 전송 경계만 명시적으로 변경한다.
-- **기준:** v3와 같은 v2 소스 `51d077c9878b635c96da709eb7eb2aefd36699e1`, 보존 태그 `agent-v2-baseline-20261111`에서 local을 별도로 복제한다. v3 기능을 local로 가져오지 않는다.
+- **목표:** `v2`와 `v2_localLLM`을 서로 다른 소스·객체·설정·worker·복구 상태를 가진 두 독립 그래프로 운영한다. local은 Qwen3.5-9B 4비트와 d1-2B Q8_0를 사용한다.
+- **보존:** 기존 표준 V2의 그래프 구현과 v2 기준의 구조·프롬프트·계산·근거 검증·응답 양식을 보존한다. 새 그래프 식별자와 로컬 전송 경계만 명시적으로 변경한다.
+- **기준:** 고정한 v2 소스 `51d077c9878b635c96da709eb7eb2aefd36699e1`, 보존 태그 `agent-v2-baseline-20261111`에서 local을 별도로 복제한다.
 - **운영:** M4 Pro 24GB, 동시 요청 1개를 기준으로 한다. 맥과 일반 앱의 인터넷은 유지하고 local의 데이터 취급 프로세스만 외부 송신을 제한한다.
-- **권한과 범위:** 사용자 요구 → `AGENTS.md`·`CONTRIBUTING.md` → 이 계획 순으로 따른다. 구현은 `main`에서 분기하며 기준 v2·v3 소스의 선행 통합을 확인한다. 이 문서는 계획이며 복제·설치·평가를 실행한 결과가 아니다.
+- **권한과 범위:** 사용자 요구 → `AGENTS.md`·`CONTRIBUTING.md` → 이 계획 순으로 따른다. 구현은 `main`에서 분기하며 기준 표준 V2 소스의 선행 통합을 확인한다. 이 문서는 계획이며 복제·설치·평가를 실행한 결과가 아니다.
 - **중단과 완료:** 독립성·계약·외부 전송 차단·24GB 실행 가능성 검증이 실패하면 완료로 표시하지 않는다. 기존 그래프 import·클라우드 fallback·기기 전체 인터넷 차단·검토 생략으로 우회하지 않는다. 구현 담당자는 Verification Contract와 Definition of Done을 충족하고 저장소 PR·팀 리뷰 규칙을 따른다.
 
 ---
@@ -29,12 +31,12 @@ execution: code
 고정 v2를 실제 파일로 복제해 독립 Python 패키지 `kplasma_agent.v2_local_llm`을 만든다.
 제품·API의 정확한 버전 이름은 `v2_localLLM`이며 `v2`의 별칭이나 실행 프로필만으로 구현하지 않는다.
 복제한 코드 안에서 계획·답변은 Qwen, 계획·답변 의미 검토는 d1에 연결한다.
-세 그래프의 내부 구현은 독립시키고 외부 HTTP 플랫폼·화면은 버전별 계약으로 연결한다.
+두 그래프의 내부 구현은 독립시키고 외부 HTTP 플랫폼·화면은 버전별 계약으로 연결한다.
 
 ### Problem Frame
 
 기존 재사용 계획은 v2 코드 변경이 local 동작에 영향을 줄 수 있었다.
-이번 요구는 v3와 같은 독립 복제를 통해 그래프별 개발과 설정·실행 상태를 분리하는 것이다.
+이번 요구는 독립 복제를 통해 그래프별 개발과 설정·실행 상태를 분리하는 것이다.
 상용 API로 전달되던 질문·이력·근거·답변은 local에서 기기 내부만 사용한다.
 
 ### Requirements
@@ -49,7 +51,7 @@ execution: code
 **개인정보와 상태 격리**
 
 - R5. 질문·이력·Run·근거·계획·답변·판단·체크포인트·오류 및 관측 데이터를 실행 기기 밖으로 전송하지 않는다.
-- R6. local 요청은 local worker만 처리한다. 세 그래프의 설정·객체·PASS·cache·복구 상태를 서로 재사용하지 않고, local DB·저장소·token·브라우저 환경은 cloud와 분리한다.
+- R6. local 요청은 local worker만 처리한다. 두 그래프의 설정·객체·PASS·cache·복구 상태를 서로 재사용하지 않고, local DB·저장소·token·브라우저 환경은 cloud와 분리한다.
 - R7. 모델 미설치·서버 장애·잘못된 응답·메모리 부족·입력 초과는 기존 실패·검토 불가 경로로 처리한다. 성공·PASS·확률·물리 수치를 만들어내지 않는다.
 
 **성능과 검증**
@@ -63,26 +65,26 @@ execution: code
 
 **독립 그래프**
 
-- R11. local은 그래프·계약·계산·검증·모델 통신·설정·streaming·persistence·worker를 실제 복제한다. v2/v3 내부 구현의 import·상속·함수 alias·전역 monkey patch·동일 mutable 객체 공유를 금지한다.
-- R12. `v2`, `v3`, `v2_localLLM`을 고유 버전으로 서버·DB·worker·UI·평가기에 등록한다. 요청·답변·기록·복원에서 정확한 버전을 보존하고 다른 그래프로 묵시적으로 치환하지 않는다.
+- R11. local은 그래프·계약·계산·검증·모델 통신·설정·streaming·persistence·worker를 실제 복제한다. 표준 V2 내부 구현의 import·상속·함수 alias·전역 monkey patch·동일 mutable 객체 공유를 금지한다.
+- R12. `v2`와 `v2_localLLM`을 고유 버전으로 서버·DB·worker·UI·평가기에 등록한다. 요청·답변·기록·복원에서 정확한 버전을 보존하고 다른 그래프로 묵시적으로 치환하지 않는다.
 
 ### Acceptance Examples
 
-- AE1. 초기 복제 시점의 세 그래프에 동일한 인공 입력과 고정 모델 출력을 각각 독립 객체로 주입하면, 그래프 식별 값만 정규화한 최종 결과·분기·이벤트가 같다. 테스트 clock·UUID는 고정하며 usage·확률·digest·예산 결과를 비교에서 숨기지 않는다. Covers R1, R2, R11.
+- AE1. 초기 복제 시점의 두 그래프에 동일한 인공 입력과 고정 모델 출력을 각각 독립 객체로 주입하면, 그래프 식별 값만 정규화한 최종 결과·분기·이벤트가 같다. 테스트 clock·UUID는 고정하며 usage·확률·digest·예산 결과를 비교에서 숨기지 않는다. Covers R1, R2, R11.
 - AE2. local에 외부 주소·OpenAI 자격 증명·Phoenix·proxy 또는 다른 그래프 설정을 주입해도 cloud 호출로 연결되지 않는다. local 전용 키와 legacy v2 키를 정확히 구분한다. Covers R5, R7, R11.
 - AE3. d1 장애·불완전 검토 응답은 기존 `UNAVAILABLE` 경로를 따른다. 계획 검토가 필요한 실행을 승인하지 않는다. Covers R4, R7.
-- AE4. 동일 local 프로필의 HITL·재시작은 이어지지만 v2/v3 checkpoint·PASS·다른 graphVersion의 snapshot은 거부한다. 버전 변경은 새 대화에서만 허용한다. Covers R6, R12.
+- AE4. 동일 local 프로필의 HITL·재시작은 이어지지만 표준 V2 checkpoint·PASS·다른 graphVersion의 snapshot은 거부한다. 버전 변경은 새 대화에서만 허용한다. Covers R6, R12.
 - AE5. 인터넷에 연결된 맥에서 local의 전체 질문·저장·복구가 동작하고 외부 송신은 차단된다. 일반 브라우저·다른 앱의 인터넷은 계속 성공한다. Covers R5, R9, R10.
-- AE6. local 함수·중첩 설정·질문 registry를 테스트에서 수정해도 v2/v3의 객체·응답·설정이 변하지 않는다. 신규 버전 등록 뒤에도 기존 v2·v3 내부 파일과 보존 검사가 유지된다. Covers R11, R12.
+- AE6. local 함수·중첩 설정·질문 registry를 테스트에서 수정해도 표준 V2의 객체·응답·설정이 변하지 않는다. 신규 버전 등록 뒤에도 기존 표준 V2 내부 파일과 보존 검사가 유지된다. Covers R11, R12.
 
 ### Scope Boundaries
 
 독립 복제의 범위는 Python Agent 전체 실행 의존성과 각 그래프 전용 worker다.
-공통 backend·frontend는 HTTP 계약·라우팅·표시 플랫폼으로 유지하며 세 앱의 전체 소스를 복사하지 않는다. 이 공통 플랫폼의 변경은 세 버전 회귀로 검증한다.
-local은 별도 backend·DB·주소에서 실행한다. local 배포는 `v2_localLLM`만 허용한다. cloud 배포는 기존 v1/v2 접수·기본값을 유지하고 전용 worker가 구성된 v3를 추가한다. 새 독립 분석 그래프의 목표는 v2·v3·local 세 종류이며 legacy v1을 삭제하지 않는다.
-세 버전을 한 cloud 요청에서 자동 전환하거나 local 원문을 cloud로 전달하는 기능은 없다.
+공통 backend·frontend는 HTTP 계약·라우팅·표시 플랫폼으로 유지하며 두 앱의 전체 소스를 복사하지 않는다. 이 공통 플랫폼의 변경은 두 모드의 회귀로 검증한다.
+초기 검증은 별도 백엔드·DB에서 로컬 모드만 실행한다. 운영에서 웹·백엔드·DB를 공유하는 방식은 [공용 웹 통합 계획](2026-11-13-002-feat-v2-local-llm-shared-web.md)에서 확정했다.
+두 모드를 한 요청에서 자동 전환하거나 local 원문을 cloud로 전달하는 기능은 없다.
 
-**Deferred to Follow-Up Work:** RAG·이미지·모델 학습, v3의 새 분석 기능, RTX 5060 최적화, 동시 사용자 확대, 모델 서버 단일 프로그램 통합은 후속 작업이다.
+**Deferred to Follow-Up Work:** RAG·이미지·모델 학습, RTX 5060 최적화, 동시 사용자 확대, 모델 서버 단일 프로그램 통합은 후속 작업이다.
 앱별 송신 필터와 다른 앱의 온라인 유지는 1차 범위이며, 자체 방화벽 개발·전역 DNS/VPN 변경·기기 전체 인터넷 차단은 포함하지 않는다.
 
 ---
@@ -91,40 +93,37 @@ local은 별도 backend·DB·주소에서 실행한다. local 배포는 `v2_loca
 
 ### Existing Baseline
 
-확인한 v3는 v2의 36개 내부 모듈을 물리적으로 복제했고 import·객체·해시·AST·프롬프트·스키마 독립성 검사를 갖는다.
-`docs/development/agent-v3-clone.md` 기준으로 worker·서버·DB·UI는 아직 활성화하지 않은 source-only 단계다. 이번 목표는 소스 디렉터리 세 개와 실행 가능한 세 그래프를 구분해 검증하는 것이다.
 기준 v2의 계획·답변·Decisions 모델은 `gpt-6-luna`이며 수치 조회·개념 설명·결과 해석의 기존 분기를 보존한다.
 
-기존 공통 worker는 v1/v2만 claim하고 시작할 때 cloud client를 생성한다.
-backend·TS·UI의 여러 분기도 `v2`만 인식하며 DB의 V12 제약은 v1/v2만 허용한다.
-기존 `AnswerV2Validator`와 `agent-answer-v3.schemas.yaml`의 숫자는 legacy 답변 스키마를 가리킬 수 있으므로 그래프 v3와 혼동해 바꾸지 않는다.
+기준 워커는 표준 V2를 처리하며 공용 모델 클라이언트를 사용한다.
+신규 모드를 추가할 때 백엔드 배분, 프런트엔드 선택, DB 제약을 함께 확인한다.
+실행 그래프 버전과 [비교 답변 스키마](../contracts/agent-comparison-answer.schemas.yaml)의 저장 형식을 분리한다.
 
 ### Key Technical Decisions
 
 - KTD1. **선택 모델 유지:** Qwen은 `mlx-community/Qwen3.5-9B-4bit`, d1은 `LiquidAI/d1-2B-GGUF`의 `Q8_0`를 사용한다. (session-settled: user-approved — chosen over 상용 API 유지 및 다른 로컬 모델 재선정: 앞서 검토한 조합으로 사용자가 계획 작성을 요청했다.)
-- KTD2. **v2에서 완전 독립 복제:** local의 모든 내부 import와 구현을 `kplasma_agent.v2_local_llm` 안에 둔다. 기존 `build_v2_graph`·`V2ModelGateway`·`run_claim`을 호출하거나 상속하지 않는다. (session-settled: user-directed — chosen over v2 그래프·gateway 재사용: 사용자가 v3처럼 완전 복제한 세 독립 그래프를 명시했다.)
+- KTD2. **V2에서 완전 독립 복제:** 로컬 구현은 `kplasma_agent.v2_local_llm` 안에 둔다. 표준 V2의 builder·gateway·worker 진입점을 직접 사용하지 않는다.
 - KTD3. **서로 다른 식별과 상태:** wire ID는 정확히 `v2_localLLM`, Python builder는 `build_v2_local_llm_graph`, 전용 설정은 `AGENT_V2_LOCAL_LLM_`다. local은 별도 worker·DB·저장소·token·origin·checkpoint fingerprint를 갖는다. `v2`로 위장하거나 기존 기록을 새 ID로 덮어쓰지 않는다.
 - KTD4. **네이티브 모델 실행 유지:** Qwen은 LM Studio MLX, d1은 지원 빌드를 고정한 llama.cpp로 시작한다. 초기 주소는 Qwen `127.0.0.1:1234`, d1 `127.0.0.1:8081`, local backend `127.0.0.1:8080`이다. 동시 배포에서는 모든 충돌 포트를 별도 지정하고 잘못된 서비스에 접속하지 않는다.
 - KTD5. **복제한 전송 경계만 로컬화:** local 소유의 model client·gateway·설정·입력 예산·tracing을 수정한다. 계획·답변 프롬프트, 도구 제출 schema와 검증·계산 규칙은 복제 상태를 유지한다. SDK를 사용하더라도 고정한 loopback client만 생성한다.
 - KTD6. **실제 typed decisions 보존:** d1의 `/v1/systemone` state/questions를 local의 복제된 검토 계약으로 변환한다. 실제 choice·전체 확률·confidence·usage를 보존하고 기존 PASS/ISSUE/UNAVAILABLE 규칙을 유지한다.
 - KTD7. **인터넷 유지·local 송신 제한:** 실제 프로세스·서명·helper를 구분하는 앱별 정책을 검증한다. LuLu는 우선 후보이며 완전 차단을 가정하지 않는다. (session-settled: user-directed — chosen over 기기 전체 인터넷 차단: 사용자가 인터넷은 유지하고 v2_localLLM에서만 외부 전송을 막도록 수정했다.)
 - KTD8. **모델별 입력·메모리 검증:** local tokenizer·template·스키마·질문을 포함해 계산한다. 원본의 입력 허용 범위를 조용히 줄이거나 근거·이력을 절단하지 않는다. 24GB·timeout·요청 예산을 만족하지 못하면 호환 완료로 판정하지 않는다.
-- KTD9. **세 그래프를 실제로 등록:** backend·DB·TS·UI·평가기를 새 버전에 맞춘다. v3도 전용 worker와 검증된 기동 경로를 제공하되 local 기동이 v2/v3를 자동 생성·claim하지 않는다. 기존 v1 기록과 cloud 기본 동작은 보존한다.
+- KTD9. **실행 모드 등록:** 백엔드·DB·계약·UI·평가기에서 각 모드를 지정한다. 워커는 자신이 처리하는 버전만 claim하고 해당 모드로 결과를 저장한다.
 
 ### Clone and Change Guards
 
-먼저 v3와 같은 36개 모듈을 복제하고 원본/대상 경로·module·source SHA-256·최초 clone SHA-256·허용 import/식별자 치환을 `agent/python/src/kplasma_agent/v2_local_llm/clone-manifest.json`에 기록한다.
-원본 worker까지 그대로 의존성 추적하면 v1·공통 registry 등 40개가 연결되므로, worker는 별도 복제 증거를 남긴 뒤 local builder에 직접 연결하는 의도 변경으로 관리한다.
+먼저 기준의 36개 모듈을 복제하고 원본/대상 경로·module·source SHA-256·최초 clone SHA-256·허용 import/식별자 치환을 `agent/python/src/kplasma_agent/v2_local_llm/clone-manifest.json`에 기록한다.
+원본 worker까지 그대로 의존성 추적하면 공통 registry 등 40개가 연결되므로, worker는 별도 복제 증거를 남긴 뒤 local builder에 직접 연결하는 의도 변경으로 관리한다.
 local의 실행 의존성은 최종적으로 다시 추적하고 package `__init__`·새 파일·동적 import 경로도 감사한다.
 
 최초 manifest는 초기 복제의 불변 기록이다. 로컬화 뒤 현재 hash를 그 값으로 덮어쓰지 않는다.
 `agent/python/src/kplasma_agent/v2_local_llm/intentional-differences.json`에 로컬 전송·설정·token budget·worker·관측 변경의 함수/메서드 범위와 이유·검증을 기록한다.
 그래프·계산·검증 모듈은 식별자/namespace 치환 외 AST를 유지하고, 변경 모듈도 허용 범위 밖 AST·프롬프트·스키마는 계속 대조한다. 파일 전체를 검사에서 제외하지 않는다.
 
-v2 원본 36개와 기존 worker, 기존 v3의 36개 모듈·manifest·보존 검사 내용은 변경하지 않는다.
-v3의 새 worker와 외부 등록 glue는 별도 추가 파일로 관리하고 기존 v3 알고리즘의 수정과 섞지 않는다.
-테스트 support·typed fixture도 local 소유로 복제한다. 초기 비교 driver에서만 세 namespace를 함께 import하고 각 실행에 별도 mutable 객체·clock·UUID를 제공한다.
-local의 지속 검증은 고정 sourceCommit에서 기록한 AST·schema·출력 기준을 사용한다. 이후 v2/v3의 현재 출력을 local의 가변 정답으로 삼거나 변경 내용을 자동 동기화하지 않는다. 이번 변경에서 원본이 보존됐는지는 변경 전후 별도로 검사한다.
+고정 V2 원본 36개, 기존 워커와 복제 기준을 이번 변경에서 보존한다.
+테스트 support·typed fixture도 local 소유로 복제한다. 초기 비교 driver에서만 두 namespace를 함께 import하고 각 실행에 별도 mutable 객체·clock·UUID를 제공한다.
+local의 지속 검증은 고정 sourceCommit에서 기록한 AST·schema·출력 기준을 사용한다. 이후 표준 V2의 현재 출력을 local의 가변 정답으로 삼거나 변경 내용을 자동 동기화하지 않는다. 이번 변경에서 원본이 보존됐는지는 변경 전후 별도로 검사한다.
 
 ### High-Level Technical Design
 
@@ -133,11 +132,9 @@ local의 지속 검증은 고정 sourceCommit에서 기록한 AST·schema·출�
 ```mermaid
 flowchart LR
   BASE[고정 v2 기준 소스] --> V2[기존 v2 · 원본 보존]
-  BASE --> V3[기존 v3 · 자체 모듈과 worker]
   BASE --> LOCAL[v2_localLLM · 자체 모듈과 worker]
   LOCAL --> MODELS[Qwen · d1]
   PLATFORM[버전별 HTTP 계약 · UI · DB 라우팅] --- V2
-  PLATFORM --- V3
   PLATFORM --- LOCAL
 ```
 
@@ -175,7 +172,7 @@ U-ID는 기존 번호를 유지하고 독립 복제 U7·플랫폼 등록 U8을 �
 
 ```mermaid
 flowchart LR
-  U7[U7 독립 복제] --> U8[U8 세 버전 계약·등록]
+  U7[U7 독립 복제] --> U8[U8 모드별 계약·등록]
   U7 --> U3[U3 local Qwen]
   U7 --> U4[U4 local d1]
   U1[U1 실행 가능성] --> U2[U2 local 설정·송신 제한]
@@ -184,13 +181,13 @@ flowchart LR
   U8 --> U5[U5 독립 local 배포]
   U3 --> U5
   U4 --> U5
-  U5 --> U6[U6 세 버전·보안·품질 검증]
+  U5 --> U6[U6 모드별 보안·품질 검증]
 ```
 
 ### Runtime and Privacy Constraints
 
 준비 단계에서 모델 snapshot revision·파일 SHA-256·라이선스·tokenizer·chat template·앱/runtime 버전을 기록한다.
-모델 파일과 로컬 데이터는 Git 밖에 둔다. local checkpoint·PASS·cache·진행 기록은 동일 그래프·요청·프로필 안에서만 복구한다. digest가 같아도 v2/v3의 기록을 local로 가져오지 않는다. 실행에는 모델 ID의 원격 자동 검색 대신 검증한 로컬 경로를 사용한다.
+모델 파일과 로컬 데이터는 Git 밖에 둔다. local checkpoint·PASS·cache·진행 기록은 동일 그래프·요청·프로필 안에서만 복구한다. digest가 같아도 표준 V2의 기록을 local로 가져오지 않는다. 실행에는 모델 ID의 원격 자동 검색 대신 검증한 로컬 경로를 사용한다.
 모델·패키지 설치와 업데이트는 실데이터를 연결하지 않은 준비 환경에서 수행한다. 실행 중의 자동 갱신·원격 discovery·lazy download는 사용하지 않는다.
 추가 다운로드는 실데이터·대화·로그에 접근하지 않는 별도 준비 도구로 수행한다. 기존 보호 대상의 차단 규칙을 풀어 다운로드·업데이트를 허용하지 않는다.
 실험 데이터가 필요한 경우 기존 로컬 원본 파일을 기존 수집 기능으로 전용 DB·저장소에 등록한다. cloud DB·대화·판단 기록을 자동 복사하거나 과거 snapshot을 덮어쓰지 않는다.
@@ -198,7 +195,7 @@ flowchart LR
 **애플리케이션의 통신 제한**
 
 local의 설정·통신·관측 모듈은 모두 `kplasma_agent.v2_local_llm` 내부에 둔다.
-복제한 local 설정은 `AGENT_V2_LOCAL_LLM_`와 명시한 전용 파일만 읽고 루트 `.env`·`AGENT_V2_`·`AGENT_V3_`의 값을 가져오지 않는다. 접두사 문자열이 겹치므로 자신의 local 키와 legacy v2 키를 정확히 구분한다.
+복제한 local 설정은 `AGENT_V2_LOCAL_LLM_`와 명시한 전용 파일만 읽고 루트 `.env`·`AGENT_V2_`의 값을 가져오지 않는다. 접두사 문자열이 겹치므로 자신의 local 키와 legacy v2 키를 정확히 구분한다.
 실제 OpenAI 키·외부 base URL·Phoenix/OTEL exporter·HTTP(S)/ALL proxy·원격 MCP·LM Link·클라우드 fallback을 상속하면 시작을 거부한다.
 모델 API 인증에는 별도 로컬 token을 사용한다. OpenAI 자격 증명과 혼용하거나 프런트에 모델·worker token을 전달하지 않는다.
 worker·백엔드·DB·모델 서버·프런트는 loopback으로 bind하고, HTTP client는 필요한 host/port만 허용한다. 환경 proxy·redirect·임의 URL 해석을 허용하지 않는다.
@@ -253,14 +250,12 @@ d1의 라이선스는 `lfm1.0`이며 Qwen과 같다고 가정하지 않는다. �
 
 ### Output Structure
 
-v3와 같은 내부 계층을 만들되 local 소스와 worker는 자기 패키지만 의존한다. 아래는 주요 경로이며 전체 복제 목록은 manifest로 확정한다.
+기준과 같은 내부 계층을 만들되 local 소스와 worker는 자기 패키지만 의존한다. 아래는 주요 경로이며 전체 복제 목록은 manifest로 확정한다.
 
 ```text
 agent/python/src/kplasma_agent/
   graphs/v2.py                  기존 v2 보존
   v2/                           기존 core 보존
-  v3/                           기존 독립 구현 보존
-    worker.py                   v3 전용 진입점 추가
   v2_local_llm/
     __init__.py
     graph.py
@@ -291,17 +286,16 @@ scripts/agent/local-llm.mjs
 
 **Goal:** v2를 실제 복제하고 모델 변경 전에 독립성과 동작 동등성을 입증한다.
 
-**Requirements:** R1, R2, R4, R11; KTD2, KTD3; AE1, AE6. **Dependencies:** 고정 v2·기존 v3 기준 확보.
+**Requirements:** R1, R2, R4, R11; KTD2, KTD3; AE1, AE6. **Dependencies:** 고정 V2 기준 확보.
 
 **Files:** 새 `agent/python/src/kplasma_agent/v2_local_llm/`의 위 복제 모듈·`agent/python/src/kplasma_agent/v2_local_llm/clone-manifest.json`·`agent/python/src/kplasma_agent/v2_local_llm/intentional-differences.json`·`agent/python/src/kplasma_agent/v2_local_llm/worker.py`, `agent/python/tests/v2_local_llm/test_clone_boundary.py`, `agent/python/tests/v2_local_llm/test_clone_parity.py`, 독립 회귀·fixture·support, `agent/python/pytest-v2-local-llm.ini`, `docs/development/agent-v2-local-llm.md`.
 
-**Approach:** v3의 물리 복제·AST 비교 방식을 따라 36개 의존성부터 복제한다. import·builder·gateway/settings/port/snapshot 클래스와 그래프 식별자만 기계 치환한 초기 상태를 기록한다. worker는 별도 복제 후 v1/공통 registry 분기를 제거하고 local builder·오류·설정·saver에 직접 연결한다. `v2ConfirmedInputs`, codec 이름·기존 `/v2/` API 경로·사용자 문구를 일괄 치환하지 않는다.
+**Approach:** 물리 복제·AST 비교로 36개 의존성부터 복제한다. import·builder·gateway/settings/port/snapshot 클래스와 그래프 식별자만 기계 치환한 초기 상태를 기록한다. worker는 별도 복제 후 공통 registry 분기를 제거하고 local builder·오류·설정·saver에 직접 연결한다. `v2ConfirmedInputs`, codec 이름·기존 `/v2/` API 경로·사용자 문구를 일괄 치환하지 않는다.
 
-**Patterns to follow:** `agent/python/tests/v3/test_clone_boundary.py`, `agent/python/tests/v3/test_clone_parity.py`, `agent/python/src/kplasma_agent/v3/clone-manifest.json`.
 
-**Test scenarios:** Covers AE1, AE6. 세 namespace의 함수·클래스·스키마·nested registry가 서로 다른 객체인지 검사한다. local mutation·함수 교체가 v2/v3에 영향을 주지 않는다. local의 모든 production 파일에서 패키지 밖 내부 import·상속·alias를 거부하고, worker 포함 실제 의존성도 검사한다. 개념/조회/재계획/검토 불가/HITL/재작성의 고정 출력·호출 순서·직렬화를 대조한다. 원본 v2·v3 hash와 기존 보존 검사가 유지된다.
+**Test scenarios:** Covers AE1, AE6. 두 namespace의 함수·클래스·스키마·nested registry가 서로 다른 객체인지 검사한다. local mutation·함수 교체가 표준 V2에 영향을 주지 않는다. local의 모든 production 파일에서 패키지 밖 내부 import·상속·alias를 거부하고, worker 포함 실제 의존성도 검사한다. 개념/조회/재계획/검토 불가/HITL/재작성의 고정 출력·호출 순서·직렬화를 대조한다. 원본 표준 V2 hash와 기존 보존 검사가 유지된다.
 
-**Verification:** 모델을 호출하지 않는 복제·회귀 검사가 통과하고 local이 v2/v3 구현에 의존하지 않는다. 이후 허용 변경을 추가해도 초기 manifest와 불변 부분 검사를 약화하지 않는다.
+**Verification:** 모델을 호출하지 않는 복제·회귀 검사가 통과하고 local이 표준 V2 구현에 의존하지 않는다. 이후 허용 변경을 추가해도 초기 manifest와 불변 부분 검사를 약화하지 않는다.
 
 ### U1. Verify the selected runtimes on M4 Pro
 
@@ -327,7 +321,7 @@ scripts/agent/local-llm.mjs
 
 **Approach:** 다른 그래프 설정을 읽지 않고 local 키와 명시한 파일로만 client·backend·저장 경로를 구성한다. 원격 URL·자격 증명·proxy·관측 설정 오염은 거부한다. 앱별 정책은 U1에서 검증한 기존 필터를 사용하고, 준비 검사 뒤에만 원문에 접근한다. 변경 함수와 검증을 intentional differences에 기록한다.
 
-**Test scenarios:** Covers AE2, AE5. v2/v3 설정이 local 모델·검토 여부·목적지를 바꾸지 못하며 local 접두사를 legacy v2로 잘못 거부하지 않는다. cloud constructor·exporter가 생성되지 않는다. IPv4/IPv6·DNS/DoH·TCP/UDP·QUIC·proxy·redirect·미승인 loopback 중계·helper·규칙 만료·필터 장애를 검사하고 일반 앱 인터넷은 유지한다. 로그·crash·지연 전송에 원문·token이 남지 않는다.
+**Test scenarios:** Covers AE2, AE5. 표준 V2 설정이 local 모델·검토 여부·목적지를 바꾸지 못하며 local 접두사를 legacy v2로 잘못 거부하지 않는다. cloud constructor·exporter가 생성되지 않는다. IPv4/IPv6·DNS/DoH·TCP/UDP·QUIC·proxy·redirect·미승인 loopback 중계·helper·규칙 만료·필터 장애를 검사하고 일반 앱 인터넷은 유지한다. 로그·crash·지연 전송에 원문·token이 남지 않는다.
 
 **Verification:** 격리된 config와 정책이 private worker·모델·UI·평가기에 적용된다. 지원을 입증하지 못한 정책은 성공 처리하지 않는다. 원본 설정·tracing·backend client는 수정하지 않는다.
 
@@ -345,7 +339,7 @@ scripts/agent/local-llm.mjs
 
 **Test scenarios:** 고정 응답에서 v2와 같은 계획·답변 구조·이벤트를 반환한다. 여분 필드·잘못된 단위·근거 없는 숫자·잘림·thinking 혼입·timeout·입력 초과는 기존 실패 의미를 보존한다. 프롬프트·도구 schema와 local 미변경 AST가 기준과 같고 원본 모듈 객체를 사용하지 않는다.
 
-**Verification:** 계획·답변·재작성은 Qwen에만 연결되고 원본 v2/v3 hash·동작은 유지된다.
+**Verification:** 계획·답변·재작성은 Qwen에만 연결되고 원본 표준 V2 hash·동작은 유지된다.
 
 ### U4. Connect d1 inside the cloned review boundary
 
@@ -361,26 +355,25 @@ scripts/agent/local-llm.mjs
 
 **Verification:** 두 검토 경로가 local d1에 연결되며 copied parser·조건/근거 검증의 의미가 유지된다. 동일 digest의 다른 그래프 PASS를 재사용하지 않는다.
 
-### U8. Register and activate three distinct graph versions
+### U8. Register and activate two distinct graph versions
 
-**Goal:** 세 독립 구현을 서버·DB·계약·UI·worker에서 정확히 구분해 실행한다.
+**Goal:** 두 독립 구현을 서버·DB·계약·UI·worker에서 정확히 구분해 실행한다.
 
-**Requirements:** R1, R2, R6, R11, R12; KTD2, KTD3, KTD9; AE4, AE6. **Dependencies:** U7과 기존 v3 독립 소스.
+**Requirements:** R1, R2, R6, R11, R12; KTD2, KTD3, KTD9; AE4, AE6. **Dependencies:** U7.
 
-**Files:** `agent/python/src/kplasma_agent/graphs/registry.py`, 새 `agent/python/src/kplasma_agent/v3/worker.py`, `agent/python/tests/test_graph_registry.py`, `agent/python/tests/v3/test_worker.py`; `backend/src/main/java/com/kplasma/analysisagent/agent/v2/GraphVersionPolicy.java`, `backend/src/main/java/com/kplasma/analysisagent/agent/v2/V2Contracts.java`, `backend/src/main/java/com/kplasma/analysisagent/agent/v2/V2StepOrigins.java`, `backend/src/main/java/com/kplasma/analysisagent/agent/AgentRequestService.java`, `backend/src/main/resources/application.yml`, 새 `backend/src/main/resources/db/migration/V19__agent_graph_version_variants.sql`; `backend/src/test/java/com/kplasma/analysisagent/workspace/AgentGraphVersionTest.java`, `backend/src/test/java/com/kplasma/analysisagent/agent/v2/V2ContractTest.java`; `agent/src/contracts/v2.ts`, `agent/src/contracts/index.ts`, `agent/tests/v2-contracts.test.ts`; `frontend/src/features/agent/AnswerView.tsx`, `frontend/src/features/agent/V2AnswerView.tsx`, `frontend/src/features/agent/AgentPage.tsx`, `frontend/src/features/agent/useConversation.ts`, `frontend/src/features/agent/RunSelectionPanel.tsx`, `frontend/src/features/agent/references.ts`와 대응 `frontend/src/features/agent/v2-answer.test.tsx`, `frontend/src/features/agent/conversation.test.tsx`, `frontend/src/features/agent/run-selection.test.tsx`, `frontend/src/features/agent/agent-page.test.tsx`; `docs/contracts/agent-v2.openapi.json`, 새 `docs/contracts/agent-v3.answer.schema.json`, `docs/contracts/agent-v2-local-llm.answer.schema.json`.
+**Files:** `agent/python/src/kplasma_agent/graphs/registry.py`, `agent/python/tests/test_graph_registry.py`; `backend/src/main/java/com/kplasma/analysisagent/agent/v2/GraphVersionPolicy.java`, `backend/src/main/java/com/kplasma/analysisagent/agent/v2/V2Contracts.java`, `backend/src/main/java/com/kplasma/analysisagent/agent/v2/V2StepOrigins.java`, `backend/src/main/java/com/kplasma/analysisagent/agent/AgentRequestService.java`, `backend/src/main/resources/application.yml`, 새 `backend/src/main/resources/db/migration/V19__agent_graph_version_variants.sql`; `backend/src/test/java/com/kplasma/analysisagent/workspace/AgentGraphVersionTest.java`, `backend/src/test/java/com/kplasma/analysisagent/agent/v2/V2ContractTest.java`; `agent/src/contracts/v2.ts`, `agent/src/contracts/index.ts`, `agent/tests/v2-contracts.test.ts`; `frontend/src/features/agent/AnswerView.tsx`, `frontend/src/features/agent/V2AnswerView.tsx`, `frontend/src/features/agent/AgentPage.tsx`, `frontend/src/features/agent/useConversation.ts`, `frontend/src/features/agent/RunSelectionPanel.tsx`, `frontend/src/features/agent/references.ts`와 대응 `frontend/src/features/agent/v2-answer.test.tsx`, `frontend/src/features/agent/conversation.test.tsx`, `frontend/src/features/agent/run-selection.test.tsx`, `frontend/src/features/agent/agent-page.test.tsx`; `docs/contracts/agent-v2.openapi.json`, `docs/contracts/agent-v2-local-llm.answer.schema.json`.
 
-**Approach:** request·conversation·snapshot의 버전을 정확히 등록하고 공유 플랫폼의 v2-only 분기를 세 composite 그래프의 명시적 지원으로 확장한다. request의 graphVersion, 답변 graphVersion, implementationId는 반드시 일치해야 한다. 기존 v2 전용 guard/validator의 의미를 보존하고 새 버전·공통 표시용 guard를 별도로 제공한다. legacy v1을 composite로 오인하지 않는다.
+**Approach:** request·conversation·snapshot의 그래프와 답변 implementationId가 일치하는지 확인한다. 워커와 제품 화면에는 지원하는 두 모드만 등록하며, 과거 응답은 읽을 때 저장본을 사용한다.
 
 새 마이그레이션은 기존 V12를 수정하지 않고 request/workspace/conversation 제약을 확장한다. 확인한 최신 번호는 V18이므로 구현 시 V19 가용성을 재확인한다. 기존 행·대화·snapshot의 버전은 바꾸지 않는다.
 
-v3는 자기 namespace의 graph·gateway·config·saver를 사용하는 전용 worker를 추가하고 기존 36개 소스를 변경하지 않는다. 새 v3 worker는 `--env-file`을 필수 인자로 받아 검증한 절대 경로를 자기 Settings에 전달한다. 복제된 config의 기본 상위 폴더 계산이나 v1 기본 build ID에 의존하지 않고 v3의 복구 identity를 명시한다.
-root registry는 외부 dispatch만 담당한다. 새 v3/local worker는 각각 자기 버전만 claim하며 기존 v1/v2 공통 worker의 claim 동작은 보존한다. local worker는 root registry/worker를 import하지 않는다. local 기동 시 v2/v3 client·worker를 생성하지 않는다.
+root registry는 외부 dispatch만 담당한다. 각 워커는 자기 모드만 수락하고 로컬 워커는 공유 registry를 import하지 않는다.
 
-UI는 같은 레이아웃·답변 표시를 유지하며 정확한 버전 선택·첫 요청·새 대화·방 복원·HITL·참조·SSE를 처리한다. local 배포의 기본/허용 값은 `v2_localLLM` 하나이며 cloud UI의 v2/v3는 해당 worker가 구성된 경우에만 활성화한다. 버전 변경은 새 대화로 처리한다.
+UI는 저장된 답변 형식을 유지하며 분석 시작 전 실행 모드를 지정한다. 이미 질문한 대화에서 모드를 전환할 때는 새 대화를 연다.
 
-**Test scenarios:** 세 버전 각각의 HTTP 저장·step·HITL·결과 조회·참조·finalize·replay가 성공한다. 서로 다른 header 조합, 다른 그래프 step/record 주입, unknown version은 거부한다. local/v3가 prototype fallback이나 v1 선택으로 바뀌지 않는다. 버전별 worker factory·객체·설정·claim 목록이 다르고, v3 시작이 local 모델을 만들지 않는다. v3는 명시한 env 경로에서 token·모델 설정을 읽고 경로 누락/부재 시 시작을 거부하며 v3 identity로만 복구한다. migration 전후 기존 기록을 보존하며 기존 v1/v2·v3 복제 검사를 통과한다.
+**Test scenarios:** 두 모드의 HTTP 저장·step·HITL·결과 조회·참조·finalize·replay를 검증한다. 요청과 워커 버전이 다르거나 출처가 다른 단계·기록을 주입하면 거부한다.
 
-**Verification:** 허용 버전/DB·계약 소비자를 먼저 배포한 뒤 새 생산자·worker를 활성화한다. U8의 초기 검증은 인공 데이터·scripted 모델로 세 그래프의 API/UI 실행을 확인한다. local의 실제 모델·실데이터 기동은 U5 이후에만 허용하며, v3의 실제 모델 평가는 승인된 회차가 있을 때만 수행한다. 등록 완료와 실모델 품질 평가 완료를 구분한다. rollback은 새 접수·worker를 중단하고 이미 저장한 새 버전 기록은 유지한다. 공통 DB/reader를 구버전으로 되돌려 새 기록을 해석 불가능하게 만들지 않는다.
+**Verification:** 인공 데이터와 고정 모델 응답으로 모드별 API·UI를 확인한다. 로컬 실모델은 U5의 실행 준비 이후 확인하고, DB와 과거 기록은 보존한다.
 
 ### U5. Deploy the independent local worker and private data plane
 
@@ -394,13 +387,13 @@ UI는 같은 레이아웃·답변 표시를 유지하며 정확한 버전 선택
 
 launcher는 실제 browser/helper/daemon을 식별하고 앱별 송신 제한을 유지한다. 전용 UI와 API 평가기에만 일회용 bootstrap을 전달하고 data GET·파일·SSE를 포함해 local session 인증과 Host/Origin/Fetch Metadata 검사를 적용한다. worker/model token은 UI에 전달하지 않는다. 종료 뒤 잔존 프로세스·대기 전송도 보호한다.
 
-**Test scenarios:** Covers AE4, AE5. 동일 local 프로필의 HITL/재시작만 재개하고, 같은 UUID/digest라도 v2/v3의 checkpoint·PASS·cache는 거부한다. 잘못된 claim·누락 버전·포트 충돌·cloud endpoint·stale lease·취소/방 전환 뒤 늦은 SSE/finalize를 막는다. 무자격 online tab/GET/file/SSE와 bootstrap 재사용은 거부하고 인증된 UI/API는 정상 동작한다. 일반 앱의 인터넷은 유지한다.
+**Test scenarios:** Covers AE4, AE5. 동일 local 프로필의 HITL/재시작만 재개하고, 같은 UUID/digest라도 표준 V2의 checkpoint·PASS·cache는 거부한다. 잘못된 claim·누락 버전·포트 충돌·cloud endpoint·stale lease·취소/방 전환 뒤 늦은 SSE/finalize를 막는다. 무자격 online tab/GET/file/SSE와 bootstrap 재사용은 거부하고 인증된 UI/API는 정상 동작한다. 일반 앱의 인터넷은 유지한다.
 
 **Verification:** local 그래프·worker·저장·복구가 모두 private namespace와 local data plane에서 완결되고 cloud worker/constructor나 공유 cache를 사용하지 않는다.
 
 ### U6. Prove independence, parity, privacy and measured quality
 
-**Goal:** 세 그래프의 독립성·계약과 local의 실용성을 별도 증거로 판정한다.
+**Goal:** 두 그래프의 독립성·계약과 local의 실용성을 별도 증거로 판정한다.
 
 **Requirements:** R1–R12; KTD1–KTD9; AE1–AE6. **Dependencies:** U5, U8.
 
@@ -408,7 +401,7 @@ launcher는 실제 browser/helper/daemon을 식별하고 앱별 송신 제한을
 
 **Approach:** 평가의 version·entrypoint·expected identity를 명시하고 local은 private worker/model/browser/helper/bootstrap을 사용한다. 비교 driver만 세 구현을 함께 참조한다. 고정 인공 fixture와 scripted model로 독립성·상태·직렬화를 먼저 비교하고 실제 모델 품질과 하드웨어 측정은 별도로 한다. cloud baseline은 기존 결과를 사용하고 신규 유료 실험을 임의 추가하지 않는다.
 
-**Test scenarios:** Covers AE1–AE6. 수치 조회·조건 검색·비교/단위·개념 설명·근거 해석·의미 반려 재계획·과잉 해석 재작성·HITL/재시작·취소·방 전환을 각 identity에서 확인한다. web bridge는 검증된 browser를 사용하고 첫 data page 이동 전에 bootstrap하며 직접 API도 인증 context로 호출한다. 자격 증명·원문은 console/artifact에 남기지 않는다. local 변경 뒤에도 v2/v3 hash·설정·기존 응답은 유지되고 local 외부 송신은 실패하며 일반 앱의 인터넷은 성공한다.
+**Test scenarios:** Covers AE1–AE6. 수치 조회·조건 검색·비교/단위·개념 설명·근거 해석·의미 반려 재계획·과잉 해석 재작성·HITL/재시작·취소·방 전환을 각 identity에서 확인한다. web bridge는 검증된 browser를 사용하고 첫 data page 이동 전에 bootstrap하며 직접 API도 인증 context로 호출한다. 자격 증명·원문은 console/artifact에 남기지 않는다. local 변경 뒤에도 표준 V2 hash·설정·기존 응답은 유지되고 local 외부 송신은 실패하며 일반 앱의 인터넷은 성공한다.
 
 **Verification:** 아래 게이트를 모두 만족하고 원시 자료는 Git 밖에 보관한다. 집계 결과는 모델·설정·회차·실패 원인을 구분하며 최초 통과와 복구 후 통과를 합치지 않는다.
 
@@ -420,7 +413,7 @@ launcher는 실제 browser/helper/daemon을 식별하고 앱별 송신 제한을
 
 | Gate | 검증 범위 | 통과 조건 |
 | --- | --- | --- |
-| V1. Independent clone | v2/v3 보존 검사, local manifest/AST/import/객체/mutation 검사, 각 namespace의 scripted 회귀 | 원본 hash 유지, local 내부 공유·상속·alias 없음, 허용 변경 밖 AST·프롬프트·스키마 보존 |
+| V1. Independent clone | 표준 V2 보존 검사, local manifest/AST/import/객체/mutation 검사, 각 namespace의 scripted 회귀 | 원본 hash 유지, local 내부 공유·상속·alias 없음, 허용 변경 밖 AST·프롬프트·스키마 보존 |
 | V2. Static / contracts | Python Ruff·mypy, `npm run typecheck`, `npm test`, `npm run lint`, `npm run build`, `backend/gradlew -p backend test --console=plain`, `npm run verify:public-files` | 타입·버전 계약·DB migration 통과, 실데이터·키·가중치 공개 없음 |
 | V3. Typed model smoke | local runtime와 Qwen/d1 adapter 검사 | 단일 도구·strict JSON·SSE·계획/답변 검토·확률 검증 통과 |
 | V4. Three graph runtimes | 버전별 registry/worker/API/UI/참조/HITL/SSE/재시작, 390/800/1008/1440px 화면 비교 | 세 고유 ID가 end-to-end 유지, 교차 주입 거부, 기존 필드·수치·정렬·저장 의미 보존 |
@@ -428,7 +421,7 @@ launcher는 실제 browser/helper/daemon을 식별하고 앱별 송신 제한을
 | V6. M4 Pro 24GB | 모델·backend·DB·브라우저 동시 실행, concurrency 1, 짧은/중간/한계 입력 | OOM·지속 memory pressure·swap 증가 없이 기존 예산 준수; 실패 범위는 호환 완료로 표시하지 않음 |
 | V7. Quality | 동결한 핵심 정상·변조 문항과 기존 고정 평가 세트 | 정상 문항이 실제 모델로 oracle에 맞게 COMPLETED, 변조는 거부, 수치·단위·Run·근거 위반 0; 전체 성적·지연은 별도 보고 |
 
-Python 검증은 기존 `npm run test:agent`, v3의 `agent/python/pytest-v3.ini`, 새 `agent/python/pytest-v2-local-llm.ini`를 각각 사용한다.
+Python 검증은 기존 `npm run test:agent`, 새 `agent/python/pytest-v2-local-llm.ini`를 각각 사용한다.
 `agent/python`에서 기존 잠금 의존성으로 Ruff·mypy를 수행하고 신규 local 회귀가 CI에서 자동 발견되도록 등록한다. source-only 복제·scripted 활성화·실모델 평가 결과는 구분한다.
 
 실제 평가 직전 설정과 그래프 상태의 `plan_review_enabled=true`를 확인한다.
@@ -441,8 +434,8 @@ Python 검증은 기존 `npm run test:agent`, v3의 `agent/python/pytest-v3.ini`
 ## Definition of Done
 
 - U7의 복제 기록과 지속 guard가 있고 local의 graph·gateway·도구·검증·worker·설정·persistence가 자기 namespace만 의존한다.
-- 기존 v2 원본·worker와 기존 v3 36개 모듈·manifest·보존 검사가 그대로 유지된다. 새 v3 worker는 별도로 검증된다.
-- U8의 세 고유 graphVersion이 DB·HTTP·UI·평가기·각 worker에서 동작하고 기존 v1 기록도 보존된다. local을 v2로 alias하지 않는다.
+- 기존 V2 원본·워커와 복제 기준 manifest를 보존 검사로 확인한다.
+- U8의 두 고유 graphVersion이 DB·HTTP·UI·평가기·각 worker에서 동작하고 과거에 저장한 대화도 보존된다. local을 v2로 alias하지 않는다.
 - local DB·저장소·token·browser·PASS/cache/checkpoint가 cloud와 분리되고 복구 전에 버전·fingerprint를 확인한다.
 - Qwen/d1·필수 검토·예산·응답 양식이 보존되고 맥·일반 앱의 인터넷을 유지하면서 local 송신 제한을 검증한다.
 - V1–V7의 실제 명령·결과·실패·미검증 항목을 기록한다. 성적 보고만으로 핵심 정상 완료·변조 차단을 대체하지 않는다.
@@ -453,7 +446,6 @@ Python 검증은 기존 `npm run test:agent`, v3의 `agent/python/pytest-v3.ini`
 ## Sources and Research
 
 - v2 기준: `agent/python/src/kplasma_agent/graphs/v2.py`, `agent/python/src/kplasma_agent/v2/model_gateway.py`, `agent/python/src/kplasma_agent/v2/plan_review.py`, `agent/python/src/kplasma_agent/worker.py`, `agent/python/src/kplasma_agent/config.py`, `agent/python/src/kplasma_agent/model_client.py`, `agent/python/src/kplasma_agent/persistence/checkpointer.py`.
-- v3 복제: `docs/development/agent-v3-clone.md`, `agent/python/src/kplasma_agent/v3/clone-manifest.json`, `agent/python/tests/v3/test_clone_boundary.py`, `agent/python/tests/v3/test_clone_parity.py`. 기존 source-only 상태와 이번 활성화 목표를 구분한다.
 - 외부 계약: `backend/src/main/java/com/kplasma/analysisagent/agent/AgentRequestService.java`, `backend/src/main/java/com/kplasma/analysisagent/agent/v2/GraphVersionPolicy.java`, `backend/src/main/java/com/kplasma/analysisagent/agent/v2/V2Contracts.java`, `backend/src/main/java/com/kplasma/analysisagent/agent/v2/V2StepOrigins.java`, DB V12/V18, `agent/src/contracts/v2.ts`, `frontend/src/features/agent/references.ts`, `scripts/agent/flow-browser.mjs`.
 - [Qwen3.5-9B](https://huggingface.co/Qwen/Qwen3.5-9B), [MLX 4비트 변환본](https://huggingface.co/mlx-community/Qwen3.5-9B-4bit), [LiquidAI d1-2B](https://huggingface.co/LiquidAI/d1-2B), [공식 GGUF](https://huggingface.co/LiquidAI/d1-2B-GGUF): 모델·runtime·batch 제약.
 - [LM Studio Responses](https://lmstudio.ai/docs/developer/openai-compat/responses), [Structured Output](https://lmstudio.ai/docs/developer/openai-compat/structured-output), [Decisions](https://lmstudio.ai/docs/developer/openai-compat/decisions), [System One](https://lmstudio.ai/docs/developer/jev-compat/systemone), [인증](https://lmstudio.ai/docs/developer/core/authentication): 로컬 전송·schema·접근 통제.

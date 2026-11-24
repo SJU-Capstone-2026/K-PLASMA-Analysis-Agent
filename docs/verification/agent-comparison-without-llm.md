@@ -8,7 +8,7 @@
 
 새 schema 2/3 비교 응답은 `answerSnapshot.answer: null`을 사용한다. Python과 Java에서 null을 허용하되 수치·단위·관찰 출처·정확한 Run 버전 및 참조 목록의 검증은 유지한다. 공개 스키마의 기존 nullable 필드와 프론트의 결과 중심 렌더링을 사용하므로 새 필드나 DB 마이그레이션은 없다. 과거 설명이 포함된 저장 스냅샷은 기존 규칙으로 검증하며 재작성하지 않는다.
 
-기본 graph build는 `v1-2026-10-14.comparison-5`다. 변경된 그래프의 상태·연결과 이전 체크포인트를 섞지 않도록 기존 build fence를 사용한다. backend와 Python worker를 재시작한 뒤 새 질문으로 확인한다. 이전 build의 미완료 요청은 기존 정책에 따라 다시 제출한다. `AGENT_GRAPH_BUILD_ID`를 직접 지정한 환경은 해당 설정도 새 build에 맞춰 갱신해야 한다.
+변경된 그래프의 상태·연결과 이전 체크포인트를 섞지 않도록 기존 build fence를 사용한다. backend와 Python worker를 재시작한 뒤 새 질문으로 확인한다. 이전 build의 미완료 요청은 기존 정책에 따라 다시 제출한다. `AGENT_GRAPH_BUILD_ID`를 직접 지정한 환경은 해당 설정도 새 build에 맞춰 갱신해야 한다.
 
 ## 검증
 
@@ -30,6 +30,6 @@
 | `agent/python/.venv/bin/mypy agent/python/src` | 오류 없음, 24 source files |
 | `npm run verify:public-files`, `git diff --check` | 통과 |
 
-추가로 `mypy --config-file agent/python/pyproject.toml agent/python/src`를 실행하면 `explanations/answers.py`의 `run_groups` 타입 주석 누락과 `graphs/v1.py`의 기존 계산 함수 호출 인수 오류 두 건이 발생한다. 수정 전 HEAD 소스를 별도 임시 경로에서 같은 설정으로 검사해 동일한 두 오류를 확인했다. 이번 변경에서 발생한 오류는 아니며 관련 없는 수정은 포함하지 않았다.
+추가로 `mypy --config-file agent/python/pyproject.toml agent/python/src`를 실행하면 `explanations/answers.py`의 `run_groups` 타입 주석 누락과 당시 그래프의 계산 함수 호출 인수 오류 두 건이 발생한다. 수정 전 HEAD 소스를 별도 임시 경로에서 같은 설정으로 검사해 동일한 두 오류를 확인했다. 이번 변경에서 발생한 오류는 아니며 관련 없는 수정은 포함하지 않았다.
 
 로컬 변경분을 직접 검토했다. 외부 Codex 리뷰 실행은 저장소 변경분의 외부 전송 가능성을 이유로 자동 승인 검토에서 거부되어 수행하지 않았다. 팀원 리뷰를 대체하지 않는다.

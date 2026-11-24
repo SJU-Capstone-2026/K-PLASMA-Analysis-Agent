@@ -1,5 +1,6 @@
 package com.kplasma.analysisagent.workspace;
 
+import com.kplasma.analysisagent.agent.v2.GraphVersionPolicy;
 import com.kplasma.analysisagent.agent.v2.V2StepOrigins;
 
 import com.kplasma.analysisagent.contract.WorkspaceDto.*;
@@ -16,7 +17,8 @@ public class WorkspaceService {
     private static final Set<String> UI_KEYS=Set.of("collapsed","openRunIds","runDetailTabs","activeCandidateGroup","continuedRunId","lookupExpanded","selectedCandidateRunId");
     private final WorkspaceRepository repository;
     private final SnapshotValidator validate;
-    public WorkspaceService(WorkspaceRepository repository,SnapshotValidator validate){this.repository=repository;this.validate=validate;}
+    private final GraphVersionPolicy graphVersions;
+    public WorkspaceService(WorkspaceRepository repository,SnapshotValidator validate,GraphVersionPolicy graphVersions){this.repository=repository;this.validate=validate;this.graphVersions=graphVersions;}
     @Transactional public WorkspaceView load(){return repository.lock();}
     public static void epochs(StateToken submitted,StateToken current) {
         if(submitted==null)throw new IntakeException(INVALID,400,"StateToken is required");
@@ -93,6 +95,7 @@ public class WorkspaceService {
     }
     @Transactional public WorkspaceView newConversation(StateToken token,boolean decisionDemo){
         var current=repository.lock();epochs(token,current.stateToken());revision(token,current.stateToken());
+        if (decisionDemo) graphVersions.resolve(null, "v2");
         repository.newConversation(token,decisionDemo);return repository.lock();
     }
     @Transactional public WorkspaceView activateConversation(StateToken token,long conversation){

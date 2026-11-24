@@ -20,7 +20,7 @@ class ReverseQueryContextTest extends WorkspaceTestSupport {
     private void start() throws Exception {
         var request=ok("POST","/api/agent/requests",Map.of("text","인공 역방향 조건 조회","stateToken",token()),UUID.randomUUID().toString());
         path="/requests/"+request.get("requestId").stringValue();
-        var claimed=json(internal("/claim",Map.of("workerId","reverse-test","leaseSeconds",60)));
+        var claimed=json(internal("/claim",Map.of("workerId","reverse-test","leaseSeconds",60,"supportedGraphVersions",List.of("v2"))));
         fence=Map.of("claimGeneration",claimed.get("claimGeneration").longValue(),"requestRevision",claimed.get("requestRevision").longValue());
     }
     private Map<String,Object> body(Map<String,Object> fields) {var body=new HashMap<String,Object>(fence);body.putAll(fields);return body;}
@@ -108,7 +108,7 @@ class ReverseQueryContextTest extends WorkspaceTestSupport {
         assertThat(ids(selected)).isEmpty();assertThat(selected.get("referencedRuns").get(0).get("runVersionId").stringValue()).isEqualTo(old);
         assertThat(context(Map.of("reverseQuery",q))).isEqualTo(selected);
         jdbc.update("update agent_request set lease_until=now()-interval '1 second' where id=?",UUID.fromString(path.substring("/requests/".length())));
-        var reclaimed=json(internal("/claim",Map.of("workerId","restarted-worker","leaseSeconds",60)));
+        var reclaimed=json(internal("/claim",Map.of("workerId","restarted-worker","leaseSeconds",60,"supportedGraphVersions",List.of("v2"))));
         fence=Map.of("claimGeneration",reclaimed.get("claimGeneration").longValue(),"requestRevision",reclaimed.get("requestRevision").longValue());
         assertThat(context(Map.of("reverseQuery",q))).isEqualTo(selected);
         var changed=internal(path+"/context",body(Map.of("reverseQuery",query(List.of(range(1,30)),List.of()))));assertThat(changed.statusCode()).isEqualTo(409);

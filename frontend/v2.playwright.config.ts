@@ -19,7 +19,7 @@ export default defineConfig({
     command: `npm run dev -- --port ${port} --strictPort`,
     url: `http://127.0.0.1:${port}`, reuseExistingServer: false,
     env: {VITE_API_TARGET: process.env.KPLASMA_E2E_API ?? 'http://127.0.0.1:8080',
-      VITE_AGENT_SUPPORTED_GRAPH_VERSIONS:graphVersion==='v2_localLLM'?'v2_localLLM':'v1,v2',
-      VITE_AGENT_DEFAULT_GRAPH_VERSION:graphVersion==='v2_localLLM'?'v2_localLLM':'v1'},
+      VITE_AGENT_SUPPORTED_GRAPH_VERSIONS:graphVersion==='v2_localLLM'?'v2_localLLM':'v2',
+      VITE_AGENT_DEFAULT_GRAPH_VERSION:graphVersion==='v2_localLLM'?'v2_localLLM':'v2'},
   },
 });

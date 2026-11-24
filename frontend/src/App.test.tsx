@@ -7,3 +7,13 @@ test('original shell navigates five views, keeps analysis state, and closes mobi
  fireEvent.click(screen.getByRole('button',{name:'실험 데이터 탐색'}));expect(screen.getByText('Analysis slot')).toBeInTheDocument();expect(menu).toHaveAttribute('aria-expanded','false');expect(document.getElementById('view-root')).toHaveFocus();fireEvent.click(screen.getByRole('button',{name:'사용 방법'}));expect(screen.getByText('세 단계로 사용하는 PLASMATE')).toBeInTheDocument();expect(document.querySelector('.nav-tools')).toHaveAttribute('open');
  fireEvent.click(screen.getByRole('button',{name:'분석 Agent 시작'}));expect(screen.getByText('Agent slot')).toBeInTheDocument();expect(document.querySelector('.nav-tools')).not.toHaveAttribute('open');fireEvent.click(screen.getByRole('button',{name:'분석 Agent'}));expect(scrollTo).toHaveBeenCalledTimes(4);
 });
+
+test('local-only deployment only offers the analysis Agent',()=>{
+ vi.stubEnv('VITE_AGENT_SUPPORTED_GRAPH_VERSIONS','v2_localLLM');
+ vi.stubEnv('VITE_AGENT_DEFAULT_GRAPH_VERSION','v2_localLLM');
+ try{
+  render(<App pages={{agent:()=> <p>Local analysis</p>}}/>);
+  expect(screen.getByText('Local analysis')).toBeInTheDocument();
+  expect(screen.queryByRole('button',{name:/^의사결정 Agent$/})).not.toBeInTheDocument();
+ }finally{vi.unstubAllEnvs();}
+});

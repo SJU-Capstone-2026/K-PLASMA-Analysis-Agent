@@ -32,12 +32,3 @@ def test_no_match_does_not_return_nearest_runs():
     assert result['commonRunRefs']==[]
     assert result['runsByVersion']=={}
     assert result['usedRunRefs']==[]
-
-
-def test_relative_reference_roles_are_deduplicated_without_adding_catalog_references():
-    from kplasma_agent.graphs.v1 import _reverse_context_refs
-    ref = {"runId": "SYNTHETIC", "runVersionId": "immutable", "note": "extra"}
-    assert _reverse_context_refs({"activeRun": ref, "selectedRunRef": ref,
-                                  "candidateReferences": [{"runId": "OTHER", "runVersionId": "other"}]}) == [
-        {"runId": "SYNTHETIC", "runVersionId": "immutable"}
-    ]

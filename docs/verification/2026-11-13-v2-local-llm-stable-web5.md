@@ -88,6 +88,6 @@ warning 회복·재발 초기화·두 모델 sleep·지속 warning60초·critica
 
 고정 모델 Qwen3.5-9B GGUF Q4_K_M / d1-2B Q8_0, llama.cpp b12317/Metal, context24,576 / Qwen batch·ubatch256,
 입력16,000 / 계획 출력6,000 / writer3,000 / 생각 예산2,048을 유지했다.
-기존v2/v3 소스49개 hash, local 그래프·도구·답변 계약, PlanDraft/native submit_plan schema와 실제 평가 manifest의 Python source hashes 일치를 확인했다.
+기존보호 대상 그래프 소스49개 hash, local 그래프·도구·답변 계약, PlanDraft/native submit_plan schema와 실제 평가 manifest의 Python source hashes 일치를 확인했다.
 LM Studio는 종료 상태를 유지했고 다른 주요 앱과 원래 d1은 유지했다. 이번 소유 Qwen·격리 DB·백엔드·웹만 정리했다.
 원래 앱의 활성 private 프로필로 승격하지 않았으며, commit/push/PR은 실행하지 않았다.

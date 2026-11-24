@@ -25,9 +25,12 @@ class AgentRequestPersistenceTest extends WorkspaceTestSupport {
             jdbc.update("insert into run(run_id) values (?)",runId);jdbc.update("insert into run_version(id,run_id,source_id,registered_at,summary,full_run) values (?,?,?,now(),?::jsonb,?::jsonb)",version,runId,source,full.toString(),full.toString());
             jdbc.update("update run set current_version_id=? where run_id=?",version,runId);refs.add(mapper.valueToTree(Map.of("runId",runId,"runVersionId",version.toString())));
         }
-        var chosen=refs.subList(0,size);var saved=turn();saved.set("answerRunRefs",mapper.valueToTree(chosen));
-        ok("POST","/api/workspace/turns",Map.of("stateToken",token(),"turn",saved),"bulk-turn");
-        var origins=chosen.stream().map(ref->Map.of("ref",ref,"kind","run_tag","turnId",saved.get("id").stringValue())).toList();
+        var chosen=refs.subList(0,size);
+        var reference=new HashMap<String,Object>();
+        reference.put("stateToken",token());reference.put("activeRun",null);
+        reference.put("candidateReference",Map.of("kind","후보 집합","runs",chosen,"catalogRefs",chosen));
+        ok("PUT","/api/workspace/reference",reference,null);
+        var origins=chosen.stream().map(ref->Map.of("ref",ref,"kind","catalog_tag")).toList();
         var job=ok("POST","/api/agent/requests",Map.of("text","선택한 실험 비교","stateToken",token(),"attachedRunRefs",chosen,"referenceOrigins",origins),"bulk-request");
         var claimed=claim();String path="/requests/"+job.get("requestId").stringValue();internal(path+"/heartbeat",mutation(claimed,"operationKind","compare_runs"));
         var input=new HashMap<>(fence(claimed));input.put("referencesOnly",true);input.put("requiredRunRefs",chosen);
@@ -53,11 +56,11 @@ class AgentRequestPersistenceTest extends WorkspaceTestSupport {
             .allSatisfy(sql->assertThat(sql).doesNotContain("source_file", "o.display"));
         System.out.printf("Comparison output snapshot SQL: runs=%d batches=%d statements=%d%n",size,(size+24)/25,outputSql.size());
     }
-    @Test void runPickerPagesCurrentCatalogueAndResumePinsOnlySelectedVersions() throws Exception {
+    @Test void frozenRunOptionsResumePinsOnlySelectedVersions() throws Exception {
         var job=accepted();var claimed=claim();String path="/requests/"+job.get("requestId").stringValue();
         internal(path+"/heartbeat",mutation(claimed,"operationKind","compare_runs"));
-        internal(path+"/needs-input",mutation(claimed,"pendingInput",Map.of("type","run_selection","id","pick","message","비교할 실험을 선택해 주세요","minSelections",2,"baselineRequired",false,"optionsUrl","/api/agent"+path+"/run-options?format=2&pendingInputId=pick")));
-        var options=ok("GET","/api/agent"+path+"/run-options?format=2&pendingInputId=pick",null,null);
+        internal(path+"/needs-input",mutation(claimed,"pendingInput",Map.of("type","run_selection","id","pick","message","비교할 실험을 선택해 주세요","minSelections",2,"baselineRequired",false,"optionsUrl","/api/agent"+path+"/run-options?pendingInputId=pick")));
+        var options=ok("GET","/api/agent"+path+"/run-options?pendingInputId=pick",null,null);
         assertThat(options.get("options").size()).isEqualTo(4);
         var input=Map.of("expectedRequestRevision",0,"pendingInputId","pick","input",Map.of("type","run_selection","runKeys",List.of("R1","R3")));
         var resumed=ok("POST","/api/agent"+path+"/resume",input,"pick-input");
@@ -70,13 +73,14 @@ class AgentRequestPersistenceTest extends WorkspaceTestSupport {
         assertThat(manifest.get("catalogRunRefs").size()).isZero();
         assertThat(ok("POST","/api/agent"+path+"/resume",input,"pick-input").get("requestId")).isEqualTo(resumed.get("requestId"));
     }
-    @Test void deletedUnselectedRunLeavesCatalogueAndOnlySelectedDeletionCancelsComparison()throws Exception{
+    @Test void deletedUnselectedVersionIsDisabledAndOnlySelectedDeletionCancelsComparison()throws Exception{
         var job=accepted();var claimed=claim();String path="/requests/"+job.get("requestId").stringValue();
         internal(path+"/heartbeat",mutation(claimed,"operationKind","compare_runs"));
         internal(path+"/needs-input",mutation(claimed,"pendingInput",Map.of("type","run_selection","id","pick","message","실험 선택","minSelections",2,"baselineRequired",false)));
         ok("POST","/api/runs/delete",Map.of("runIds",List.of("SYNTHETIC-3")),null);
-        var options=ok("GET","/api/agent"+path+"/run-options?format=2&pendingInputId=pick",null,null);
-        assertThat(options.get("options").size()).isEqualTo(3);
+        var options=ok("GET","/api/agent"+path+"/run-options?pendingInputId=pick",null,null);
+        assertThat(options.get("options").size()).isEqualTo(4);
+        assertThat(options.get("options").get(3).get("selectable").asBoolean()).isFalse();
         var bad=send("POST","/api/agent"+path+"/resume",Map.of("expectedRequestRevision",0,"pendingInputId","pick","input",Map.of("type","run_selection","runKeys",List.of("R1","R4"))),"deleted-option");assertThat(bad.statusCode()).isEqualTo(400);
         ok("POST","/api/agent"+path+"/resume",Map.of("expectedRequestRevision",0,"pendingInputId","pick","input",Map.of("type","run_selection","runKeys",List.of("R1","R2"))),"valid-option");
         var next=claim();ok("POST","/api/runs/delete",Map.of("runIds",List.of("SYNTHETIC-2")),null);
@@ -90,9 +94,7 @@ class AgentRequestPersistenceTest extends WorkspaceTestSupport {
         internal(path+"/heartbeat",mutation(claimed,"operationKind","generate_answer"));
         ok("POST","/api/runs/delete",Map.of("runIds",List.of("SYNTHETIC-0")),null);
         assertThat(ok("GET","/api/agent"+path,null,null).get("status").stringValue()).isEqualTo("RUNNING");
-        var fixture=mapper.readTree(java.nio.file.Files.readString(java.nio.file.Path.of("../agent/tests/support/answer-v2-wire.json")));
-        var snapshot=(tools.jackson.databind.node.ObjectNode)fixture.get("general").deepCopy();snapshot.put("originalQuestion","설명해줘");
-        var answer=new HashMap<String,Object>();answer.put("intent","GENERAL_ANSWER");answer.put("status","ANSWER_READY");answer.put("candidates",List.of());answer.put("explanation",null);answer.put("usedRunRefs",List.of());answer.put("answerSnapshot",snapshot);
+        var answer=v2GeneralAnswer("설명해줘","개념 설명");
         assertThat(internal(path+"/finalize",mutation(claimed,"answer",answer)).get("status").stringValue()).isEqualTo("COMPLETED");
         assertThat(jdbc.queryForObject("select manifest is null from agent_request where id=?",Boolean.class,UUID.fromString(job.get("requestId").stringValue()))).isTrue();
     }
@@ -109,7 +111,7 @@ class AgentRequestPersistenceTest extends WorkspaceTestSupport {
     private JsonNode accepted() throws Exception {return ok("POST","/api/agent/requests",Map.of("text","설명해줘","stateToken",token()),UUID.randomUUID().toString());}
     private Map<String,Object> fence(JsonNode claim){return Map.of("claimGeneration",claim.get("claimGeneration").longValue(),"requestRevision",claim.get("requestRevision").longValue());}
     private Map<String,Object> mutation(JsonNode claim,String key,Object value){var body=new HashMap<>(fence(claim));body.put(key,value);return body;}
-    private JsonNode claim() throws Exception {return internal("/claim",Map.of("workerId","test-worker","leaseSeconds",60));}
+    private JsonNode claim() throws Exception {return internal("/claim",Map.of("workerId","test-worker","leaseSeconds",60,"supportedGraphVersions",List.of("v2")));}
     @Test void acceptedRequestIsDurableAndExactRetryCreatesOnlyOneJob() throws Exception {
         var body=Map.of("text","이온 플럭스를 설명해줘","stateToken",token());
         var accepted=ok("POST","/api/agent/requests",body,"request-a");
@@ -121,7 +123,7 @@ class AgentRequestPersistenceTest extends WorkspaceTestSupport {
         assertThat(message.get("question").stringValue()).isEqualTo("이온 플럭스를 설명해줘");
         assertThat(message.get("requestId")).isEqualTo(accepted.get("requestId"));
         assertThat(state().get("agentMessages").size()).isEqualTo(1);
-        var claim=internal("/claim",Map.of("workerId","test-worker","leaseSeconds",60));
+        var claim=internal("/claim",Map.of("workerId","test-worker","leaseSeconds",60,"supportedGraphVersions",List.of("v2")));
         assertThat(claim.get("request").get("requestId")).isEqualTo(accepted.get("requestId"));
         assertThat(claim.get("claimGeneration").longValue()).isEqualTo(1);
     }
@@ -141,7 +143,7 @@ class AgentRequestPersistenceTest extends WorkspaceTestSupport {
     @Test void conceptFinalizationIsAtomicReplayableAndDoesNotRequireAnyRun() throws Exception {
         var job=accepted();var claim=claim();String path="/requests/"+job.get("requestId").stringValue();
         internal(path+"/checkpoint",mutation(claim,"payload",Map.of("draft","private-state")));
-        var answer=Map.of("intent","CONCEPT_EXPLANATION","status","SUCCESS","candidates",List.of(),"usedRunRefs",List.of(),"answerSnapshot",Map.of("implementationId","v1","kind","explain_concept","summary","개념 설명"));
+        var answer=v2GeneralAnswer("설명해줘","개념 설명");
         var completed=internal(path+"/finalize",mutation(claim,"answer",answer));assertThat(completed.get("status").stringValue()).isEqualTo("COMPLETED");
         assertThat(internal(path+"/finalize",mutation(claim,"answer",answer))).isEqualTo(completed);
         assertThat(state().get("conversation").get("turns").size()).isEqualTo(1);
@@ -154,8 +156,7 @@ class AgentRequestPersistenceTest extends WorkspaceTestSupport {
         ok("POST","/api/workspace/new-conversation",Map.of("stateToken",token()),null);
         var otherToken=token();
         internal(path+"/heartbeat",mutation(claimed,"operationKind","explain_concept"));
-        var answer=Map.of("intent","CONCEPT_EXPLANATION","status","SUCCESS","candidates",List.of(),"usedRunRefs",List.of(),
-            "answerSnapshot",Map.of("implementationId","v1","kind","explain_concept","summary","원래 방의 설명"));
+        var answer=v2GeneralAnswer("설명해줘","원래 방의 설명");
         assertThat(internal(path+"/finalize",mutation(claimed,"answer",answer)).get("status").stringValue()).isEqualTo("COMPLETED");
         assertThat(state().get("conversation").get("turns").size()).isZero();
         assertThat(state().get("agentMessages").size()).isZero();
@@ -207,29 +208,6 @@ class AgentRequestPersistenceTest extends WorkspaceTestSupport {
         reference.put("stateToken",token());reference.put("activeRun",refs.get(1));ok("PUT","/api/workspace/reference",reference,null);
         assertThat(ok("GET","/api/agent"+path,null,null).get("status").stringValue()).isEqualTo("CANCELLED");
     }
-    @Test void unclassifiedConceptSurvivesRunDeletionButDependentClassificationIsFenced() throws Exception {
-        Map<String,Object> reference=new HashMap<>();reference.put("stateToken",token());reference.put("candidateReference",null);reference.put("activeRun",refs.getFirst());ok("PUT","/api/workspace/reference",reference,null);
-        var concept=accepted();String conceptPath="/requests/"+concept.get("requestId").stringValue();
-        ok("POST","/api/runs/delete",Map.of("runIds",List.of("SYNTHETIC-0")),null);
-        assertThat(ok("GET","/api/agent"+conceptPath,null,null).get("status").stringValue()).isEqualTo("QUEUED");
-        var conceptClaim=claim();var kind=new HashMap<>(fence(conceptClaim));kind.put("operationKind","explain_concept");kind.put("dependsOnContext",false);
-        assertThat(internal(conceptPath+"/heartbeat",kind).get("status").stringValue()).isEqualTo("RUNNING");
-        ok("POST","/api/agent"+conceptPath+"/cancel",Map.of(),null);
-        reference.put("stateToken",token());reference.put("activeRun",refs.get(1));ok("PUT","/api/workspace/reference",reference,null);
-        var dependent=accepted();String dependentPath="/requests/"+dependent.get("requestId").stringValue();var old=claim();
-        internal(dependentPath+"/checkpoint",mutation(old,"payload",Map.of("saved","before-classification")));
-        ok("POST","/api/runs/delete",Map.of("runIds",List.of("SYNTHETIC-1")),null);
-        var classified=new HashMap<>(fence(old));classified.put("operationKind","compare_runs");classified.put("dependsOnContext",true);
-        assertThat(internal(dependentPath+"/heartbeat",classified).get("status").stringValue()).isEqualTo("CANCELLED");
-        assertThat(internalResponse(dependentPath+"/checkpoint",mutation(old,"payload",Map.of("late",true))).statusCode()).isEqualTo(409);
-    }
-    @Test void unclassifiedReferenceChangeDefersCancellationUntilDependenciesAreKnown() throws Exception {
-        var job=accepted();String path="/requests/"+job.get("requestId").stringValue();var before=claim();
-        Map<String,Object> reference=new HashMap<>();reference.put("stateToken",token());reference.put("candidateReference",null);reference.put("activeRun",refs.getFirst());ok("PUT","/api/workspace/reference",reference,null);
-        assertThat(ok("GET","/api/agent"+path,null,null).get("status").stringValue()).isEqualTo("RUNNING");
-        var classified=new HashMap<>(fence(before));classified.put("operationKind","compare_runs");classified.put("dependsOnContext",true);
-        assertThat(internal(path+"/heartbeat",classified).get("status").stringValue()).isEqualTo("CANCELLED");
-    }
     @Test void manifestPinsCatalogAndAcceptsAdditionalExactHistoricalVersionsWithoutRefreshingLatest() throws Exception {
         var job=accepted();var claim=claim();String path="/requests/"+job.get("requestId").stringValue();
         var first=internal(path+"/context",mutation(claim,"requiredRunRefs",List.of(refs.getFirst())));assertThat(first.get("runs").size()).isEqualTo(4);
@@ -240,16 +218,22 @@ class AgentRequestPersistenceTest extends WorkspaceTestSupport {
         var second=internal(path+"/context",mutation(claim,"requiredRunRefs",List.of(Map.of("runId","SYNTHETIC-0","runVersionId",newer.toString()))));
         assertThat(second.get("runs")).isEqualTo(first.get("runs"));assertThat(second.get("referencedRuns").size()).isEqualTo(2);
     }
-    @Test void v1AcceptsQuestionAfterPreservedLegacyTurnWithoutKind() throws Exception {
-        ok("POST","/api/workspace/turns",Map.of("stateToken",token(),"turn",turn()),"legacy-turn");
-        assertThat(accepted().get("status").stringValue()).isEqualTo("QUEUED");
+    @Test void legacyConversationStaysReadableAndCannotEnqueueNewWork() throws Exception {
+        var saved=turn();
+        ok("POST","/api/workspace/turns",Map.of("stateToken",token(),"turn",saved),"legacy-turn");
+        var rejected=send("POST","/api/agent/requests",Map.of("text","설명해줘","stateToken",token()),"retired-graph");
+        assertThat(rejected.statusCode()).isEqualTo(409);
+        assertThat(json(rejected).path("code").asString()).isEqualTo("GRAPH_VERSION_RETIRED");
+        assertThat(state().path("conversation").path("turns").get(0).path("answerSnapshot")).isEqualTo(saved.path("answerSnapshot"));
+        ok("POST","/api/workspace/new-conversation",Map.of("stateToken",token()),null);
+        assertThat(accepted().path("graphVersion").asString()).isEqualTo("v2");
     }
     @Test void workerTokenIsRequiredAndUiOnlyRevisionChangesDoNotInvalidateFinalizer() throws Exception {
         assertThat(send("POST","/internal/agent/claim",Map.of("workerId","unauthorized","leaseSeconds",60),null).statusCode()).isEqualTo(401);
         var job=accepted();var claim=claim();String path="/requests/"+job.get("requestId").stringValue();
         var t=turn();ok("POST","/api/workspace/turns",Map.of("stateToken",token(),"turn",t),"unrelated-turn");
         ok("PATCH","/api/workspace/turns/"+t.get("id").stringValue()+"/ui",Map.of("stateToken",token(),"ui",Map.of("collapsed",true)),null);
-        var answer=Map.of("intent","CONCEPT_EXPLANATION","status","SUCCESS","candidates",List.of(),"usedRunRefs",List.of(),"answerSnapshot",Map.of("implementationId","v1","kind","explain_concept","summary","설명"));
+        var answer=v2GeneralAnswer("설명해줘","설명");
         assertThat(internal(path+"/finalize",mutation(claim,"answer",answer)).get("status").stringValue()).isEqualTo("COMPLETED");
     }
     @Test void deletingPinnedRunCancelsWorkAndPreventsLateFinalization() throws Exception {
@@ -299,9 +283,10 @@ class AgentRequestPersistenceTest extends WorkspaceTestSupport {
     @Test void deletingRunFromOldAnswerDoesNotBlockUnrelatedNewQuery() throws Exception {
         ok("POST","/api/workspace/turns",Map.of("stateToken",token(),"turn",turn()),"old-answer");
         ok("POST","/api/runs/delete",Map.of("runIds",List.of("SYNTHETIC-0")),null);
+        assertThat(state().get("conversation").get("turns").size()).isEqualTo(1);
+        ok("POST","/api/workspace/new-conversation",Map.of("stateToken",token()),null);
         var job=accepted();var claim=claim();
         var context=internal("/requests/"+job.get("requestId").stringValue()+"/context",mutation(claim,"requiredRunRefs",List.of()));
         assertThat(context.get("runs").size()).isEqualTo(3);
-        assertThat(state().get("conversation").get("turns").size()).isEqualTo(1);
     }
 }

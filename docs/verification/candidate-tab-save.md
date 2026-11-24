@@ -1,6 +1,8 @@
 # 후보 결과 탭의 즉시 화면 반영
 
-2026-10-05. `feat/agent-graph-v1`의 후속 수정이다. 사용자가 선택한 탭을 먼저 표시하고 서버에 저장하도록 요청했다.
+> 당시 검증 기록이다. 현재 화면 검증은 [팀 실행 가이드](../development.md#검증)를 따른다.
+
+2026-10-05. 기존 후보 탭 표시의 후속 수정이다. 사용자가 선택한 탭을 먼저 표시하고 서버에 저장하도록 요청했다.
 
 기존에는 UI PATCH 응답을 받은 뒤 결과 탭을 변경했다. 이제 `activeCandidateGroup`만 브라우저 화면에 즉시 반영한다. 서버가 확인한 답변 snapshot과 revision은 별도로 유지하고, PATCH는 기존 순차 저장 큐에서 최신 서버 토큰으로 실행한다. 아직 저장되지 않은 최신 탭은 이전 PATCH나 그래프 결과 조회 응답이 도착해도 유지한다.
 
@@ -15,6 +17,6 @@
 - `candidate-tab-save.test.tsx`: 응답 전 탭 표시, 최신 선택 보호, 저장 후 reload, 거절·응답 유실 복구, 참조 변경과 탭 저장 순서, 새 대화·초기화, 복구 조회 중단 직후 초기화를 검증한다. 주요 실패 시나리오의 RED→GREEN을 확인했다.
 - `npm test`: 프런트엔드 141개, TS Agent 33개, 검증 도구 34개 통과. 기존 외부 원본 전용 네 건은 skip이다.
 - `npm run typecheck`, `npm run lint`, `npm run build`, `git diff --check`: 통과.
-- `KPLASMA_BROWSER_EXECUTABLE=<설치된 Chromium> npx playwright test --config src/features/agent/agent-v1.playwright.config.ts agent-v1.pw.ts` (`frontend/`에서 실행): 390 / 800 / 1008 / 1440px 네 건 통과. 응답을 보류한 상태의 실제 탭 클릭과 최신 선택 유지, 저장 후 reload, 모달·상세·가로 넘침을 확인했다.
+- 당시 화면 회귀 검사: 390 / 800 / 1008 / 1440px 네 건 통과. 응답을 보류한 상태의 실제 탭 클릭과 최신 선택 유지, 저장 후 reload, 모달·상세·가로 넘침을 확인했다.
 
 브라우저는 독립 인공 API 응답을 사용했다. 사용자 DB를 변경하거나 모델을 호출하지 않았다. 외부 프로토타입의 별도 시각 대조와 실제 HTTP/DB 종단 테스트는 이번 수정에서 재실행하지 않았다. 최초 브라우저 실행은 샌드박스의 로컬 포트 제한으로 서버 시작에 실패했고, 허용된 실행 환경의 재실행으로 검증했다.

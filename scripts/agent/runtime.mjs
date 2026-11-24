@@ -1,5 +1,5 @@
 import {spawn,spawnSync} from 'node:child_process';
-import {randomUUID,randomBytes} from 'node:crypto';
+import {randomUUID} from 'node:crypto';
 import {createWriteStream} from 'node:fs';
 import {readFile,writeFile,mkdir} from 'node:fs/promises';
 import {join} from 'node:path';
@@ -34,56 +34,30 @@ export function assertLocalReadiness(python,envFile,env=process.env){
     ||!Array.isArray(status.blockers)||status.blockers.length)throw new Error('LOCAL_RUNTIME_NOT_READY');
 }
 
-function sessionOrigin(value){
+function localOrigin(value){
   try{
     const url=new URL(value);
     if(url.protocol==='http:'&&['127.0.0.1','[::1]'].includes(url.hostname)
       &&url.port&&!url.username&&!url.password&&!url.search&&!url.hash&&value===url.origin)return value;
-  }catch{ /* Report no supplied URL or token. */ }
-  throw new Error('LOCAL_SESSION_ORIGIN_INVALID');
-}
-
-/** The one-time credential stays in memory; only the session cookie goes to the private connection file. */
-export function createLocalSession({api,uiOrigin,bootstrapToken,connection,metadata}){
-  sessionOrigin(api);sessionOrigin(uiOrigin);
-  if(!/^[A-Za-z0-9_-]{16,128}$/.test(bootstrapToken??''))throw new Error('LOCAL_BOOTSTRAP_INVALID');
-  const headers={};
-  return {headers,async refresh(){
-    for(const key of Object.keys(headers))delete headers[key];
-    let response;
-    try{
-      response=await fetch(new URL('/api/local-runtime/session',api),{method:'POST',redirect:'error',
-        headers:{Origin:uiOrigin,'Sec-Fetch-Site':'same-site','X-Local-Bootstrap':bootstrapToken}});
-    }catch{throw new Error('LOCAL_SESSION_BOOTSTRAP_FAILED');}
-    if(response.status!==204)throw new Error('LOCAL_SESSION_BOOTSTRAP_FAILED');
-    const cookies=response.headers.getSetCookie().filter(value=>value.startsWith('KPLASMA_LOCAL_SESSION='));
-    const cookie=cookies.length===1?cookies[0]:'';
-    const value=/^KPLASMA_LOCAL_SESSION=([A-Za-z0-9_-]{32,128})(?:;|$)/.exec(cookie);
-    if(!value||!/(?:^|;)\s*HttpOnly(?:;|$)/i.test(cookie)||!/(?:^|;)\s*SameSite=Strict(?:;|$)/i.test(cookie)
-      ||!/(?:^|;)\s*Path=\/api(?:;|$)/i.test(cookie))throw new Error('LOCAL_SESSION_COOKIE_INVALID');
-    Object.assign(headers,{Origin:uiOrigin,'Sec-Fetch-Site':'same-site',Cookie:`KPLASMA_LOCAL_SESSION=${value[1]}`});
-    metadata.uiOrigin=uiOrigin;metadata.sessionCookie=headers.Cookie;
-    await writeFile(connection,JSON.stringify(metadata),{mode:0o600});
-  }};
+  }catch{ /* Report no supplied URL. */ }
+  throw new Error('LOCAL_BROWSER_ORIGIN_INVALID');
 }
 
 /** Owns only its freshly created synthetic DB, storage and child processes. */
-export async function startV1Environment(output,mode='stub',options={}){
-  const graphVersion=options.graphVersion??(mode==='stub'?'v1':'v2');
-  if(mode==='stub'&&graphVersion!=='v1')throw new Error('Variant graphs require their own scripted worker');
+export async function startEvaluationEnvironment(output,mode='stub',options={}){
+  const graphVersion=options.graphVersion??'v2';
   const envFile=options.envFile??process.env.KPLASMA_VERIFY_ENV_FILE;
   const python=process.env.KPLASMA_VERIFY_PYTHON??join(repo,'agent/python/.venv',process.platform==='win32'?'Scripts/python.exe':'bin/python');
-  if(mode!=='stub')runtimeWorkerSpec(graphVersion,{live:mode==='live',envFile});
+  const workerSpec=runtimeWorkerSpec(graphVersion,{live:mode==='live',envFile});
   if(graphVersion==='v2_localLLM'&&mode==='live'){
     assertLocalReadiness(python,envFile,{...process.env,PYTHONPATH:join(repo,'agent/python/src')});
   }
   const isLocal=graphVersion==='v2_localLLM';
-  const uiOrigin=isLocal?sessionOrigin(options.uiOrigin):undefined;
-  const bootstrapToken=isLocal?randomBytes(32).toString('base64url'):undefined;
+  const uiOrigin=isLocal?localOrigin(options.uiOrigin):undefined;
   await mkdir(output,{recursive:true});
   const token=randomUUID();const previous=process.env.AGENT_WORKER_TOKEN;
   const versionKeys=['AGENT_SUPPORTED_GRAPH_VERSIONS','AGENT_DEFAULT_GRAPH_VERSION',
-    'AGENT_LOCAL_RUNTIME_ENABLED','AGENT_LOCAL_UI_ORIGIN','AGENT_LOCAL_API_HOST','AGENT_LOCAL_BOOTSTRAP_TOKEN'];
+    'AGENT_LOCAL_RUNTIME_ENABLED','AGENT_LOCAL_UI_ORIGIN','AGENT_LOCAL_API_HOST'];
   const oldVersions=Object.fromEntries(versionKeys.map(key=>[key,process.env[key]]));
   let backend,worker;
   async function close(){
@@ -93,11 +67,11 @@ export async function startV1Environment(output,mode='stub',options={}){
   try{
     try{
       process.env.AGENT_WORKER_TOKEN=token;
+      process.env.AGENT_SUPPORTED_GRAPH_VERSIONS=graphVersion;
+      process.env.AGENT_DEFAULT_GRAPH_VERSION=graphVersion;
       if(isLocal){
-        process.env.AGENT_SUPPORTED_GRAPH_VERSIONS='v2_localLLM';
-        process.env.AGENT_DEFAULT_GRAPH_VERSION='v2_localLLM';
         process.env.AGENT_LOCAL_RUNTIME_ENABLED='true';process.env.AGENT_LOCAL_UI_ORIGIN=uiOrigin;
-        process.env.AGENT_LOCAL_API_HOST='';process.env.AGENT_LOCAL_BOOTSTRAP_TOKEN=bootstrapToken;
+        process.env.AGENT_LOCAL_API_HOST='';
       }
       backend=await startBackend(output,'2026-10-05T00:00:00Z');
     }finally{
@@ -107,9 +81,8 @@ export async function startV1Environment(output,mode='stub',options={}){
     const connection=join(output,'connection.json');
     const metadata={url:backend.url,token,workerToken:token,output,graphVersion,
       data:'artificial-only',evaluationMode:mode==='live'?'real_model_on_artificial_data':'synthetic'};
-    const session=isLocal?createLocalSession({api:backend.url,uiOrigin,bootstrapToken,connection,metadata}):null;
-    const headers=session?.headers??{};
-    if(session)await session.refresh();
+    const headers=isLocal?{Origin:uiOrigin,'Sec-Fetch-Site':'same-site'}:{};
+    if(isLocal)metadata.uiOrigin=uiOrigin;
     const folder=await syntheticFolder(output,{decisionDemo:graphVersion==='v2'&&options.decisionDemo});
     for(const pressure of [4,6]){
       const path=join(folder,`artificial-${pressure}/0d_result/log/solver.log`);
@@ -120,13 +93,11 @@ export async function startV1Environment(output,mode='stub',options={}){
     if((await terminalBatch(backend.url,accepted.batchId,headers)).status!=='SUCCESS')throw new Error('Synthetic import failed');
     await writeFile(connection,JSON.stringify(metadata),{mode:0o600});
     if(mode!=='none'){
-      const args=mode==='stub'?['agent/python/tests/runtime_worker.py','--connection',connection]:
-        runtimeWorkerSpec(graphVersion,{live:mode==='live',envFile}).concat(mode==='live'?[]:['--connection',connection]);
+      const args=mode==='live'?workerSpec:workerSpec.concat('--connection',connection);
       const env={...process.env,PHOENIX_COLLECTOR_ENDPOINT:'',PHOENIX_API_KEY:'',AGENT_BACKEND_URL:backend.url,AGENT_WORKER_TOKEN:token,PYTHONPATH:join(repo,'agent/python/src')};
       if(mode==='live'&&isLocal){
         env.AGENT_V2_LOCAL_LLM_BACKEND_URL=backend.url;env.AGENT_V2_LOCAL_LLM_WORKER_TOKEN=token;
       }else if(mode==='live'){
-        env.OPENAI_MODEL='gpt-5.6-luna';env.OPENAI_REASONING_EFFORT='none';
         env.AGENT_V2_PLAN_REVIEW_ENABLED='true';
         env.AGENT_MODEL_TIMEOUT_SECONDS='90';
       }
@@ -135,9 +106,6 @@ export async function startV1Environment(output,mode='stub',options={}){
       const log=createWriteStream(join(output,'worker.log'));worker.stdout.pipe(log,{end:false});worker.stderr.pipe(log,{end:false});worker.on('exit',()=>log.end());
       metadata.workerPid=worker.pid;await writeFile(connection,JSON.stringify(metadata),{mode:0o600});
     }
-    return {url:backend.url,connection,worker,close,headers,graphVersion,restartBackend:async()=>{
-      await backend.restart();
-      if(session)await session.refresh();
-    }};
+    return {url:backend.url,connection,worker,close,headers,graphVersion,restartBackend:()=>backend.restart()};
   }catch(error){await close();throw error;}
 }

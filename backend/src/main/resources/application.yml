@@ -33,8 +33,8 @@ spring:
 kplasma:
   storage-root: ${KPLASMA_STORAGE_ROOT:./storage}
   agent:
-    supported-graph-versions: ${AGENT_SUPPORTED_GRAPH_VERSIONS:v1,v2}
-    default-graph-version: ${AGENT_DEFAULT_GRAPH_VERSION:v1}
+    supported-graph-versions: ${AGENT_SUPPORTED_GRAPH_VERSIONS:v2}
+    default-graph-version: ${AGENT_DEFAULT_GRAPH_VERSION:v2}
     worker-token: ${AGENT_WORKER_TOKEN:}
     local-worker-token: ${AGENT_LOCAL_WORKER_TOKEN:}
     model-timeout-seconds: ${AGENT_MODEL_TIMEOUT_SECONDS:90}

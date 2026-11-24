@@ -1,7 +1,7 @@
 [project]
 name = "kplasma-agent"
 version = "1.0.0"
-description = "K-PLASMA durable LangGraph v1 worker"
+description = "K-PLASMA durable LangGraph v2 and LocalLLM workers"
 requires-python = ">=3.12,<3.14"
 dependencies = [
   "langgraph>=1.0,<2",

@@ -8,10 +8,14 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class GraphVersionPolicyTest {
     @Test void deploymentDefaultsAndClaimsNeverImplicitlyEnableAnotherRuntime() {
-        var cloud = new GraphVersionPolicy("v1,v2", "v1");
-        assertEquals("v1", cloud.resolve(null, null));
+        var cloud = new GraphVersionPolicy("v2", "v2");
+        assertEquals("v2", cloud.resolve(null, null));
         assertThrows(IntakeException.class, () -> cloud.resolve(null, "v3"));
+        assertThrows(IntakeException.class, () -> cloud.resolve(null, "v1"));
+        assertThrows(IntakeException.class, () -> cloud.resolve("v1", null));
         assertThrows(IntakeException.class, () -> cloud.workerVersions(List.of("v2_localLLM")));
+        assertThrows(IntakeException.class, () -> cloud.workerVersions(List.of("v1")));
+        assertThrows(IntakeException.class, () -> cloud.workerVersions(null));
         var local = new GraphVersionPolicy("v2_localLLM", "v2_localLLM");
         assertEquals("v2_localLLM", local.resolve(null, null));
         assertThrows(IntakeException.class, () -> local.resolve(null, "v1"));
@@ -19,16 +23,33 @@ class GraphVersionPolicyTest {
     }
 
     @Test void sharedDeploymentPreservesTheSelectedAndPinnedGraph() {
-        var shared = new GraphVersionPolicy("v1,v2,v2_localLLM", "v2_localLLM");
+        var shared = new GraphVersionPolicy("v2,v2_localLLM", "v2_localLLM");
         assertEquals("v2_localLLM", shared.resolve(null, null));
-        for (String version : List.of("v1", "v2", "v2_localLLM"))
+        for (String version : List.of("v2", "v2_localLLM"))
             assertEquals(version, shared.resolve(null, version));
         assertThrows(IntakeException.class, () -> shared.resolve("v2", "v2_localLLM"));
     }
 
+    @Test void oldConfigurationKeepsOnlyActiveGraphsAndPreservesAnExplicitLocalDefault() {
+        var cloud = new GraphVersionPolicy("v1,v2", "v1");
+        assertEquals("v2", cloud.resolve(null, null));
+
+        var shared = new GraphVersionPolicy("v1,v2,v3,v2_localLLM", "v3");
+        assertEquals("v2", shared.resolve(null, null));
+        assertEquals("v2_localLLM", shared.resolve(null, "v2_localLLM"));
+        assertThrows(IntakeException.class, () -> shared.workerVersions(List.of("v1","v2")));
+        assertThrows(IntakeException.class, () -> shared.resolve(null, "v3"));
+
+        var localDefault = new GraphVersionPolicy("v1,v2,v2_localLLM", "v2_localLLM");
+        assertEquals("v2_localLLM", localDefault.resolve(null, null));
+        assertFalse(localDefault.localOnly());
+    }
+
     @Test void invalidDeploymentsFailAtStartup() {
-        for (String versions : List.of("", "unknown", "v1,", "v2,v2_localLLM", "v1,v2,v3"))
-            assertThrows(IllegalArgumentException.class, () -> new GraphVersionPolicy(versions, "v1"));
+        for (String versions : List.of("", "v2,unknown", "v2,", "v1,v3"))
+            assertThrows(IllegalArgumentException.class, () -> new GraphVersionPolicy(versions, "v2"));
         assertThrows(IllegalArgumentException.class, () -> new GraphVersionPolicy("v2_localLLM", "v1"));
+        assertThrows(IllegalArgumentException.class, () -> new GraphVersionPolicy("v1,v2", "v2_localLLM"));
+        assertThrows(IllegalArgumentException.class, () -> new GraphVersionPolicy("v2,v2_localLLM", "unknown"));
     }
 }
