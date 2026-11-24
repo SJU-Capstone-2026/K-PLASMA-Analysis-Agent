@@ -2,93 +2,102 @@
 
 <img src="frontend/public/plasmate.png" alt="PLASMATE 마스코트" width="160">
 
-세종대학교 컴퓨터공학과 2026-2 캡스톤 프로젝트. 등록된 플라즈마 실험 Run을 조회하고 공정 조건을 비교해 다음 실험의 근거를 찾습니다.
+등록된 플라즈마 실험을 자연어로 조회·비교하고, 다음 실험 조건을 정할 근거를 찾는 분석 시스템입니다.
 
-| 기능 | 동작 |
+## 기술 스택
+
+| 영역 | 기술 |
 | --- | --- |
-| **분석 Agent · 일반** | 표준 V2가 질문을 계획하고 OpenAI 모델로 검토합니다. 조건 조회, 목표 후보 탐색, Run 비교, 변화·개념 설명을 지원합니다. |
-| **분석 Agent · 로컬** | LocalLLM v2.8의 Qwen이 계획을 작성하고, 코드가 원문에서 확정 가능한 조건과 단계 연결을 보완한 뒤 Flash가 검토합니다. 모델 요청은 기기 안에서 처리합니다. |
-| **의사결정 Agent** | 목표를 지표로 풀어 사용자에게 확인받고, 표준 V2로 다음 실험 후보의 수치와 장단점을 비교합니다. |
-| **Run 관리** | 폴더·ZIP으로 등록한 실험의 원본과 불변 버전을 보존하고 상세 수치와 그래프를 표시합니다. |
+| 웹 | TypeScript, React, Vite |
+| 백엔드 | Java 21, Spring Boot, PostgreSQL, Docker Compose |
+| 에이전트 | Python, LangGraph |
+| 모델 실행 | OpenAI Responses·Decisions API, llama.cpp, MLX |
 
-분석 Agent의 **Agent 버전**에서 일반 V2나 로컬 V2를 선택합니다. 실행 모드를 바꾸려면 새 대화를 열고 원하는 버전을 고릅니다. 이전 대화는 왼쪽 목록에서 다시 볼 수 있습니다.
+### 모델과 실행 그래프
 
-## 실행하기
+| 모드 | 계획 생성·답변 작성 | 의미 검토 |
+| --- | --- | --- |
+| **일반 V2** | OpenAI `gpt-6-luna` | OpenAI Decisions · `gpt-6-luna` |
+| **로컬 V2** | Qwen3.5-9B · GGUF 4비트, llama.cpp | Perplexity Decider Flash v1.2 · 4비트, MLX |
 
-Java 21, Node 22.23.3, npm 10.9.9, uv, Docker를 준비합니다. 아래 명령은 저장소 루트에서 실행합니다.
+- **일반 V2** · 질문 → 계획 생성 → 코드로 구조·참조·단위 검증 → Decisions 의미 검토 → 도구 실행 → 결과·답변
+- **로컬 V2** · 질문 → Qwen 계획 생성 → 코드로 검증하고 원문에서 확정 가능한 조건·단계 연결 보완 → Flash 의미 검토 → 도구 실행 → 결과·답변
 
-### 처음 한 번
+두 모드는 웹·백엔드·DB를 공유하고 각자의 그래프에서 요청을 처리합니다. 계획이 반려되면 지적 사항을 전달해 다시 계획합니다. 로컬 모드의 모델 호출은 기기에서 처리합니다. [일반 V2 상세 그래프](docs/development/agent-v2-graph.md) · [로컬 V2 구조와 모델 설정](docs/development/agent-v2-local-llm.md)
+
+## 설치 및 실행
+
+Java 21, Node 22.23.3, npm 10.9.9, uv, Docker를 준비합니다.
 
 ```sh
+git clone https://github.com/SJU-Capstone-2026/PLASMATE.git
+cd PLASMATE
 npm ci
 uv sync --project agent/python --frozen
 test -f .env || cp .env.example .env
 ```
 
-`.env`에 로컬 DB 비밀번호를 설정합니다. 일반 V2를 쓰려면 `OPENAI_API_KEY`와 백엔드·워커가 공유할 `AGENT_WORKER_TOKEN`도 설정합니다. [환경 설정 안내](docs/development.md#팀-로컬-실행)
+`.env`에 DB 비밀번호를 설정합니다. 일반 V2에는 OpenAI API 키와 워커 키가 필요합니다. Docker를 시작한 뒤 백엔드·웹 터미널에서 `set -a`, `source .env`, `set +a` 순으로 환경을 읽습니다.
 
-### 서버 실행
+| 순서 | 터미널 | 실행 명령 |
+| --- | --- | --- |
+| 1 | DB·백엔드 | `docker compose up -d --wait postgres` 실행 후 `backend/gradlew -p backend bootRun` |
+| 2 | 웹 | `npm run dev` |
+| 3 | 일반 V2 워커 | `npm run dev:agent` |
 
-Docker를 켠 뒤 아래 명령을 각 터미널에서 실행합니다. 백엔드가 준비되면 프런트엔드와 사용할 워커를 시작합니다.
+[분석 화면](http://127.0.0.1:5173)을 엽니다. 로컬 V2는 Apple Silicon에서 Qwen·Flash를 준비한 뒤 같은 화면에서 사용합니다. 세부 환경 변수와 워커 실행 명령은 실행 가이드에서 확인할 수 있습니다. [공통 실행 가이드](docs/development.md) · [로컬 V2 실행 가이드](docs/development/agent-v2-local-llm.md#공통-backend와-화면)
 
-**터미널 1 · PostgreSQL과 백엔드**
+### 실험 데이터
 
-```sh
-set -a
-source .env
-set +a
-docker compose up -d --wait postgres
-backend/gradlew -p backend bootRun
-```
+보안상 **기업 실험 데이터 150개 Run의 원본·측정 수치·그래프는 GitHub에 포함하지 않았습니다.** 원본과 DB 백업 경로는 [`.gitignore`](.gitignore)에 명시했습니다. 실제 Run을 사용하려면 승인된 경로로 원본을 받아 등록합니다. [Run 등록 가이드](docs/development.md#실제-150-run-초기-적재와-재처리)
 
-**터미널 2 · 프런트엔드**
+## 주요 기능 및 화면
 
-```sh
-set -a
-source .env
-set +a
-npm run dev
-```
+### 분석 Agent
 
-**터미널 3 · 일반 V2 워커**
+공정 조건으로 실험을 조회하거나, 목표에 맞는 후보를 찾고, 선택한 Run을 표와 그래프로 비교합니다. 비교에서 계산한 값을 다음 검색 조건에 연결할 수 있습니다.
 
-```sh
-npm run dev:agent
-```
-
-[분석 화면](http://127.0.0.1:5173)을 엽니다. 백엔드 상태는 [헬스 체크](http://127.0.0.1:8080/api/health)에서 확인할 수 있습니다.
-
-### 로컬 V2도 사용하기
-
-일반·로컬은 PostgreSQL, 백엔드, 프런트엔드를 공유합니다. Apple Silicon에서 Qwen·Flash와 메모리 검사를 준비한 뒤, `.env.local-llm.example` 하단의 공용 서버 설정을 `.env`에 적용합니다. 백엔드의 `AGENT_LOCAL_WORKER_TOKEN`을 `.env.local-llm`의 `AGENT_V2_LOCAL_LLM_WORKER_TOKEN`과 맞추고, 일반 워커에는 별도 키를 사용합니다. [모델 준비와 공용 서버 설정](docs/development/agent-v2-local-llm.md#공통-backend와-화면)
-
-로컬 분석을 쓸 때는 별도 터미널에서 아래 워커를 시작합니다. 두 모드를 함께 쓰려면 두 워커를 모두 켭니다.
-
-```sh
-npm run dev:agent:local -- --env-file .env.local-llm
-```
-
-로컬 모드도 같은 화면 주소로 바로 접속합니다. 브라우저 연결 파일이나 세션 키를 준비할 필요가 없습니다.
-
-의사결정 Agent만 둘러보려면 의존성 설치 후 `npm run dev:decision-demo`로 인공 Run과 고정 모델 응답을 쓰는 시연을 실행할 수 있습니다. [의사결정 시연 안내](docs/development/conversation-rooms.md)
-
-| 경로 | 역할 |
+| 계획 도구 | 역할 |
 | --- | --- |
-| `frontend/` | React·TypeScript 화면 |
-| `backend/` | Spring Boot API, PostgreSQL 저장, Run 업로드·파싱 |
-| `agent/python/` | LangGraph 일반 V2와 LocalLLM 워커 |
+| `forward_lookup` | 압력·소스 전력·바이어스 전력에 해당하는 등록 Run 조회 |
+| `reverse_search` | 조건을 만족하는 실제 Run 탐색 및 정렬 |
+| `compare_runs` | 선택한 Run의 수치·차이·경향 비교 |
+| `explain_answer` | 공정 개념 설명 또는 검증된 Run 결과 해석 |
 
-## 개발과 검증
+계산 단계 `derive`는 **최댓값·최솟값·평균** 같은 파생값을 구합니다. `await_input`은 비교 대상이나 기준을 사용자에게 확인받고 실행을 이어갑니다. [계획·실행 API](docs/contracts/agent-v2.openapi.json)
 
-- [표준 V2 그래프와 평가](docs/development/agent-v2.md)
-- [공용 API 계약](docs/api/openapi.yaml)
-- [프로토타입 수용 검증](docs/verification/acceptance.md)
-- [협업 가이드](CONTRIBUTING.md) · [저장소 작업 규칙](AGENTS.md) · [PR 템플릿](.github/PULL_REQUEST_TEMPLATE.md)
+### 의사결정 Agent와 Run 관리
 
-PR CI는 인공 데이터와 고정 모델 응답으로 두 실행 모드의 계약, 브라우저, 재시작 복구를 검사합니다. 실제 모델 평가와 별도 검증 명령은 [팀 실행 가이드의 검증 절차](docs/development.md#검증)를 따릅니다.
+- **의사결정 Agent** · 기준 Run과 개선 목표를 고르면 비교할 지표와 기준을 제시합니다. 사용자가 승인한 기준으로 후보를 찾고 장단점을 비교합니다.
+- **Run 관리** · 폴더·ZIP으로 실험을 등록하고 원본, 버전별 수치, 그래프를 확인합니다.
 
-## 실제 기업 데이터 관리
+### 분석 Agent 시작 화면
 
-실제 기업 실험 데이터인 **기준 150개 Run의 원본·측정 수치·그래프는 보안상 GitHub 저장소에 포함하지 않았습니다.** 원본은 로컬 `backend/storage/`에, 등록된 수치와 그래프는 로컬 PostgreSQL에 보관합니다. [`.gitignore`](.gitignore)에 실제 결과 폴더, `analysis-data.js`, 백업·로그 보관 경로, 비공개 환경 설정을 명시해 Git 추적에서 제외합니다.
+기본 설정에서 새 대화는 **일반 V2**로 시작합니다. 실행 모드를 고르거나 대표 질문을 펼쳐 시작할 수 있습니다.
 
-같은 150개 Run이 필요한 팀원은 승인된 별도 경로로 원본을 받아 각자 등록합니다. [실제 Run 등록 방법](docs/development.md#실제-150-run-초기-적재와-재처리)
+![PLASMATE 분석 Agent 시작 화면](docs/images/analysis-start.png)
+
+### 분석 예시
+
+아래 화면은 인공 Run과 예시 응답으로 기능을 보여줍니다.
+
+<details>
+<summary>두 에너지 범위의 후보를 따로 검색하고 플럭스순으로 정렬</summary>
+
+![에너지 범위별 후보 검색과 정렬](docs/images/analysis-range-search.png)
+
+</details>
+
+<details>
+<summary>선택한 두 Run의 전극 전위 파형과 극값 비교</summary>
+
+![전극 전위 파형과 극값 비교](docs/images/analysis-waveform-comparison.png)
+
+</details>
+
+<details>
+<summary>이온 플럭스와 이온 에너지의 차이를 수식으로 설명</summary>
+
+![이온 플럭스와 이온 에너지 개념 설명](docs/images/analysis-concept-explanation.png)
+
+</details>
