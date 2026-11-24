@@ -49,7 +49,7 @@ test -f .env || cp .env.example .env
 
 ### 실험 데이터
 
-보안상 **기업 실험 데이터 150개 Run의 원본·측정 수치·그래프는 GitHub에 포함하지 않았습니다.** 원본과 DB 백업 경로는 [`.gitignore`](.gitignore)에 명시했습니다. 실제 Run을 사용하려면 승인된 경로로 원본을 받아 등록합니다. [Run 등록 가이드](docs/development.md#실제-150-run-초기-적재와-재처리)
+기업 실험 데이터 150개 Run의 원본 파일과 DB 백업은 [`.gitignore`](.gitignore)로 관리합니다. 아래 예시 화면에는 일부 측정 수치와 그래프가 표시됩니다. 실제 Run을 사용하려면 승인된 경로로 원본을 받아 등록합니다. [Run 등록 가이드](docs/development.md#실제-150-run-초기-적재와-재처리)
 
 ## 주요 기능 및 화면
 
@@ -75,11 +75,9 @@ test -f .env || cp .env.example .env
 
 기본 설정에서 새 대화는 **일반 V2**로 시작합니다. 실행 모드를 고르거나 대표 질문을 펼쳐 시작할 수 있습니다.
 
-![PLASMATE 분석 Agent 시작 화면](docs/images/analysis-start.png)
+![PLASMATE 분석 Agent 시작 화면에서 로컬 모드를 선택한 모습](docs/images/analysis-start.png)
 
 ### 분석 예시
-
-아래 화면은 인공 Run과 예시 응답으로 기능을 보여줍니다.
 
 <details>
 <summary>두 에너지 범위의 후보를 따로 검색하고 플럭스순으로 정렬</summary>
