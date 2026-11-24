@@ -1709,6 +1709,10 @@ select:focus { border-color: var(--color-primary); box-shadow: 0 0 0 3px rgba(65
   text-wrap: balance;
 }
 
+@media (max-width: 840px) {
+  .agent-welcome p { min-block-size: 2lh; }
+}
+
 .agent-user-message {
   justify-self: end;
   width: fit-content;
