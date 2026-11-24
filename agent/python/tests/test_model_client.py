@@ -132,25 +132,6 @@ def test_provider_terminal_status_and_safe_reason_are_distinct(stream, status, r
     assert captured["response"]["usage"]["output_tokens"] == 22
 
 
-def test_plain_general_answer_stream_keeps_native_tool_continuation():
-    observed = []
-    context = {"input": {"question": "synthetic"}, "responseItems": [], "call_id": "call",
-               "output": {"verified": True}}
-
-    def transport(request):
-        body = json.loads(request.content)
-        assert body["stream"] is True
-        assert body["input"][-1]["call_id"] == "call"
-        assert "text" not in body
-        return streamed_response("일반 설명", before_terminal=lambda: observed == ["일반 설명"] or
-                                 pytest.fail("plain answer was buffered until provider completion"))
-
-    client = ModelClient(Settings(api_key="test"),
-                         http_client=httpx.Client(transport=httpx.MockTransport(transport)))
-    assert client.stream_answer("instructions", {}, on_text_delta=observed.append,
-                                tool_context=context)[0] == "일반 설명"
-
-
 def test_streamed_structured_output_still_requires_final_pydantic_validation():
     client = ModelClient(Settings(api_key="test"), http_client=httpx.Client(transport=httpx.MockTransport(
         lambda request: streamed_response('{"answer":null}'))))

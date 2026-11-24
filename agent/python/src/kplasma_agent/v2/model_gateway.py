@@ -320,7 +320,7 @@ class V2ModelGateway:
 
     def submit_plan(self, context):
         tool = submit_plan_tool_schema()
-        payload = self.planner._input(context, None)
+        payload = json.dumps(context, ensure_ascii=False)
         self.input_guard({"instructions": PLAN_INSTRUCTIONS, "input": payload, "tools": [tool]}, "plan")
         with tracing.span("v2.plan", kind="LLM") as span:
             response, usage = self.planner._request(

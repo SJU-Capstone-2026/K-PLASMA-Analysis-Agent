@@ -77,24 +77,6 @@ class ModelClient:
             else None
         )
 
-    def _input(self, payload, tool_context):
-        if not tool_context:
-            return json.dumps(payload, ensure_ascii=False)
-        # Manual continuation retains the complete native output, including reasoning items.
-        return [
-            {"role": "user", "content": json.dumps(tool_context["input"], ensure_ascii=False)},
-            *tool_context["responseItems"],
-            {
-                "type": "function_call_output",
-                "call_id": tool_context["call_id"],
-                "output": json.dumps(
-                    {"result": tool_context["output"], "answerRequest": payload},
-                    ensure_ascii=False,
-                    allow_nan=False,
-                ),
-            },
-        ]
-
     def _request(self, instructions, input_value, observation, *, on_text_delta=None, **options):
         if self.client is None:
             raise ModelError("MODEL_NOT_CONFIGURED")
@@ -187,57 +169,7 @@ class ModelClient:
             raise ModelError("MODEL_REFUSED", usage=metadata, response=response)
         return response, metadata
 
-    def select_tool(self, instructions, payload):
-        from .tools import TOOL_MODELS, native_tools
-
-        with tracing.span(
-            "llm.tool_selection",
-            kind="LLM",
-            inputs={"instructions": instructions, "payload": payload},
-            attributes={"llm.model_name": self.settings.model},
-        ) as observation:
-            response, metadata = self._request(
-                instructions,
-                self._input(payload, None),
-                observation,
-                tools=native_tools(),
-                tool_choice="required",
-                parallel_tool_calls=False,
-            )
-            calls = [item for item in response.output if item.type == "function_call"]
-            if len(calls) != 1 or calls[0].name not in TOOL_MODELS or not calls[0].call_id:
-                raise ModelError("MODEL_OUTPUT_INVALID", usage=metadata, response=response)
-            call = calls[0]
-            try:
-                arguments = (
-                    TOOL_MODELS[call.name].model_validate(omit_nulls(json.loads(call.arguments))).model_dump()
-                )
-            except (ValueError, TypeError):
-                raise ModelError("MODEL_OUTPUT_INVALID", usage=metadata, response=response) from None
-            selected = {"call_id": call.call_id, "name": call.name, "arguments": arguments}
-            observation.json_attribute("kplasma.tool_selection", selected)
-            # Private checkpoint only; the graph removes native items from public model metadata.
-            metadata["responseItems"] = [item.model_dump(mode="json") for item in response.output]
-            return selected, metadata
-
-    def answer(self, instructions, payload, *, tool_context=None, on_text_delta=None):
-        with tracing.span(
-            "llm.general_answer",
-            kind="LLM",
-            inputs={"instructions": instructions, "payload": payload},
-            attributes={"llm.model_name": self.settings.model},
-        ) as observation:
-            response, metadata = self._request(
-                instructions, self._input(payload, tool_context), observation, on_text_delta=on_text_delta
-            )
-            if not response.output_text.strip():
-                raise ModelError("MODEL_OUTPUT_INVALID", usage=metadata, response=response)
-            return response.output_text, metadata
-
-    def stream_answer(self, instructions, payload, *, on_text_delta, tool_context=None):
-        return self.answer(instructions, payload, tool_context=tool_context, on_text_delta=on_text_delta)
-
-    def generate(self, instructions, payload, output_model, *, tool_context=None, on_text_delta=None):
+    def generate(self, instructions, payload, output_model, *, on_text_delta=None):
         with tracing.span(
             "llm.responses",
             kind="LLM",
@@ -251,27 +183,6 @@ class ModelClient:
             observation.attribute("llm.input_messages.0.message.content", instructions)
             observation.attribute("llm.input_messages.1.message.role", "user")
             observation.json_attribute("llm.input_messages.1.message.content", payload)
-            if tool_context:
-                response, metadata = self._request(
-                    instructions,
-                    self._input(payload, tool_context),
-                    observation,
-                    on_text_delta=on_text_delta,
-                    text={
-                        "format": {
-                            "type": "json_schema",
-                            "name": output_model.__name__,
-                            "strict": True,
-                            "schema": strict_schema(output_model),
-                        }
-                    },
-                )
-                try:
-                    return output_model.model_validate(
-                        json.loads(response.output_text)
-                    ).model_dump(), metadata
-                except (ValueError, TypeError):
-                    raise ModelError("MODEL_OUTPUT_INVALID", usage=metadata, response=response) from None
             return self._generate(instructions, payload, output_model, observation, on_text_delta=on_text_delta)
 
     def _generate(self, instructions, payload, output_model, observation, *, on_text_delta=None):
