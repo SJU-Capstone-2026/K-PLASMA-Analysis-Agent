@@ -1,0 +1,51 @@
+--- a/common/parsers/qwen3-coder.cpp
++++ b/common/parsers/qwen3-coder.cpp
+@@ -175,6 +175,12 @@
+             auto calls      = inputs.parallel_tool_calls ? tool_call_first + p.zero_or_more(tool_call) : tool_call_first;
+             auto tool_calls = p.trigger_rule("tool-call-root", p.repeat(calls, min_calls, 1));
+
++            // submit_plan's payload belongs only inside its existing native tool call.
++            if (supports_reasoning && min_calls == 1 && !inputs.parallel_tool_calls && inputs.tools.size() == 1 &&
++                inputs.tools[0].at("function").at("name") == "submit_plan") {
++                return generation_prompt + (reasoning << p.space() << tool_calls);
++            }
++
+             // The templates separate content from the tool calls with one or two newlines,
+             // stop the content before them
+             std::vector<std::string> content_ends;
+--- a/tests/test-chat.cpp
++++ b/tests/test-chat.cpp
+@@ -8268,6 +8268,33 @@
+         "</function>\n"
+         "</tool_call>";
+
++    // A required submit_plan keeps thinking and a native call, with no text between them.
++    {
++        auto plan_inputs = inputs;
++        plan_inputs.tool_choice = COMMON_CHAT_TOOL_CHOICE_REQUIRED;
++        plan_inputs.parallel_tool_calls = false;
++        plan_inputs.tools.front().name = "submit_plan";
++        common_chat_session session(tmpls.get(), nullptr, plan_inputs);
++        const std::string thinking = "Check the inputs.\n</think>\n\n";
++        const std::string call =
++            "<tool_call>\n"
++            "<function=submit_plan>\n"
++            "<parameter=arg1>\n1\n</parameter>\n"
++            "</function>\n"
++            "</tool_call>";
++        const auto accepts = [&](const std::string & completion) {
++            auto grammar = build_grammar(session.grammar());
++            return match_string(session.generation_prompt() + completion, grammar.get());
++        };
++        assert_equals(true, accepts(thinking + call));
++        if (accepts(thinking + "{\"arg1\":1}\n</parameter>\n</function>\n</tool_call>\n" + call)) {
++            throw std::runtime_error("submit_plan grammar accepted standalone JSON after thinking");
++        }
++        session.feed(common_chat_input(thinking + call));
++        assert_msg_equals(simple_assist_msg("", "Check the inputs.", "submit_plan", "{\"arg1\":1}"),
++                          session.finish());
++    }
++
+     // the session renders the prompt and parses the output fed to it in small chunks
+     {
+         common_chat_session session(tmpls.get(), nullptr, inputs);

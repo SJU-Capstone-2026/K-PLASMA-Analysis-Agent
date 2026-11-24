@@ -7,7 +7,7 @@ import {AnswerView} from './AnswerView';
 import {initialTurnUi} from './useConversation';
 import {syntheticRun} from '../../test/runs';
 
-test.each(['v3'])('saved %s answers use the composite renderer without a prototype fallback',async version=>{
+test.each(['v3','v2_localLLM'])('saved %s answers use the composite renderer without a prototype fallback',async version=>{
  const snapshot={...general.general_answer,implementationId:version,graphVersion:version,
   answer:'독립 그래프의 인공 개념 설명입니다.',
   draft:{paragraphs:['독립 그래프의 인공 개념 설명입니다.'],sources:[]}};

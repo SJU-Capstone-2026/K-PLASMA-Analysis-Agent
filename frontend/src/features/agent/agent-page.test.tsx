@@ -8,7 +8,7 @@ import {emptyWorkspace,initialTurnUi,type ConversationController} from './useCon
 afterEach(()=>vi.unstubAllEnvs());
 
 test('the selector exposes only configured versions and preserves the chosen identity',()=>{
- vi.stubEnv('VITE_AGENT_SUPPORTED_GRAPH_VERSIONS','v1,v2,v3');
+ vi.stubEnv('VITE_AGENT_SUPPORTED_GRAPH_VERSIONS','v1,v2,v3,v2_localLLM');
  const selectGraphVersion=vi.fn();
  const conversation:ConversationController={state:structuredClone(emptyWorkspace),graphVersion:'v1',selectGraphVersion,
   ready:true,error:'',pending:false,provisionalMessage:null,activeRequest:null,sending:false,
@@ -17,9 +17,11 @@ test('the selector exposes only configured versions and preserves the chosen ide
  const {rerender}=render(<AgentPage conversation={conversation} records={[]} notify={vi.fn()} onDetail={vi.fn()}
   onRecord={vi.fn()} onEvidence={vi.fn()} onDemo={vi.fn()}/>);
  const selector=screen.getByRole('combobox',{name:'Agent 버전'});
- expect(Array.from(selector.querySelectorAll('option'),option=>option.value)).toEqual(['v1','v2','v3']);
+ expect(Array.from(selector.querySelectorAll('option'),option=>option.value)).toEqual(['v1','v2','v3','v2_localLLM']);
  fireEvent.change(selector,{target:{value:'v3'}});
  expect(selectGraphVersion).toHaveBeenCalledWith('v3');
+ fireEvent.change(selector,{target:{value:'v2_localLLM'}});
+ expect(selectGraphVersion).toHaveBeenCalledWith('v2_localLLM');
  vi.stubEnv('VITE_AGENT_SUPPORTED_GRAPH_VERSIONS','v1,v2');
  const pinned={...conversation,state:{...conversation.state,conversation:{...conversation.state.conversation,agentGraphVersion:'v3' as const}},graphVersion:'v3' as const};
  rerender(<AgentPage conversation={pinned} records={[]} notify={vi.fn()} onDetail={vi.fn()}

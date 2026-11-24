@@ -51,6 +51,71 @@ def test_matrix_is_exactly_40_web_then_40_api_without_replacements():
     assert jobs[40:] == [(case, 2, "api") for case in cases()]
 
 
+def test_quick_matrix_is_only_first_five_browser_cases():
+    jobs = run_flow.build_jobs(cases(), mode="browser", limit=5)
+    assert [(c["id"], trial, mode) for c, trial, mode in jobs] == [
+        (f"Q{i:02}", 1, "browser") for i in range(1, 6)]
+
+
+@pytest.mark.parametrize("mode,limit", [("other",5),("browser",0),("browser",41),("api",-1)])
+def test_invalid_quick_matrix_is_rejected(mode, limit):
+    with pytest.raises(ValueError):
+        run_flow.build_jobs(cases(), mode=mode, limit=limit)
+
+
+def test_quick_preflight_has_no_api_jobs_or_runtime_side_effects(monkeypatch, tmp_path):
+    import sys
+    _, output = arguments(monkeypatch, tmp_path)
+    monkeypatch.setattr(sys, "argv", [*sys.argv, "--mode", "browser", "--limit", "5"])
+    monkeypatch.setattr(run_flow, "run_api", lambda *_: pytest.fail("API trial invoked"))
+    monkeypatch.setattr(run_flow.subprocess, "Popen", lambda *_a, **_k: pytest.fail("worker started"))
+    monkeypatch.setattr(run_flow.httpx, "Client", lambda **_: pytest.fail("network used"))
+    run_flow.main()
+    assert json.loads((output/"manifest.json").read_text())["planned"] == {"browser":5,"api":0}
+    assert len(json.loads((output/"matrix.json").read_text())) == 5
+
+
+@pytest.mark.parametrize("passes", [True, False])
+def test_quick_live_finishes_five_even_with_failed_answers_and_cleans_up(monkeypatch, tmp_path, passes):
+    import sys
+    arguments(monkeypatch, tmp_path, live=True)
+    monkeypatch.setattr(sys,"argv",[*sys.argv,"--mode","browser","--limit","5"])
+    selected=SimpleNamespace(model="synthetic",reasoning_effort="none")
+    monkeypatch.setattr(run_flow,"live_configuration",lambda *_:(Settings(),SimpleNamespace(
+        planner=selected,writer=selected,decisions_model="synthetic")))
+    monkeypatch.setattr(flow_grader,"load_oracle",lru_cache(maxsize=1)(lambda:{"byId":{}}))
+    monkeypatch.setattr(flow_grader,"grade",lambda *_a,**_k:{"pass":passes,"answerReviewRequired":False})
+    monkeypatch.setattr(run_flow,"prepare",lambda *_:({},[],None))
+    monkeypatch.setattr(run_flow,"classify",lambda *_:{"category":"synthetic"})
+    monkeypatch.setattr(run_flow,"export_request",lambda *_:{"models":[{"kind":"PLAN_INITIAL"}]})
+    monkeypatch.setattr(run_flow,"run_api",lambda *_:pytest.fail("API question submitted"))
+    monkeypatch.setattr(run_flow.subprocess,"run",lambda *_a,**_k:SimpleNamespace(stdout="0"))
+    class Worker:
+        stopped=False
+        def poll(self):return 0 if self.stopped else None
+        def terminate(self):self.stopped=True
+        def wait(self,**kwargs):return 0
+    worker=Worker()
+    monkeypatch.setattr(run_flow.subprocess,"Popen",lambda *_a,**_k:worker)
+    class Browser:
+        closed=False
+        def send(self,body):
+            seen.append(body["case"]["id"])
+            rid=f"00000000-0000-4000-8000-{len(seen):012}"
+            return {"requestId":rid,"view":{"requestId":rid,"status":"COMPLETED"},"uiPass":True}
+        def close(self):self.closed=True
+    browser=Browser()
+    seen=[]
+    monkeypatch.setattr(run_flow,"Browser",lambda:browser)
+    def handle(request):
+        return httpx.Response(200,json=[] if request.url.path=="/api/runs" else {})
+    with httpx.Client(base_url="http://localhost",transport=httpx.MockTransport(handle)) as client:
+        monkeypatch.setattr(run_flow.httpx,"Client",lambda **_:client)
+        run_flow.main()
+    assert seen==[f"Q{i:02}" for i in range(1,6)]
+    assert worker.stopped and browser.closed and client.is_closed
+
+
 @pytest.mark.parametrize(
     "bad",
     [
@@ -62,6 +127,33 @@ def test_matrix_is_exactly_40_web_then_40_api_without_replacements():
 def test_bad_matrix_is_rejected(bad):
     with pytest.raises(ValueError):
         run_flow.build_jobs(bad)
+
+
+@pytest.mark.parametrize(
+    "run_count,declared_count,accepted",
+    [(149, None, True), (150, 150, True), (150, None, False), (150, 149, False), (149, 150, False)],
+)
+def test_frozen_bank_requires_its_declared_run_count(monkeypatch, tmp_path, run_count, declared_count, accepted):
+    bank = []
+    for category, count in flow_grader.COUNTS.items():
+        for _ in range(count):
+            source = {"files": {}}
+            if declared_count is not None:
+                source["catalogCount"] = declared_count
+            bank.append({
+                "id": f"Q{len(bank) + 1:02}", "question": f"Synthetic {len(bank) + 1}",
+                "category": category, "sourceOracle": source, "selected": [], "baseline": None,
+                "expected": {"searches": [], "comparisons": [], "derived": []},
+            })
+    (tmp_path / "cases.json").write_text(json.dumps(bank))
+    oracle = {"runs": [{}] * run_count, "byId": {str(i): {} for i in range(run_count)}, "hashes": {}}
+    monkeypatch.setattr(flow_grader, "HERE", tmp_path)
+    monkeypatch.setattr(flow_grader, "load_oracle", lambda: oracle)
+    if accepted:
+        assert len(flow_grader.load_cases_raw()) == 40
+    else:
+        with pytest.raises(AssertionError):
+            flow_grader.load_cases_raw()
 
 
 @pytest.mark.parametrize(
@@ -86,6 +178,10 @@ def test_preflight_does_not_start_servers_workers_browsers_or_models(monkeypatch
     )
     run_flow.main()
     assert len(json.loads((output / "matrix.json").read_text())) == 80
+    manifest = json.loads((output / "manifest.json").read_text())
+    assert manifest['graphVersion'] == manifest['expectedImplementationId'] == 'v2'
+    assert manifest['settings'] == {'planReviewEnabled': True, 'modelTimeoutSeconds': 90}
+    assert manifest['maxReplans'] == 2 and manifest['maxAnswerRewrites'] == 1
     assert not (output / "results.jsonl").exists()
 
 
@@ -100,7 +196,7 @@ def test_existing_output_is_preserved(monkeypatch, tmp_path):
 
 def test_live_disabled_review_stops_before_http_or_worker(monkeypatch, tmp_path):
     arguments(monkeypatch, tmp_path, live=True)
-    monkeypatch.setattr(run_flow.Settings, "from_env", lambda _: Settings(api_key="synthetic"))
+    monkeypatch.setattr(Settings, "from_env", lambda _: Settings(api_key="synthetic"))
     monkeypatch.setenv("AGENT_V2_PLAN_REVIEW_ENABLED", "false")
     monkeypatch.setattr(run_flow.httpx, "Client", lambda **_: pytest.fail("disabled evaluation used HTTP"))
     with pytest.raises(SystemExit) as failure:
@@ -113,7 +209,7 @@ def test_catalog_mismatch_and_unfinished_database_stop_before_question_submissio
     monkeypatch, tmp_path, mismatch, active_count
 ):
     _, output = arguments(monkeypatch, tmp_path, live=True)
-    monkeypatch.setattr(run_flow.Settings, "from_env", lambda _: Settings(api_key="synthetic"))
+    monkeypatch.setattr(Settings, "from_env", lambda _: Settings(api_key="synthetic"))
     monkeypatch.setenv("AGENT_V2_PLAN_REVIEW_ENABLED", "true")
     run = {"runId": "ART-A", "runVersionId": "synthetic-v1", "catalogStatus": "READY"}
     monkeypatch.setattr(flow_grader, "load_oracle", lru_cache(maxsize=1)(lambda: {"byId": {"ART-A": run}}))
@@ -144,7 +240,7 @@ def test_catalog_mismatch_and_unfinished_database_stop_before_question_submissio
 
 def test_worker_is_stopped_even_when_browser_and_cleanup_http_both_fail(monkeypatch, tmp_path):
     arguments(monkeypatch, tmp_path, live=True)
-    monkeypatch.setattr(run_flow.Settings, "from_env", lambda _: Settings(api_key="synthetic"))
+    monkeypatch.setattr(Settings, "from_env", lambda _: Settings(api_key="synthetic"))
     monkeypatch.setenv("AGENT_V2_PLAN_REVIEW_ENABLED", "true")
     run = {"runId": "ART-A", "runVersionId": "synthetic-v1", "catalogStatus": "READY"}
     monkeypatch.setattr(flow_grader, "load_oracle", lru_cache(maxsize=1)(lambda: {"byId": {"ART-A": run}}))
@@ -333,10 +429,13 @@ def test_independent_oracle_keeps_strict_and_inclusive_boundaries_distinct():
     assert strict[:2] == (10, False) and inclusive[:2] == (10, True)
 
 
-def test_same_run_cannot_be_graded_as_two_comparison_endpoints(monkeypatch):
-    monkeypatch.setattr(
-        flow_grader, "grade_raw", lambda *_: {"pass": True, "checks": [], "humanReviewRequired": False}
-    )
+@pytest.mark.parametrize("expected_version", ["v2", "v3", "v2_localLLM"])
+def test_same_run_cannot_be_graded_as_two_comparison_endpoints(monkeypatch, expected_version):
+    def raw_grade(case, view, interactions, *, graph_version):
+        assert graph_version == expected_version
+        return {"pass": True, "checks": [], "humanReviewRequired": False}
+
+    monkeypatch.setattr(flow_grader, "grade_raw", raw_grade)
     monkeypatch.setattr(flow_grader, "load_overrides", lambda: {"overrides": {}})
     tool = {
         "kind": "compare_runs",
@@ -344,7 +443,8 @@ def test_same_run_cannot_be_graded_as_two_comparison_endpoints(monkeypatch):
         "comparisons": [{"leftKey": "R1", "rightKey": "R2"}],
     }
     result = flow_grader.grade(
-        {"id": "Q01"}, {"answerSnapshot": {"stepResults": [{"outputs": {"toolResult": tool}}]}}, []
+        {"id": "Q01"}, {"answerSnapshot": {"stepResults": [{"outputs": {"toolResult": tool}}]}}, [],
+        graph_version=expected_version,
     )
     assert result["pass"] is False
     assert result["checks"][0]["detail"]["errors"][0]["reason"] == "self_comparison"

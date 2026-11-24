@@ -44,6 +44,16 @@ public class AgentRequestService {
     public record Mutation(long claimGeneration,long requestRevision,Integer leaseSeconds,String stage,String operationKind,Boolean dependsOnContext,
         Map<String,Object> payload,Map<String,Object> pendingInput,Map<String,Object> error,Map<String,Object> partialResult,List<RunRef> usedRunRefs,AgentResponse answer,Integer limit,List<RunRef> requiredRunRefs,
         Map<String,Object> reverseQuery,Boolean referencesOnly,Map<String,Object> forwardQuery) {}
+    public void authorizeWorkerGraph(UUID id, boolean localWorker) {
+        authorizeWorkerGraph(requests.get(id,false),localWorker);
+    }
+    private void authorizeWorkerGraph(AgentRequestRepository.Row row, boolean localWorker) {
+        Object memory=row.manifest()==null?null:row.manifest().get("decisionRecords");
+        if ("v2_localLLM".equals(row.graphVersion()) != localWorker
+                || !localWorker && memory!=null
+                    && (!(memory instanceof List<?> records)||!decisions.cloudRecordsAllowed(records)))
+            throw new IntakeException("WORKER_GRAPH_FORBIDDEN",403,"Worker cannot access this graph");
+    }
     private void require(boolean condition,String message){validate.require(condition,INVALID,message);}
     private void conflict(String code,String message){throw new IntakeException(code,409,message);}
     @Transactional public Map<String,Object> submit(Submission body,String key){
@@ -217,7 +227,7 @@ public class AgentRequestService {
         while(true){
             var ids=jdbc.queryForList("select id from agent_request where graph_version in ("+placeholders+") and (status='QUEUED' or (status='RUNNING' and lease_until<clock_timestamp())) order by created_at for update skip locked limit 1",UUID.class,versions.toArray());
             Map<String,Object> result=new LinkedHashMap<>();if(ids.isEmpty()){result.put("request",null);return result;}UUID id=ids.getFirst();
-            var previous=requests.get(id,false);Map<String,Object> counts=new LinkedHashMap<>(previous.attempts());String key="claim:"+previous.revision();int count=((Number)counts.getOrDefault(key,0)).intValue();
+            var previous=requests.get(id,false);authorizeWorkerGraph(previous,versions.contains("v2_localLLM"));Map<String,Object> counts=new LinkedHashMap<>(previous.attempts());String key="claim:"+previous.revision();int count=((Number)counts.getOrDefault(key,0)).intValue();
             if(count>=3){
                 publicEvents.closeRunning(id,true);publicEvents.reset(id,"FAILED");
                 jdbc.update("update agent_request set status='FAILED',stage='failed',claim_generation=claim_generation+1,lease_until=null,pending_input=null,context_snapshot=null,partial_result=null,error=?::jsonb,updated_at=now() where id=?",requests.json(Map.of("code","CLAIM_ATTEMPT_LIMIT","message","작업 복구가 반복해서 실패했습니다. 새 질문으로 다시 시도해 주세요.")),id);
@@ -252,11 +262,12 @@ public class AgentRequestService {
         return publicEvents.worker(id,body,payload);
     }
 
-    private void v2Fence(UUID id, V2Write body) {
+    private AgentRequestRepository.Row v2Fence(UUID id, V2Write body) {
         var current = workspace.lock();
         var row = fence(id, body.claimGeneration(), body.requestRevision());
         epochs(row, current);
         require(GraphVersionPolicy.isComposite(row.graphVersion()), "This endpoint requires graph v2");
+        return row;
     }
 
     @Transactional public Map<String,Object> acceptV2Plan(UUID id, V2Write body) {
@@ -311,8 +322,8 @@ public class AgentRequestService {
     }
 
     @Transactional public Map<String,Object> reserveV2Model(UUID id, V2Write body) {
-        v2Fence(id, body);
-        return v2.reserveModel(id, body.claimGeneration(), body.requestRevision(), body.kind(), body.key());
+        var row = v2Fence(id, body);
+        return v2.reserveModel(id, body.claimGeneration(), body.requestRevision(), body.kind(), body.key(), row.graphVersion());
     }
 
     @Transactional public Map<String,Object> completeV2Model(UUID id, UUID attemptId, V2Write body) {
@@ -502,7 +513,7 @@ public class AgentRequestService {
             manifest.put("runs",List.of());manifest.put("referencedRuns",List.of());manifest.put("context",row.context());manifest.put("createdAt",Instant.now().toString());
         } else manifest = new LinkedHashMap<>(row.manifest());
         if(!(manifest.get("decisionRecords") instanceof List<?>)){
-            manifest.put("decisionRecords",decisions.recordsInSaveOrder().stream().map(requests::read).map(this::reuseEvidence).toList());
+            manifest.put("decisionRecords",decisions.recordsInSaveOrder(row.graphVersion()).stream().map(requests::read).map(this::reuseEvidence).toList());
             jdbc.update("update agent_request set manifest=?::jsonb,updated_at=now() where id=?",requests.json(manifest),id);
         }
         return manifest.get("decisionRecords");

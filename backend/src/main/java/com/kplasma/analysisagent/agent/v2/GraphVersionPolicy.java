@@ -10,7 +10,7 @@ import org.springframework.stereotype.Component;
 
 @Component
 public final class GraphVersionPolicy {
-    private static final Set<String> KNOWN = Set.of("v1", "v2", "v3");
+    private static final Set<String> KNOWN = Set.of("v1", "v2", "v3", "v2_localLLM");
     private final List<String> supported;
     private final String defaultVersion;
 
@@ -24,8 +24,11 @@ public final class GraphVersionPolicy {
     }
 
     public static boolean isComposite(String version) {
-        return "v2".equals(version) || "v3".equals(version);
+        return "v2".equals(version) || "v3".equals(version) || "v2_localLLM".equals(version);
     }
+
+    public boolean allowsLocal() { return supported.contains("v2_localLLM"); }
+    public boolean localOnly() { return allowsLocal() && supported.size() == 1; }
 
     public String resolve(String pinned, String requested) {
         if ((requested != null && !supported.contains(requested)) || (pinned != null && !supported.contains(pinned))) {

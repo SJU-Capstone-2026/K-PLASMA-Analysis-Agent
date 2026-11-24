@@ -19,12 +19,42 @@ import httpx
 
 from . import flow_grader
 from .flow_recovery import classify
-from kplasma_agent.config import Settings
-from kplasma_agent.v2.model_gateway import V2Settings
+from .v2_harness import GRAPH_VERSIONS, live_configuration
 
 REPO = Path(__file__).resolve().parents[3]
 ROOT = API = WEB = CLIENT = None
 HEADLESS = False
+GRAPH_VERSION = "v2"
+
+
+def worker_command(graph_version, env_file=None):
+    if graph_version not in GRAPH_VERSIONS:
+        raise ValueError("unsupported graph version")
+    if graph_version != "v2" and env_file is None:
+        raise ValueError("an explicit env file is required")
+    module = {"v2": "kplasma_agent.worker", "v3": "kplasma_agent.v3.worker",
+              "v2_localLLM": "kplasma_agent.v2_local_llm.worker"}[graph_version]
+    return [sys.executable, "-m", module, *(["--env-file", str(env_file)] if env_file else [])]
+
+
+def bootstrap_local_session(client, web, token, *, session_cookie=None):
+    """Consume one bootstrap before any data API call; retain the HttpOnly session in the client."""
+    if client.cookies.get("KPLASMA_LOCAL_SESSION"):
+        raise ValueError("LOCAL_SESSION_ALREADY_BOOTSTRAPPED")
+    client.headers["Origin"] = local_origin(web)
+    client.headers["Sec-Fetch-Site"] = "same-site"
+    if session_cookie is not None:
+        match = re.fullmatch(r"KPLASMA_LOCAL_SESSION=([A-Za-z0-9_-]{32,128})", session_cookie)
+        if match is None:
+            raise ValueError("LOCAL_SESSION_INVALID")
+        client.cookies.set("KPLASMA_LOCAL_SESSION", match[1], domain=client.base_url.host, path="/api")
+        return
+    if not isinstance(token, str) or len(token) < 16:
+        raise ValueError("LOCAL_BOOTSTRAP_REQUIRED")
+    response = client.post("/api/local-runtime/session", headers={"X-Local-Bootstrap": token})
+    response.raise_for_status()
+    if not client.cookies.get("KPLASMA_LOCAL_SESSION"):
+        raise ValueError("LOCAL_SESSION_NOT_ESTABLISHED")
 
 
 def dump(path, value):
@@ -98,7 +128,7 @@ def run_api(case, workspace, refs, baseline, directory):
     body = {
         "text": case["question"],
         "stateToken": workspace["stateToken"],
-        "graphVersion": "v2",
+        "graphVersion": GRAPH_VERSION,
         "attachedRunRefs": refs,
         "referenceOrigins": [
             {"ref": ref, "kind": "catalog_tag", "turnId": None, "groupId": None} for ref in refs
@@ -224,7 +254,10 @@ class Browser:
         )
         try:
             response = self.send(
-                {"cmd": "init", "api": API, "web": WEB, "output": str(ROOT), "headless": HEADLESS}
+                {"cmd": "init", "api": API, "web": WEB, "output": str(ROOT), "headless": HEADLESS,
+                 "graphVersion": GRAPH_VERSION,
+                 "sessionCookie": ("KPLASMA_LOCAL_SESSION=" + CLIENT.cookies.get("KPLASMA_LOCAL_SESSION"))
+                    if GRAPH_VERSION == "v2_localLLM" else None}
             )
             if not response.get("ok"):
                 raise RuntimeError("Browser initialization failed; inspect browser.stderr.log")
@@ -274,12 +307,15 @@ def local_origin(value):
     return value.rstrip("/")
 
 
-def build_jobs(cases):
+def build_jobs(cases, *, mode="both", limit=40):
     if len(cases) != 40 or len({case["id"] for case in cases}) != 40:
         raise ValueError("Expected the frozen 40-question bank")
     if any(not re.fullmatch(r"[A-Z][0-9]{2}", case["id"]) for case in cases):
         raise ValueError("Case IDs must use a letter and two digits")
-    return [(case, trial, mode) for trial, mode in ((1, "browser"), (2, "api")) for case in cases]
+    if mode not in {"both", "browser", "api"} or type(limit) is not int or not 1 <= limit <= 40:
+        raise ValueError("Invalid evaluation mode or limit")
+    return [(case, trial, selected) for trial, selected in ((1, "browser"), (2, "api"))
+            if mode in {"both", selected} for case in cases[:limit]]
 
 
 def export_request(container, request_id, directory):
@@ -339,7 +375,7 @@ def summarize(rows):
 
 
 def main():
-    global ROOT, API, WEB, CLIENT, HEADLESS
+    global ROOT, API, WEB, CLIENT, HEADLESS, GRAPH_VERSION
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--bundle", required=True, type=Path, help="Private frozen cases and oracle JSON directory"
@@ -351,21 +387,30 @@ def main():
         "--connection", type=Path, help="Private api/web/container/workerToken JSON for a dedicated app"
     )
     parser.add_argument("--env-file", type=Path)
+    parser.add_argument("--graph-version", choices=GRAPH_VERSIONS, default="v2")
     parser.add_argument(
-        "--live", action="store_true", help="Submit 80 paid Agent questions; absent means offline preflight"
+        "--live", action="store_true", help="Submit selected Agent questions; absent means offline preflight"
     )
     parser.add_argument("--headless", action="store_true")
+    parser.add_argument("--mode", choices=("both", "browser", "api"), default="both")
+    parser.add_argument("--limit", type=int, default=40)
     args = parser.parse_args()
+    GRAPH_VERSION = args.graph_version
     ROOT = args.output.expanduser().resolve()
     bundle = args.bundle.expanduser().resolve()
     if ROOT.is_relative_to(REPO) or ROOT.is_relative_to(bundle) or ROOT.exists():
         parser.error("Output must be a NEW directory outside the repository and input bundle")
     flow_grader.configure(bundle)
     cases = flow_grader.load_cases()
-    jobs = build_jobs(cases)
+    try:
+        jobs = build_jobs(cases, mode=args.mode, limit=args.limit)
+    except ValueError as error:
+        parser.error(str(error))
     manifest = {
+        "graphVersion": GRAPH_VERSION, "expectedImplementationId": GRAPH_VERSION,
+        "evaluationMode": "real_model" if args.live else "offline_preflight", "concurrency": 1,
         "settings": {"planReviewEnabled": True, "modelTimeoutSeconds": 90},
-        "planned": {"browser": 40, "api": 40},
+        "planned": {mode: sum(selected == mode for _, _, selected in jobs) for mode in ("browser", "api")},
         "maxReplans": 2,
         "maxAnswerRewrites": 1,
         "inputSha256": {
@@ -388,12 +433,15 @@ def main():
         container = connection["container"]
         if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", container):
             parser.error("Invalid database container name")
-        settings = Settings.from_env(args.env_file)
-        configured = V2Settings.from_env(settings)
-        if not configured.plan_review_enabled:
-            parser.error("Live evaluation requires AGENT_V2_PLAN_REVIEW_ENABLED=true")
-        if not settings.api_key or not connection.get("workerToken"):
-            parser.error("Live evaluation requires OPENAI_API_KEY and a matching backend workerToken")
+        try:
+            settings, configured = live_configuration(GRAPH_VERSION, args.env_file)
+        except (OSError, ValueError) as error:
+            parser.error(str(error))
+        if not connection.get("workerToken"):
+            parser.error("Live evaluation requires a matching backend workerToken")
+        if GRAPH_VERSION == "v2_localLLM" and (settings.backend_url != API
+                                               or settings.worker_token != connection["workerToken"]):
+            parser.error("LOCAL_CONNECTION_PROFILE_MISMATCH")
         manifest["settings"].update(
             planner=configured.planner.model,
             planEffort=configured.planner.reasoning_effort,
@@ -403,7 +451,17 @@ def main():
             phoenixEnabled=bool(settings.phoenix_endpoint and settings.phoenix_api_key),
             phoenixProject=settings.phoenix_project_name,
         )
-        CLIENT = httpx.Client(base_url=API, timeout=30, transport=httpx.HTTPTransport(retries=0))
+        if GRAPH_VERSION == "v2_localLLM":
+            from kplasma_agent.v2_local_llm.network import local_http_client
+
+            manifest["settings"].update(memoryPolicy=settings.memory_policy,
+                                         qwenPlanTimeoutSeconds=configured.planner.timeout,
+                                         qwenPlanCacheEnabled=settings.qwen_plan_cache_enabled)
+            CLIENT = local_http_client(API, timeout=30)
+            bootstrap_local_session(CLIENT, WEB, connection.get("bootstrapToken"),
+                                    session_cookie=connection.get("sessionCookie"))
+        else:
+            CLIENT = httpx.Client(base_url=API, timeout=30, transport=httpx.HTTPTransport(retries=0))
         catalog = {
             row["runId"]: row for row in request("GET", "/api/runs") if row.get("catalogStatus") == "READY"
         }
@@ -445,20 +503,17 @@ def main():
     dump(ROOT / "manifest.json", manifest)
     if not args.live:
         print(
-            "Offline preflight: 40 browser + 40 API questions; no servers, workers, browsers or models called."
+            f"Offline preflight: {manifest['planned']['browser']} browser + {manifest['planned']['api']} API questions; no servers, workers, browsers or models called."
         )
         return
     HEADLESS = args.headless
     worker = browser = None
     rows = []
-    worker_env = {
-        **os.environ,
-        "AGENT_BACKEND_URL": API,
-        "AGENT_WORKER_TOKEN": connection["workerToken"],
-        "AGENT_V2_PLAN_REVIEW_ENABLED": "true",
-        "AGENT_MODEL_TIMEOUT_SECONDS": "90",
-        "PYTHONPATH": str(REPO / "agent/python/src"),
-    }
+    worker_env = {**os.environ, "PYTHONPATH": str(REPO / "agent/python/src")}
+    if GRAPH_VERSION != "v2_localLLM":
+        worker_env.update(AGENT_BACKEND_URL=API, AGENT_WORKER_TOKEN=connection["workerToken"],
+                          AGENT_MODEL_TIMEOUT_SECONDS="90")
+        worker_env["AGENT_V3_PLAN_REVIEW_ENABLED" if GRAPH_VERSION == "v3" else "AGENT_V2_PLAN_REVIEW_ENABLED"] = "true"
     manifest["startedAt"] = datetime.now(timezone.utc).isoformat()
     manifest["sourceSha256"] = {
         str(path.relative_to(REPO)): hashlib.sha256(path.read_bytes()).hexdigest()
@@ -468,7 +523,7 @@ def main():
     try:
         with (ROOT / "worker.log").open("w") as log, (ROOT / "results.jsonl").open("x") as output:
             worker = subprocess.Popen(
-                [sys.executable, "-m", "kplasma_agent.worker"],
+                worker_command(GRAPH_VERSION, args.env_file),
                 cwd=REPO,
                 env=worker_env,
                 stdin=subprocess.DEVNULL,
@@ -499,7 +554,7 @@ def main():
                     raise RuntimeError(
                         "Harness failed; preserve accepted.json and do not resubmit automatically"
                     )
-                checked = flow_grader.grade(case, view, outcome.get("interactions", []))
+                checked = flow_grader.grade(case, view, outcome.get("interactions", []), graph_version=GRAPH_VERSION)
                 records = export_request(container, outcome["requestId"], directory)
                 if not records["models"]:
                     raise RuntimeError(
@@ -510,6 +565,7 @@ def main():
                 ):
                     raise RuntimeError("Executed data steps without a plan review; stop evaluation")
                 row = {
+                    "expectedGraphVersion": GRAPH_VERSION, "evaluationMode": "real_model",
                     "case": case["id"],
                     "category": case["category"],
                     "trial": trial,
@@ -528,7 +584,7 @@ def main():
                     json.dumps(
                         {
                             "completed": index,
-                            "total": 80,
+                            "total": len(jobs),
                             "case": case["id"],
                             "mode": mode,
                             "deterministicPass": checked["pass"],
@@ -563,11 +619,11 @@ def main():
                             worker.wait()
             finally:
                 CLIENT.close()
-    if len(rows) != 80 or len({row["requestId"] for row in rows}) != 80:
+    if len(rows) != len(jobs) or len({row["requestId"] for row in rows}) != len(jobs):
         raise RuntimeError(
-            "Evaluation did not finish 80 distinct requests; never add paid replacements automatically"
+            "Evaluation did not finish the selected distinct requests; never add replacements automatically"
         )
-    print("Finished exactly 80 questions. Review answers and screenshots before reporting final quality.")
+    print(f"Finished exactly {len(jobs)} questions. Review answers and screenshots before reporting final quality.")
 
 
 if __name__ == "__main__":

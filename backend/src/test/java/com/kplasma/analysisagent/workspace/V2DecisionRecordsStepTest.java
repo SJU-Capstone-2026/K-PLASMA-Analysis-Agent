@@ -20,6 +20,8 @@ class V2DecisionRecordsStepTest extends WorkspaceTestSupport {
 
     @Test void searchGroupFeedsRecordsAndTheRemainingRunsFeedAComparison() throws Exception {
         decision("EXP-1", decisionRecordFixture());
+        decision("EXP-private-local", decisionRecordFixture());
+        jdbc.update("update decision set origin_graph_version='v2_localLLM' where review_id='EXP-private-local'");
         start("검색 후보 중 비용 반려 후보를 빼고 비교해줘");
         plan(
             tool("search", "reverse_search", List.of(), Map.of()),
@@ -32,6 +34,7 @@ class V2DecisionRecordsStepTest extends WorkspaceTestSupport {
             "runs", searched, "candidateExecutionId", search));
         var first = records(records);
         assertThat(first).hasSize(1);
+        assertThat(first.toString()).doesNotContain("EXP-private-local");
         assertThat(first.get(0).get("candidates").get(1).get("note").asString()).isEqualTo(COST_NOTE);
         assertThat(first.get(0).has("authorName")).isFalse();
         decision("EXP-2", decisionRecordFixture());
