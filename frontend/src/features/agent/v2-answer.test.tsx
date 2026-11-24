@@ -7,6 +7,19 @@ import {AnswerView} from './AnswerView';
 import {initialTurnUi} from './useConversation';
 import {syntheticRun} from '../../test/runs';
 
+test.each(['GENERAL_ANSWER', 'COMPOSITE_ANSWER'] as const)('previous V3 %s shows its saved text without modifying the snapshot', async intent => {
+ const answerSnapshot = {...general.general_answer, implementationId: 'v3', graphVersion: 'v3',
+  intent, answer: '**저장된 V3 답변**'};
+ const saved = structuredClone(answerSnapshot);
+ const turn: TurnSnapshot = {id: 'retired-v3', askedAt: '', question: '이전 질문', intent,
+  context: null, answerRunRefs: [], answerSnapshot, ui: structuredClone(initialTurnUi)};
+
+ render(<AnswerView turn={turn} onAction={vi.fn()}/>);
+
+ expect(await screen.findByText('저장된 V3 답변')).toBeVisible();
+ expect(answerSnapshot).toEqual(saved);
+});
+
 test('saved local answers use the composite renderer without a prototype fallback',async()=>{
  const version='v2_localLLM';
  const snapshot={...general.general_answer,implementationId:version,graphVersion:version,

@@ -8,6 +8,8 @@ import java.util.List;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.test.context.TestPropertySource;
 import tools.jackson.databind.JsonNode;
 
@@ -118,27 +120,43 @@ class AgentGraphVersionTest extends WorkspaceTestSupport {
         assertThat(v2.get("request").get("requestId")).isEqualTo(request.get("requestId"));
     }
 
-    @Test void retiredGraphRequestsStayReadableAndCannotReenterExecution() throws Exception {
+    @ParameterizedTest
+    @ValueSource(strings={"v1", "v3"})
+    void retiredGraphRequestsStayReadableAndCannotReenterExecution(String version) throws Exception {
         var request = ok("POST", "/api/agent/requests",
-            Map.of("text", "이전 버전 인공 질문", "stateToken", token()), "historical-v1-request");
+            Map.of("text", "이전 버전 인공 질문", "stateToken", token()), "historical-request");
         String id = request.path("requestId").asString();
         String root = "/requests/" + id;
         jdbc.update("""
-            update agent_request set graph_version='v1', status='NEEDS_INPUT',
+            update agent_request set graph_version=?, status='NEEDS_INPUT',
                 pending_input='{"id":"historical-input","message":"이전 입력 요청"}'::jsonb where id=?::uuid
-            """, id);
+            """, version, id);
+        jdbc.update("update workspace set agent_graph_version=? where id=1", version);
+
+        var workspace = state();
+        assertThat(workspace.path("activeAgentRequest").isNull()).isTrue();
+        assertThat(workspace.path("agentMessages").get(0).path("question")).isEqualTo(request.path("question"));
         var saved = ok("GET", "/api/agent" + root, null, null);
-        assertThat(saved.path("graphVersion").asString()).isEqualTo("v1");
+        assertThat(saved.path("graphVersion").asString()).isEqualTo(version);
         assertThat(saved.path("question")).isEqualTo(request.path("question"));
+        assertThat(saved.path("pendingInput").path("id").asString()).isEqualTo("historical-input");
         rejects("POST", "/api/agent" + root + "/resume", Map.of("expectedRequestRevision", 0,
             "pendingInputId", "historical-input", "input", Map.of("text", "인공 답변")),
             "retired-input", 409, "GRAPH_VERSION_RETIRED");
-        assertThat(sendInternal(root + "/context", Map.of("claimGeneration", 0, "requestRevision", 0))
+        rejects("POST", "/api/agent/requests", Map.of("text", "후속 인공 질문", "stateToken", token()),
+            "retired-submit", 409, "GRAPH_VERSION_RETIRED");
+        assertThat(sendInternal(root + "/checkpoint", Map.of("claimGeneration", 0, "requestRevision", 0, "payload", Map.of()))
             .statusCode()).isEqualTo(403);
         jdbc.update("update agent_request set status='QUEUED', pending_input=null where id=?::uuid", id);
+        assertThat(state().path("activeAgentRequest").isNull()).isTrue();
         assertThat(claim(Map.of("workerId", "v2-worker", "leaseSeconds", 60, "supportedGraphVersions", List.of("v2")))
             .path("request").isNull()).isTrue();
         assertThat(ok("GET", "/api/agent" + root, null, null).path("status").asString()).isEqualTo("QUEUED");
+
+        ok("POST", "/api/workspace/new-conversation", Map.of("stateToken", token()), null);
+        var newest = ok("POST", "/api/agent/requests",
+            Map.of("text", "새 V2 질문", "stateToken", token()), "new-v2-request");
+        assertThat(state().path("activeAgentRequest").path("requestId")).isEqualTo(newest.path("requestId"));
     }
 
     @Test void modelReservationIsDurableAndCannotAuthorizeADuplicateCall() throws Exception {

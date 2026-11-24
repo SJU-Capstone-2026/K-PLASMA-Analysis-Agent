@@ -1,17 +1,16 @@
 import pytest
 from pydantic import ValidationError
 
-from kplasma_agent.tools import CompareToolInputs, native_tools
+from kplasma_agent.tools import CompareToolInputs
 
 
-def test_waveform_comparison_is_a_native_tool_argument_without_an_extra_tool():
+def test_compare_inputs_accept_waveform_fields_and_plots():
     parsed = CompareToolInputs.model_validate({
         "comparison_fields": ["current.maximum", "current.halfPeakToPeak"],
         "plot_ids": ["current"],
     })
     assert parsed.comparison_fields == ["current.maximum", "current.halfPeakToPeak"]
     assert parsed.plot_ids == ["current"]
-    assert len(native_tools()) == 5
 
 
 @pytest.mark.parametrize("arguments", [

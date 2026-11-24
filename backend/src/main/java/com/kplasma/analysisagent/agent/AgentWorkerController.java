@@ -26,11 +26,6 @@ public class AgentWorkerController {
             throw new IllegalArgumentException("SHARED_WORKER_KEYS_INVALID");
     }
     public record OutputQuery(long claimGeneration,long requestRevision,java.util.List<com.kplasma.analysisagent.contract.RunDto.RunRef> runRefs,java.util.List<String> plotIds) {}
-    @PostMapping("/requests/{id}/comparison-outputs") public com.kplasma.analysisagent.contract.RunOutputDto.Response outputs(@RequestHeader(name="X-Agent-Token",required=false) String token,@PathVariable String id,@RequestBody OutputQuery body){
-        authorize(token,id);var requestId=AgentRequestController.id(id);service.authorizeOutputs(requestId,body.claimGeneration(),body.requestRevision(),body.runRefs());
-        var result=outputs.outputs(new com.kplasma.analysisagent.contract.RunOutputDto.Request(body.runRefs(),body.plotIds()),false);
-        service.authorizeOutputs(requestId,body.claimGeneration(),body.requestRevision(),body.runRefs());return result;
-    }
     private static boolean same(String expected,String submitted){return submitted!=null&&MessageDigest.isEqual(expected.getBytes(StandardCharsets.UTF_8),submitted.getBytes(StandardCharsets.UTF_8));}
     private boolean authorize(String submitted){
         if(token.isBlank()&&(!graphVersions.allowsLocal()||localToken.isBlank()))
@@ -50,8 +45,6 @@ public class AgentWorkerController {
     }
     @PostMapping("/requests/{id}/events") public Map<String,Object> event(@RequestHeader(name="X-Agent-Token",required=false) String token,@PathVariable String id,@RequestBody AgentPublicEvents.Write body){authorize(token,id);return service.publicEvent(AgentRequestController.id(id),body);}
     @PostMapping("/requests/{id}/heartbeat") public Map<String,Object> heartbeat(@RequestHeader(name="X-Agent-Token",required=false) String token,@PathVariable String id,@RequestBody Mutation body){authorize(token,id);return service.heartbeat(AgentRequestController.id(id),body);}
-    @GetMapping("/requests/{id}/context") public Map<String,Object> context(@RequestHeader(name="X-Agent-Token",required=false) String token,@PathVariable String id,@RequestParam long claimGeneration,@RequestParam long requestRevision){authorize(token,id);return service.context(AgentRequestController.id(id),claimGeneration,requestRevision);}
-    @PostMapping("/requests/{id}/context") public Map<String,Object> context(@RequestHeader(name="X-Agent-Token",required=false) String token,@PathVariable String id,@RequestBody Mutation body){authorize(token,id);return service.context(AgentRequestController.id(id),body.claimGeneration(),body.requestRevision(),body.requiredRunRefs(),body.reverseQuery(),body.referencesOnly(),body.forwardQuery());}
     @GetMapping("/requests/{id}/checkpoint") public Map<String,Object> checkpoint(@RequestHeader(name="X-Agent-Token",required=false) String token,@PathVariable String id,@RequestParam long claimGeneration,@RequestParam long requestRevision){authorize(token,id);return service.checkpoint(AgentRequestController.id(id),claimGeneration,requestRevision);}
     @PostMapping("/requests/{id}/checkpoint") public Map<String,Object> checkpoint(@RequestHeader(name="X-Agent-Token",required=false) String token,@PathVariable String id,@RequestBody Mutation body){authorize(token,id);return service.saveCheckpoint(AgentRequestController.id(id),body);}
     @PostMapping("/requests/{id}/plans")
@@ -110,8 +103,6 @@ public class AgentWorkerController {
         authorize(token,id); return service.completeV2Model(AgentRequestController.id(id), AgentRequestController.id(attemptId), body);
     }
 
-    @PostMapping("/requests/{id}/attempt") public Map<String,Object> attempt(@RequestHeader(name="X-Agent-Token",required=false) String token,@PathVariable String id,@RequestBody Mutation body){authorize(token,id);return service.attempt(AgentRequestController.id(id),body);}
-    @PostMapping("/requests/{id}/decision-records") public Map<String,Object> decisionRecords(@RequestHeader(name="X-Agent-Token",required=false) String token,@PathVariable String id,@RequestBody Mutation body){authorize(token,id);return service.decisionRecords(AgentRequestController.id(id),body.claimGeneration(),body.requestRevision());}
     @PostMapping("/requests/{id}/needs-input") public Map<String,Object> needsInput(@RequestHeader(name="X-Agent-Token",required=false) String token,@PathVariable String id,@RequestBody Mutation body){authorize(token,id);return service.needsInput(AgentRequestController.id(id),body);}
     @PostMapping("/requests/{id}/fail") public Map<String,Object> fail(@RequestHeader(name="X-Agent-Token",required=false) String token,@PathVariable String id,@RequestBody Mutation body){authorize(token,id);return service.fail(AgentRequestController.id(id),body);}
     @PostMapping("/requests/{id}/finalize") public Map<String,Object> finalizeRequest(@RequestHeader(name="X-Agent-Token",required=false) String token,@PathVariable String id,@RequestBody Mutation body){authorize(token,id);return service.finalizeRequest(AgentRequestController.id(id),body);}

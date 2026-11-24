@@ -51,7 +51,13 @@ public class AgentRequestRepository {
         Map<String,Object> item=new LinkedHashMap<>();item.put("id",rs.getString("id"));item.put("requestRevision",rs.getLong("request_revision"));
         item.put("input",read(rs.getString("input")));item.put("createdAt",rs.getTimestamp("created_at").toInstant().toString());return item;
     },id);}
-    public Map<String,Object> latest(long workspace,long conversation,boolean failed){var rows=jdbc.query("select * from agent_request where workspace_epoch=? and conversation_epoch=? and "+(failed?"true":"status in ('QUEUED','RUNNING','NEEDS_INPUT')")+" order by created_at desc limit 1",this::row,workspace,conversation);return rows.isEmpty()||(failed&&!"FAILED".equals(rows.getFirst().status()))?null:view(rows.getFirst());}
+    public Map<String,Object> latest(long workspace, long conversation, boolean failed) {
+        // Retired requests remain readable as history, even if an older worker left them pending.
+        String active = failed ? "" : " and graph_version in ('v2','v2_localLLM') and status in ('QUEUED','RUNNING','NEEDS_INPUT')";
+        var rows = jdbc.query("select * from agent_request where workspace_epoch=? and conversation_epoch=?"
+            + active + " order by created_at desc limit 1", this::row, workspace, conversation);
+        return rows.isEmpty() || (failed && !"FAILED".equals(rows.getFirst().status())) ? null : view(rows.getFirst());
+    }
     public void purgeTransient(UUID id){jdbc.update("delete from agent_run_selection where request_id=?",id);jdbc.update("delete from agent_checkpoint where request_id=?",id);jdbc.update("update agent_request set manifest=null where id=?",id);}
     @org.springframework.transaction.annotation.Transactional
     public void cancel(UUID id,String code){

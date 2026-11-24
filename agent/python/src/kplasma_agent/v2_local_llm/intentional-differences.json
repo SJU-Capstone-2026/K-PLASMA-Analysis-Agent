@@ -5,12 +5,35 @@
       "path": "backend_client.py",
       "selectors": [
         "class:BackendClient/function:__init__",
+        "class:BackendClient/function:claim",
+        "class:RequestBackend/function:__init__",
+        "class:RequestBackend/function:stage",
+        "class:RequestBackend/function:attempt",
+        "class:RequestBackend/function:context",
+        "class:RequestBackend/function:decision_records",
+        "class:RequestBackend/function:comparison_outputs",
+        "class:RequestBackend/function:fail",
         "import:kplasma_agent.v2_local_llm.network:local_http_client"
       ],
-      "reason": "Restrict the owned backend client to one explicit loopback origin with no proxy or redirects.",
+      "reason": "Restrict the owned backend client to one explicit loopback origin with no proxy or redirects. Require an explicit graph at claim and remove retired progress routing and request-scoped worker calls.",
       "tests": [
         "tests/v2_local_llm/test_network.py",
         "tests/v2_local_llm/test_model_client.py"
+      ]
+    },
+    {
+      "path": "tools.py",
+      "selectors": [
+        "docstring",
+        "assign:TOOL_DESCRIPTIONS",
+        "function:native_tools",
+        "assign:SELECTION_PROMPT",
+        "assign:GENERAL_PROMPT"
+      ],
+      "reason": "Remove unused V1 model prompts and tool declarations while retaining shared tool input validation and saved-answer schemas.",
+      "tests": [
+        "tests/v2_local_llm/test_clone_boundary.py",
+        "tests/v2_local_llm/test_graph.py"
       ]
     },
     {
