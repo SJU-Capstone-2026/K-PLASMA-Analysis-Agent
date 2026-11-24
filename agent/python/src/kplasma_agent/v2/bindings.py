@@ -177,9 +177,21 @@ def resolve_inputs(step: StepSpec, context: dict, results: dict[str, StepResult]
             inputs["candidateExecutionId"] = results[run_input.step_id].executionId
         return inputs
     if isinstance(step, DeriveStep):
-        resolved = ([bind(v) for v in step.inputs.values] if isinstance(step.inputs.values, list)
-                    else bind(step.inputs.values))
-        values = resolved if isinstance(resolved, list) else [resolved]
+        bindings = step.inputs.values
+        if isinstance(bindings, list):
+            values = [bind(binding) for binding in bindings]
+            fields = {
+                value["field"] for value in values
+                if isinstance(value, dict) and isinstance(value.get("field"), str)
+            }
+            if step.operation != "scale" and len(fields) == 1:
+                field = next(iter(fields))
+                for index, binding in enumerate(bindings):
+                    if isinstance(binding, LiteralInput) and binding.unit not in (None, "1"):
+                        values[index] = {**values[index], "field": field}
+        else:
+            resolved = bind(bindings)
+            values = resolved if isinstance(resolved, list) else [resolved]
         if any(v is None for v in values):
             raise BlockedInput("values")
         operands = []
