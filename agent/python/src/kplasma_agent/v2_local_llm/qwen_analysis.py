@@ -10,7 +10,8 @@ import time
 
 @lru_cache(maxsize=2)
 def _tokenizer(path, size, modified):
-    from tokenizers import Tokenizer
+    # The local-llm-analysis extra is optional for the worker.
+    from tokenizers import Tokenizer  # type: ignore[import-not-found]
     data = Path(path).read_bytes()
     return Tokenizer.from_str(data.decode()), hashlib.sha256(data).hexdigest()
 

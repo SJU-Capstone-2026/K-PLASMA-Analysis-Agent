@@ -433,7 +433,7 @@ def _selected_aggregate_checks(question, plan, confirmed_context):
 def _flash_checks(question, plan, input_history) -> dict[str, CodeCheck]:
     steps = plan["steps"]
     sources = {step["id"]: step for step in steps}
-    checks = {}
+    checks: dict[str, CodeCheck] = {}
     standalone = " ".join(question.split()).rstrip(".!?") if not input_history and len(question) <= 512 else ""
     selection_request = _SEARCH_THEN_PICK.fullmatch(standalone)
     pick_from_search = _PICK_FROM_SEARCH.fullmatch(standalone)
