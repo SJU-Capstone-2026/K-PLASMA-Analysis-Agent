@@ -21,7 +21,7 @@ test('version flags preserve v2 default and reject ambiguous or unknown identiti
     assert.equal(graphVersionArgument(['--graph-version',version]),version);
     assert.equal(graphVersionArgument([`--graph-version=${version}`]),version);
   }
-  for(const args of [['--graph-version'],['--graph-version','local'],['--graph-version','v3'],
+  for(const args of [['--graph-version'],['--graph-version','local'],['--graph-version','v1'],['--graph-version','v3'],
     ['--graph-version=v2','--graph-version','v2_localLLM']])assert.throws(()=>graphVersionArgument(args),/graph version/);
 });
 
@@ -30,6 +30,7 @@ test('scripted and live variant workers use their own production namespace',()=>
     ['agent/python/tests/v2_local_llm/runtime_worker.py']);
   assert.deepEqual(runtimeWorkerSpec('v2_localLLM',{live:true,envFile:'/private/local.env'}),
     ['-m','kplasma_agent.v2_local_llm.worker','--env-file','/private/local.env']);
+  assert.throws(()=>runtimeWorkerSpec('v1',{live:false}),/graph version/);
   assert.throws(()=>runtimeWorkerSpec('v3',{live:false}),/graph version/);
   assert.deepEqual(runtimeWorkerSpec('v2',{live:false}),['agent/python/tests/runtime_v2_worker.py']);
   assert.throws(()=>runtimeWorkerSpec('local',{live:false}),/graph version/);

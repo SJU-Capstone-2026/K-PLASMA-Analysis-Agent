@@ -3,7 +3,7 @@
   "info": {
     "title": "K-PLASMA Graph v2 additions",
     "version": "1.0.0",
-    "description": "Graph v2 uses the shared additive public event, SSE/JSON replay, preview and executionSummary contract in agent-v1.openapi.yaml. A results.ready binding contains only saved, verified current-graph tool executions; old versioned bindings remain immutable. Replaying events never re-executes a model or tool."
+    "description": "Graph v2 uses the shared additive public event, SSE/JSON replay, preview and executionSummary contract in agent.openapi.yaml. A results.ready binding contains only saved, verified current-graph tool executions; old versioned bindings remain immutable. Replaying events never re-executes a model or tool."
   },
   "paths": {
     "/internal/agent/requests/{id}/plans": {
@@ -248,7 +248,7 @@
             "description": "Stale fence or no active step reservation"
           }
         },
-        "description": "Only for the active reservation of a plan step with tool decision_records. The Runs come from the reservation inputs, never from this body: either a whole verified candidate group (candidateExecutionId of a reverse_search or an earlier decision_records step, with outputs.candidates equal to inputs.runs), or Runs confirmed in the request context (comparisonReference entries, candidateReferences, activeRun). Those Runs become the step's frozen source. The first read pins the records in save order as manifest.decisionRecords, shared with the v1 decision-records endpoint, so retries, replans and resumes classify the same records. Records carry the same reuse fields as v1; authors, objectives and metrics are omitted. Notes are user text: workers classify them locally and must not send them to a model or an external trace."
+        "description": "Only for the active reservation of a plan step with tool decision_records. The Runs come from the reservation inputs, never from this body: either a whole verified candidate group (candidateExecutionId of a reverse_search or an earlier decision_records step, with outputs.candidates equal to inputs.runs), or Runs confirmed in the request context (comparisonReference entries, candidateReferences, activeRun). Those Runs become the step's frozen source. The first read pins the records in save order as manifest.decisionRecords so retries, replans and resumes classify the same records. Records carry the reuse fields; authors, objectives and metrics are omitted. Notes are user text: workers classify them locally and must not send them to a model or an external trace."
       }
     },
     "/internal/agent/requests/{id}/steps/{executionId}/comparison-outputs": {
@@ -533,11 +533,10 @@
                   "graphVersion": {
                     "type": "string",
                     "enum": [
-                      "v1",
                       "v2",
                       "v2_localLLM"
                     ],
-                    "description": "Exact conversation graph identity. The deployment must enable this version; an omitted value uses its configured default (cloud: v1; local: v2_localLLM). A pinned conversation cannot change versions."
+                    "description": "Exact conversation graph identity. The deployment must enable this version; an omitted value uses its configured default (cloud: v2; local-only: v2_localLLM). A pinned conversation cannot change versions. Conversations from a retired graph are read-only."
                   }
                 }
               }
@@ -555,13 +554,13 @@
       }
     },
     "/api/agent/requests/{id}/events": {
-      "$ref": "agent-v1.openapi.yaml#/paths/~1api~1agent~1requests~1{id}~1events"
+      "$ref": "agent.openapi.yaml#/paths/~1api~1agent~1requests~1{id}~1events"
     },
     "/api/agent/requests/{id}/results": {
-      "$ref": "agent-v1.openapi.yaml#/paths/~1api~1agent~1requests~1{id}~1results"
+      "$ref": "agent.openapi.yaml#/paths/~1api~1agent~1requests~1{id}~1results"
     },
     "/internal/agent/requests/{id}/events": {
-      "$ref": "agent-v1.openapi.yaml#/paths/~1internal~1agent~1requests~1{id}~1events"
+      "$ref": "agent.openapi.yaml#/paths/~1internal~1agent~1requests~1{id}~1events"
     }
   },
   "components": {
@@ -577,24 +576,23 @@
         "$ref": "agent-v2.answer.schema.json"
       },
       "PublicEvent": {
-        "$ref": "agent-v1.openapi.yaml#/components/schemas/PublicEvent"
+        "$ref": "agent.openapi.yaml#/components/schemas/PublicEvent"
       },
       "PublicEventPage": {
-        "$ref": "agent-v1.openapi.yaml#/components/schemas/PublicEventPage"
+        "$ref": "agent.openapi.yaml#/components/schemas/PublicEventPage"
       },
       "ProgressSnapshot": {
-        "$ref": "agent-v1.openapi.yaml#/components/schemas/ProgressSnapshot"
+        "$ref": "agent.openapi.yaml#/components/schemas/ProgressSnapshot"
       },
       "ExecutionSummary": {
-        "$ref": "agent-v1.openapi.yaml#/components/schemas/ExecutionSummary"
+        "$ref": "agent.openapi.yaml#/components/schemas/ExecutionSummary"
       },
       "RequestView": {
-        "$ref": "agent-v1.openapi.yaml#/components/schemas/RequestView"
+        "$ref": "agent.openapi.yaml#/components/schemas/RequestView"
       },
       "GraphVersion": {
         "type": "string",
         "enum": [
-          "v1",
           "v2",
           "v2_localLLM"
         ]
@@ -611,7 +609,7 @@
             "$ref": "#/components/schemas/GraphV2LocalLLMAnswerSnapshotV1"
           }
         ],
-        "description": "graphVersion and implementationId must match each other and the owning request. The legacy v1 schema families remain separate."
+        "description": "graphVersion and implementationId must match each other and the owning request."
       }
     }
   }

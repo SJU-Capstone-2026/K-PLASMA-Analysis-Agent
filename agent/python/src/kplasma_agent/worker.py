@@ -14,7 +14,6 @@ from .config import Settings
 from .graphs.registry import build_graph_for_version
 from .v2.model_gateway import V2ModelGateway, V2Settings
 from .v2.budget import check_payload
-from .model_client import ModelClient
 from .persistence.checkpointer import DurableSaver
 from . import tracing
 from .progress import ProgressReporter
@@ -22,8 +21,21 @@ from .progress import ProgressReporter
 LOG = logging.getLogger("kplasma.worker")
 
 
-def run_claim(claim, backend, model, settings, *, v2_models=None):
+def _recovery_versions(v2_settings):
+    return {
+        "graphVersion": "v2", "graphBuildId": "v2-composite-1", "schemaVersion": "1",
+        "planner": v2_settings.planner.model, "planEffort": v2_settings.planner.reasoning_effort,
+        "writer": v2_settings.writer.model, "answerEffort": v2_settings.writer.reasoning_effort,
+        "decisions": v2_settings.decisions_model,
+    }
+
+
+def run_claim(claim, backend, *, v2_models):
     request = claim.get("request") or {}
+    if request.get("graphVersion") != "v2":
+        backend.fail("GRAPH_VERSION_MISMATCH")
+        return
+    versions = _recovery_versions(v2_models.settings)
     with tracing.span(
         "agent.request",
         kind="AGENT",
@@ -39,23 +51,13 @@ def run_claim(claim, backend, model, settings, *, v2_models=None):
             "kplasma.request_revision": claim.get("requestRevision", 0),
         },
     ) as observation:
-        observation.json_attribute("metadata", settings.versions())
-        _run_claim(claim, backend, model, settings, observation, v2_models=v2_models)
+        observation.json_attribute("metadata", versions)
+        _run_claim(claim, backend, observation, versions, v2_models=v2_models)
 
 
-def _run_claim(claim, backend, model, settings, observation, *, v2_models=None):
+def _run_claim(claim, backend, observation, versions, *, v2_models):
     progress = getattr(backend, "progress", None) or ProgressReporter(None)
     check_id = progress.activity("QUESTION_CHECK")
-    version = (claim.get("request") or {}).get("graphVersion", "v1")
-    versions = settings.versions()
-    if version == "v2" and v2_models is not None:
-        v2 = v2_models.settings
-        versions = {
-            "graphVersion": "v2", "graphBuildId": "v2-composite-1", "schemaVersion": "1",
-            "planner": v2.planner.model, "planEffort": v2.planner.reasoning_effort,
-            "writer": v2.writer.model, "answerEffort": v2.writer.reasoning_effort,
-            "decisions": v2.decisions_model,
-        }
     payload = backend.checkpoint()
     observation.attribute("kplasma.resumed", bool(payload))
     if payload and payload.get("versions") != versions:
@@ -68,7 +70,7 @@ def _run_claim(claim, backend, model, settings, observation, *, v2_models=None):
         saver = DurableSaver(
             (payload or {}).get("saver"), lambda data: backend.save({"versions": versions, "saver": data})
         )
-        graph = build_graph_for_version(version, model, backend, settings, saver, v2_models=v2_models)
+        graph = build_graph_for_version("v2", backend, saver, v2_models=v2_models)
         saved = graph.get_state(config)
         progress.activity("QUESTION_CHECK", "completed", identity=check_id)
     except Exception:
@@ -82,8 +84,7 @@ def _run_claim(claim, backend, model, settings, observation, *, v2_models=None):
             history_size = len(saved.values.get("input_history", []))
             events = claim.get("inputEvents", [])
             if len(events) <= history_size:
-                pending_value = (next(item.value for task in saved.tasks for item in task.interrupts)
-                                 if version == "v2" else saved.values["pending"])
+                pending_value = next(item.value for task in saved.tasks for item in task.interrupts)
                 backend.needs_input(pending_value)
                 observation.attribute("kplasma.outcome", "NEEDS_INPUT")
                 observation.output(pending_value)
@@ -107,16 +108,14 @@ def _run_claim(claim, backend, model, settings, observation, *, v2_models=None):
             if saved.next or "answer" not in saved.values
             else saved.values
         )
-        observation.attribute("kplasma.operation", result.get("operation", {}).get("kind", ""))
         if result.get("__interrupt__"):
-            pending_value = result["__interrupt__"][0].value if version == "v2" else result["pending"]
+            pending_value = result["__interrupt__"][0].value
             backend.needs_input(pending_value)
             observation.attribute("kplasma.outcome", "NEEDS_INPUT")
             observation.output(pending_value)
         else:
             backend.stage("commit")
-            if version == "v2":
-                progress.activity("COMMIT")
+            progress.activity("COMMIT")
             backend.finalize(result["answer"])
             observation.attribute("kplasma.outcome", "COMPLETED")
             observation.attribute("kplasma.result_status", result["answer"].get("status", ""))
@@ -126,13 +125,13 @@ def _run_claim(claim, backend, model, settings, observation, *, v2_models=None):
         if error.retryable or error.code in ("STALE_CLAIM", "STALE_CONTEXT", "REQUEST_NOT_FOUND"):
             raise
         observation.error(error)
-        _fail_graph(backend, graph, config, error)
+        _fail_graph(backend, error)
     except Exception as error:
         observation.error(error)
-        _fail_graph(backend, graph, config, error)
+        _fail_graph(backend, error)
 
 
-def _fail_graph(backend, graph, config, error):
+def _fail_graph(backend, error):
     code = getattr(error, "code", None)
     if code is None:
         code = (
@@ -140,16 +139,7 @@ def _fail_graph(backend, graph, config, error):
             if str(error).replace("_", "").isupper() and len(str(error)) <= 80
             else "GRAPH_EXECUTION_FAILED"
         )
-    try:
-        state = graph.get_state(config).values
-    except Exception:
-        state = {}
-    partial = None
-    if state.get("verified") and state.get("operation", {}).get("kind") in ("explain_change", "compare_runs"):
-        partial = {**state["result"], "explanationComplete": False}
-        if state["operation"]["kind"] == "compare_runs":
-            partial["schemaVersion"] = 3 if "featurePolicyVersion" in partial else 2
-    backend.fail(code, partial)
+    backend.fail(code)
     LOG.warning("request failed: %s", code)
 
 
@@ -158,22 +148,21 @@ def serve(settings, once=False):
         raise SystemExit("AGENT_WORKER_TOKEN must be configured in the backend and worker.")
     tracing.initialize(settings)
     client = BackendClient(settings)
-    model = ModelClient(settings)
     decisions = httpx.Client(timeout=settings.timeout, transport=httpx.HTTPTransport(retries=0))
     v2_models = V2ModelGateway(V2Settings.from_env(settings), decisions, check_payload)
     stopping = Event()
-    worker_id = f"python-v1-v2-{uuid.uuid4()}"
+    worker_id = f"python-v2-{uuid.uuid4()}"
 
     def stop(*_):
         stopping.set()
 
     signal.signal(signal.SIGTERM, stop)
     signal.signal(signal.SIGINT, stop)
-    LOG.info("worker ready: graphs=v1,v2 v1_model=%s v2_planner=%s/%s",
-             settings.model, v2_models.settings.planner.model, v2_models.settings.planner.reasoning_effort)
+    LOG.info("worker ready: graph=v2 planner=%s/%s",
+             v2_models.settings.planner.model, v2_models.settings.planner.reasoning_effort)
     while not stopping.is_set():
         try:
-            claim = client.claim(worker_id, ["v1", "v2"])
+            claim = client.claim(worker_id, ["v2"])
             if claim.get("request") is None:
                 if once:
                     return
@@ -193,7 +182,7 @@ def serve(settings, once=False):
             pulse = Thread(target=heartbeat, daemon=True)
             pulse.start()
             try:
-                run_claim(claim, backend, model, settings, v2_models=v2_models)
+                run_claim(claim, backend, v2_models=v2_models)
             finally:
                 heartbeat_stop.set()
                 pulse.join(timeout=1)
@@ -208,7 +197,7 @@ def serve(settings, once=False):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="K-PLASMA LangGraph v1 and v2 worker")
+    parser = argparse.ArgumentParser(description="K-PLASMA LangGraph v2 worker")
     parser.add_argument("--env-file")
     parser.add_argument("--once", action="store_true")
     args = parser.parse_args()

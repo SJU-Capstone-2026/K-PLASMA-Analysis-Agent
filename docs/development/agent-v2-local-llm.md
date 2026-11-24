@@ -1,12 +1,10 @@
 # v2_localLLM 실행 준비와 검증
 
-[v2.3 체크포인트](../verification/2026-11-15-local-llm-v2.3-checkpoint.md)는 v2.2 미커밋 작업을 포함한 현재 보존 범위다. 2026-11-15 사용자 결정에 따라 영어화·중복 축약·정리표 제외를 유지하며, d1 오류 검출 문제는 v2.4에 넘기는 미해결 항목으로 기록한다.
+`v2_localLLM`은 표준 V2에서 복제한 독립 LangGraph다. 일반 모드와 웹·백엔드·PostgreSQL·원본 보관소를 공유하고, Python 그래프·워커·모델 호출은 분리한다.
 
-[v2.3 실측 결과](../verification/2026-11-15-local-llm-v2.3-mlx8-single.md): 최종 영어·축약 입력은 Q8 기존 입력보다 토큰 19.6%·검토 시간 19.3%를 줄였지만, 인공 계획의 기대 판정 일치는 3/5에서 2/5로 낮아졌다. 현재 설정은 정확도 유지가 검증된 운영 권장값이 아닌 요청된 실험 구성이다.
+현재 제품 프로필은 **LocalLLM v2.8**이다. Qwen이 `submit_plan`으로 계획을 제출한다. 코드가 원문에서 단일하게 확인되는 검색 필터·정렬·비교 대상·단계 연결을 대조하고 필요한 부분을 보완한다. 지원 패턴에 맞지 않는 질문은 Qwen 계획을 의미 검토에 넘긴다. Flash는 원문이나 해당 인용을 기준으로 남은 항목을 검사한다. 승인된 계획을 기존 형식으로 실행하고 결과를 저장한다.
 
-`v2_localLLM`은 v2를 별도 Python namespace인 `kplasma_agent.v2_local_llm`으로 복제한 독립 그래프다. 기존 5173 웹·8080 backend·DB·storage를 공유하고, 그래프와 모델 워커는 버전별로 분리한다. v2·v3의 구현을 실행 중에 빌려 쓰지 않는다.
-
-v2.7 실행 프로필은 **Qwen llama.cpp + Flash v1.2 MLX 4비트 개별 검토**다. Flash는 검사 하나씩 처리한다. LiquidAI d1 MLX 8비트와 BF16은 비교용 프로필이다. [v2.7 변경과 평가](../verification/2026-11-22-local-llm-flash-review-accuracy.md)
+같은 40문항의 웹 평가에서 v2.7의 **30/40 → v2.8의 38/40**, 평균 응답 **100.70초 → 69.27초**를 기록했다. [평가 조건과 버전별 변경 요약](https://github.com/SJU-Capstone-2026/K-PLASMA-Analysis-Agent/pull/44)
 
 | 역할 | 현재 설정 |
 |---|---|
@@ -81,7 +79,9 @@ agent/python/runtimes/d1_mlx/.venv/bin/python \
 
 BF16 비교는 별도 구현 없이 서비스 `precision=bf16`·BF16 `model_path`, worker의 `D1_PRECISION=bf16`·`D1_MODEL=LiquidAI/d1-2B:BF16`·`D1_MODEL_PATH`를 함께 바꾼다. revision·메모리 증거도 해당 프로필과 맞춰야 한다. 실패 시 BF16으로 자동 우회하지 않는다.
 
-## d1 입력 변경과 소규모 비교
+## 과거 d1 입력 비교 기록
+
+아래 d1 실험 절은 당시 검증 절차다. 현재 운영 모델은 Flash v1.2다.
 
 입력 변경은 로컬 전송 표현에만 적용한다. 질문·이력·계획·인용 근거를 번역하거나 원본 snapshot을 다시 쓰지 않는다.
 
@@ -171,13 +171,13 @@ Apple Silicon용 [llama.cpp 패치](../../agent/python/runtimes/llama_cpp/submit
 
 v2.2의 `required_prior_outputs`는 **이번 단계 전에 필요한 앞 단계 출력의 조건**이다. 표시할 조회 지표가 아니다. 처음 하는 조회는 `depends_on: []`, `required_prior_outputs: []`다. `count`는 정확한 개수이며 추가 조건이 없으면 `count`·`value_type`·`unit`은 각각 `null`이다. [로컬 계획 schema](../contracts/agent-v2-local-llm.plan.schema.json).
 
-v2.6.1은 `submit_plan` 인용의 제한된 공백 차이를 원문 구절 한 곳으로 확인할 수 있을 때 복원한다. 지정 메시지에서 복원한 인용은 기존 d1 검토에 들어간다. [인용 복원과 캐시 적중 웹 검증](../verification/2026-11-19-local-llm-v2.6.1-qwen-citation.md).
+v2.6.1은 `submit_plan` 인용의 제한된 공백 차이를 원문 구절 한 곳으로 확인할 수 있을 때 복원한다. 복원된 원문 인용은 검토 입력에 사용한다. [인용 복원과 캐시 적중 웹 검증](../verification/2026-11-19-local-llm-v2.6.1-qwen-citation.md).
 
 과거 `requires`는 읽을 수 있지만 새 계획은 새 이름으로 직렬화한다. 두 이름을 동시에 보내면 거부한다. 기존 DB·대화·완료 기록을 일괄 변환하지 않고 fingerprint가 다른 미완료 checkpoint도 강제 재개하지 않는다. PlanDraft 버전2와 `native-submit-plan-chat-v2` 계약을 유지한다.
 
-공용 웹의 활성 로컬 개발 실행은 Qwen 계획 디스크 KV 캐시와 d1 계획 검토를 기본 ON으로 사용한다. 새 설치 예시에서 Qwen 캐시의 초기값은 OFF다. 켜려면 `QWEN_PLAN_CACHE_ENABLED=true`, `QWEN_PLAN_CACHE_DIR=.local/cache/v2_localLLM/qwen-plan-cache-KV`와 같은 실제 서버의 `--slot-save-path`를 함께 설정하고 새 메모리·캐시 왕복 증거를 확보한다. 상대 경로는 프로젝트 루트 기준이다. 이 캐시의 적용 범위는 Qwen 계획과 재계획이다.
+기록된 웹 평가는 Qwen 계획 디스크 KV 캐시와 Flash 계획 검토를 켰다. 새 설치 예시에서 Qwen 캐시의 초기값은 OFF다. 켜려면 `AGENT_V2_LOCAL_LLM_QWEN_PLAN_CACHE_ENABLED=true`, `AGENT_V2_LOCAL_LLM_QWEN_PLAN_CACHE_DIR=.local/cache/v2_localLLM/qwen-plan-cache-KV`와 같은 실제 서버의 `--slot-save-path`를 함께 설정하고 새 메모리·캐시 왕복 증거를 확보한다. 상대 경로는 프로젝트 루트 기준이다. 이 캐시의 적용 범위는 Qwen 계획과 재계획이다.
 
-캐시 준비 검사는 저장·복원·실제 토큰 재사용·수치 보존·메모리와 d1 응답 계약을 확인한다. 인공 계획의 d1 `PASS`/`ISSUE`/`UNCLEAR`와 검사별 판정·점수는 원문 그대로 기록하고, 두 계획의 통과 여부는 `semantic_review_passed`로 별도 표시한다. 정상적인 반려 응답 자체를 캐시 고장으로 취급하지 않으며, 누락·불완전·잘못된 응답과 `UNAVAILABLE`/`SKIPPED`는 계속 준비 실패다. 실제 요청의 d1 반려·재계획 규칙은 유지한다.
+캐시 준비 검사는 저장·복원·실제 토큰 재사용·수치 보존·메모리와 검토 모델의 응답 계약을 확인한다. 인공 계획의 `PASS`/`ISSUE`/`UNCLEAR`와 검사별 판정·점수는 원문 그대로 기록하고, 두 계획의 통과 여부는 `semantic_review_passed`로 별도 표시한다. 정상적인 반려 응답 자체를 캐시 고장으로 취급하지 않으며, 누락·불완전·잘못된 응답과 `UNAVAILABLE`/`SKIPPED`는 계속 준비 실패다. 실제 요청의 반려·재계획 규칙은 유지한다.
 
 활성 환경 파일과 모델 서버의 저장 경로를 함께 보존하고, ON으로 사용하기로 한 개발 실행을 평가 종료 후 OFF로 되돌리지 않는다. 사용자 승인 후 실제 ON 실행과 앞 5문항을 확인한 수치는 [캐시 ON 웹 비교](../verification/2026-11-18-local-llm-cache-on-web5.md)에 기록했다.
 
@@ -203,13 +203,13 @@ ctest --test-dir "$LLAMA_BUILD" -R '^test-chat$' --output-on-failure
 
 ## 준비·메모리·입력 제한
 
-Qwen이 sleep한 것을 확인하고 d1을 로드한다. d1은 GPU 동기화·참조 제거·캐시 해제 뒤 빈 서비스 메모리로 돌아온 것을 확인해야 Qwen을 다시 깨운다. Qwen은 `--sleep-idle-seconds 1`을 유지한다. MLX 서비스 프로세스가 살아 있는 것과 가중치가 상주하는 것은 구별한다. 다른 앱을 임의로 종료하지 않는다.
+Qwen이 sleep한 것을 확인하고 MLX 검토 모델을 로드한다. 검토 모델은 GPU 동기화·참조 제거·캐시 해제 뒤 빈 서비스 메모리로 돌아온 것을 확인해야 Qwen을 다시 깨운다. Qwen은 `--sleep-idle-seconds 1`을 유지한다. MLX 서비스 프로세스가 살아 있는 것과 가중치가 상주하는 것은 구별한다. 다른 앱을 임의로 종료하지 않는다.
 
 현재 개발 설정은 Docker VM **1536MiB**와 `MEMORY_POLICY=development`다. warning과 swap 변화를 기록하면서 허용하되 critical·알 수 없는 압력·해제 실패는 다음 모델 호출을 막는다. 기본 정책인 `strict`는 정상 압력·추가 swap 0 기준을 유지한다. Docker 상한은 VM 설정이며 worker 프로세스에 거는 메모리 상한이 아니다. 기존 DB·볼륨·Run을 보존하고 DB OOM도 확인한다.
 
 준비 증거는 모델 revision·모든 파일 SHA·서비스/변환 helper·실제 설치 라이브러리·고정 lock·context·정밀도·입력 표현·캐시·메모리 정책과 연결된다. 예전 GGUF/BF16/다른 입력 프로필의 보고서로 새 프로필을 준비 완료 처리하지 않는다. 준비 flag만 넣어 통과할 수 없으며 전체 준비 검사는 실제 모델을 호출할 수 있다.
 
-Qwen은 `/apply-template`·`/tokenize`, d1은 인증된 MLX count 경로에서 실제 template·검사지침·선택지까지 계수한다. Qwen 입력은 `min(16000, context_tokens - 6000)`, d1은 검사 하나당 `min(16000, context, batch, microbatch)` 이하다. 여러 검사의 usage 합을 한 검사의 context 길이로 해석하지 않는다. 한도 초과·계수 실패는 입력을 자르거나 검사 생략으로 통과시키지 않는다.
+Qwen은 `/apply-template`·`/tokenize`, Flash는 인증된 MLX count 경로에서 실제 template·검사지침·선택지까지 계수한다. Qwen 입력은 `min(16000, context_tokens - 6000)`, Flash는 검사 하나당 `min(16000, context, batch, microbatch)` 이하다. 여러 검사의 usage 합을 한 검사의 context 길이로 해석하지 않는다. 한도 초과·계수 실패는 입력을 자르거나 검사 생략으로 통과시키지 않는다.
 
 전체 스택 인공 메모리 준비 명령은 다음과 같다. 기존 원본 데이터를 받지 않고 별도 인공 DB·backend·화면을 측정 후 정리한다. 실제 모델 호출이 있으므로 위 실험 예산에 포함해 조정한다.
 
@@ -219,27 +219,31 @@ npm run measure:agent:local -- --env-file .env.local-llm
 
 출력 `measurement.json`을 Git 제외 경로에 보관하고 `AGENT_V2_LOCAL_LLM_MEMORY_MEASUREMENT_PATH`로 지정한다. 고정 runtime·현재 실행 프로필과 맞지 않으면 준비 검사를 거부한다. 짧은/중간/장문 입력 검사는 최대 출력·장기간 반복 실행의 안정성 보증을 대신하지 않는다.
 
-실제 평가는 모델 설정과 실제 그래프 `plan_review_enabled=true`를 확인한 뒤 수행한다. 최초 계획 통과, d1 지적, 재계획 뒤 최종 통과·실패를 구분한다. 준비·상태 검사도 같은 프로세스 간 모델 잠금을 사용한다. 잠금 사용 중에는 새 검사가 `LOCAL_MODEL_RUNTIME_BUSY`로 끝나며 실행 중인 모델을 해제하지 않는다.
+실제 평가는 모델 설정과 실제 그래프 `plan_review_enabled=true`를 확인한 뒤 수행한다. 최초 계획 통과, Flash 지적, 재계획 뒤 최종 통과·실패를 구분한다. 준비·상태 검사도 같은 프로세스 간 모델 잠금을 사용한다. 잠금 사용 중에는 새 검사가 `LOCAL_MODEL_RUNTIME_BUSY`로 끝나며 실행 중인 모델을 해제하지 않는다.
 
 ## 공통 backend와 화면
+
+분석 Agent의 기본 실행 모드는 일반 V2다. 로컬 워커와 웹 인증이 설정된 환경에서는
+버전 선택에서 `v2_localLLM`을 고를 수 있다. 모드를 바꾸려면 새 대화에서 원하는 버전을 선택한다. 저장된 질문·답변·Run 참조는 기존 대화에서 읽을 수 있다.
+실행 모드 정보가 없는 과거 대화도 읽을 수 있으며, 새 질문은 새 대화에서 보낸다.
 
 기존 `DB_URL`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `KPLASMA_STORAGE_ROOT`는 보존한다. 상용 `AGENT_WORKER_TOKEN`과 로컬 `AGENT_LOCAL_WORKER_TOKEN`은 다르게 설정하고, 로컬 worker의 `AGENT_V2_LOCAL_LLM_WORKER_TOKEN`은 로컬 키와 일치시킨다. 혼합 배포에서 키가 없거나 같으면 시작을 거부한다. local-only 배포의 기존 worker token 방식도 호환한다.
 
 ```sh
 # 비밀값은 해당 backend의 환경에만 준비한다.
-SERVER_ADDRESS=127.0.0.1 AGENT_SUPPORTED_GRAPH_VERSIONS=v1,v2,v2_localLLM \
+SERVER_ADDRESS=127.0.0.1 AGENT_SUPPORTED_GRAPH_VERSIONS=v2,v2_localLLM \
 AGENT_DEFAULT_GRAPH_VERSION=v2_localLLM AGENT_LOCAL_RUNTIME_ENABLED=true \
 AGENT_LOCAL_UI_ORIGIN=http://127.0.0.1:5173 AGENT_LOCAL_API_HOST=127.0.0.1:8080 \
 backend/gradlew -p backend bootRun
 
 # frontend 터미널: token을 VITE_ 변수에 넣지 않는다.
-VITE_AGENT_SUPPORTED_GRAPH_VERSIONS=v1,v2,v2_localLLM VITE_AGENT_DEFAULT_GRAPH_VERSION=v2_localLLM \
+VITE_AGENT_SUPPORTED_GRAPH_VERSIONS=v2,v2_localLLM VITE_AGENT_DEFAULT_GRAPH_VERSION=v2_localLLM \
 VITE_API_TARGET=http://127.0.0.1:8080 npm run dev
 ```
 
 backend의 `AGENT_LOCAL_BOOTSTRAP_TOKEN`은 32바이트 이상의 무작위 값이다. 비공개 실행 경로로 브라우저 `#local-bootstrap` fragment에 전달한 뒤 즉시 지우고 `/api/local-runtime/session`의 `X-Local-Bootstrap` 헤더로 한 번 교환한다. URL query·로그·공유 문서에 값을 남기지 않는다. UI session·worker·모델 API token은 서로 다르다.
 
-상용 키는 로컬 요청·context·checkpoint·입출력을 읽거나 쓸 수 없고 반대 방향도 제한한다. 화면에서는 기존 저장 판단 기록을 볼 수 있지만 상용 worker의 기억 조회에는 상용 출처로 확인된 기록만 제공한다. 서버 내부 `decision.origin_graph_version`으로 출처를 보존하고 공개 응답 JSON은 유지한다. 출처 불명확 기록도 상용 worker에서는 제외한다. 대화는 첫 질문의 그래프 버전을 유지하므로 버전 변경은 새 대화에서 선택한다.
+상용 키는 로컬 요청·context·checkpoint·입출력을 읽거나 쓸 수 없고 반대 방향도 제한한다. 화면에서는 기존 저장 판단 기록을 볼 수 있지만 상용 worker의 기억 조회에는 상용 출처로 확인된 기록만 제공한다. 서버 내부 `decision.origin_graph_version`으로 출처를 보존하고 공개 응답 JSON은 유지한다. 출처 불명확 기록도 상용 worker에서는 제외한다. 대화의 실행 모드는 첫 질문에 고정된다. 새 대화에서 원하는 실행 모드를 고른다. 로컬 전용 배포는 지원 목록과 기본값을 모두 `v2_localLLM`으로 설정한다.
 
 ## worker 명령과 데이터 전송 범위
 
@@ -252,7 +256,7 @@ node -- scripts/agent/local-llm.mjs start --env-file .env.local-llm
 ```
 
 - `status`는 worker `--check`를 호출한다. 준비되면 exit 0, 차단·불명확이면 blocker와 exit 2다. 새 실행 identity의 계약 확인은 실제 모델을 호출할 수 있다.
-- `smoke`는 인공 문자열로 native 계획·writer JSON·SSE·d1 choice/확률 프로토콜을 확인한다. 성공만으로 전체 메모리 준비나 정확도를 통과한 것은 아니다.
+- `smoke`는 인공 문자열로 native 계획·writer JSON·SSE·검토 선택지와 확률 프로토콜을 확인한다. 성공만으로 전체 메모리 준비나 정확도를 통과한 것은 아니다.
 - `start`는 준비 검사 후 private local worker만 시작한다. backend·DB·frontend·브라우저·bootstrap을 자동 기동하지 않는다. worker도 현재 압력과 설정을 계속 확인한다.
 
 모델 payload는 고정된 literal loopback 주소·포트로만 전송한다. 외부 base URL·redirect·환경 proxy·cloud 자격 증명 상속·외부 관측 exporter·cloud fallback은 거부한다. 화면과 API는 로컬 session·Host·Origin 검사를 유지하며 모델·worker token은 화면에 전달하지 않는다. 업데이트·다운로드는 허용하고 OS 송신 필터·LuLu·맥 전체 인터넷 차단은 요구하지 않는다.

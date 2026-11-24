@@ -32,7 +32,7 @@ class LocalRuntimeAccessTest {
     }
 
     private LocalRuntimeAccessFilter filter() {
-        return new LocalRuntimeAccessFilter(true, "v1", "v1,v2", "http://127.0.0.1:5173", "127.0.0.1:8080", "synthetic-bootstrap");
+        return new LocalRuntimeAccessFilter(true, "v2", "v2", "http://127.0.0.1:5173", "127.0.0.1:8080", "synthetic-bootstrap");
     }
 
     private MockHttpServletRequest request(String method, String path) {
@@ -108,7 +108,7 @@ class LocalRuntimeAccessTest {
     }
 
     @Test void disabledFilterPreservesCloudBehavior() throws Exception {
-        var filter = new LocalRuntimeAccessFilter(false, "v1", "v1,v2", "", "", "");
+        var filter = new LocalRuntimeAccessFilter(false, "v2", "v2", "", "", "");
         var invoked = new AtomicBoolean();
         filter.doFilter(new MockHttpServletRequest("GET", "/api/workspace"), new MockHttpServletResponse(),
             (request, response) -> invoked.set(true));

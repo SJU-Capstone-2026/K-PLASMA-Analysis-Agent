@@ -1,13 +1,6 @@
-from copy import deepcopy
-
 import httpx
-from langgraph.checkpoint.memory import InMemorySaver
-
-from fixtures import run
 from kplasma_agent.backend_client import BackendClient
 from kplasma_agent.config import Settings
-from kplasma_agent.graphs.v1 import build_graph
-from test_graph_v1 import Backend, Model
 
 
 def test_transport_sends_scoped_query_and_reference_only_option():
@@ -46,74 +39,3 @@ def test_transport_reads_decision_records_with_the_claim_fence():
     backend = client.bind({"request": {"requestId": "scoped"}, "claimGeneration": 2, "requestRevision": 3})
     assert backend.decision_records() == [{"reviewId": "EXP-1"}]
     assert calls == [("/internal/agent/requests/scoped/decision-records", {"claimGeneration": 2, "requestRevision": 3})]
-
-
-class ScopedBackend(Backend):
-    def __init__(self, rows, context=None):
-        super().__init__()
-        self.rows = rows
-        self.saved_context = context or {}
-        self.queries = []
-
-    def context(self, refs=None, *, reverse_query=None, references_only=False):
-        self.queries.append((deepcopy(reverse_query), references_only))
-        return {
-            "runs": [] if references_only else self.rows,
-            "referencedRuns": self.rows,
-            "context": self.saved_context,
-        }
-
-
-def invoke(question, inputs, backend):
-    model = Model([{"status": "resolved", "operations": [{"kind": "reverse_search", "inputs": inputs}]}])
-    graph = build_graph(model, backend, Settings(), InMemorySaver())
-    return graph.invoke(
-        {"question": question, "request_id": "scoped", "context": {}, "input_history": []},
-        {"configurable": {"thread_id": "scoped"}},
-    )
-
-
-def test_reverse_gather_sends_normalized_conditions_and_ordered_goals():
-    backend = ScopedBackend([run("A", energy=155)])
-    result = invoke(
-        "압력 0.01 Torr 이하, 평균 이온 에너지 150–160 eV 중 이온 플럭스 높은 순으로 찾아줘",
-        {
-            "constraints": [
-                {"metric": "pressure", "operator": "lte", "value": 0.01, "unit": "Torr"},
-                {"metric": "meanIonEnergy", "operator": "between", "min": 150, "max": 160, "unit": "eV"},
-            ],
-            "goals": [{"metric": "ionFlux", "direction": "maximize"}],
-        },
-        backend,
-    )
-    assert result["answer"]["status"] == "MATCH"
-    assert len(backend.queries) == 1
-    query, references_only = backend.queries[0]
-    assert not references_only
-    assert query["constraints"][0] == {
-        "metric": "pressure",
-        "operator": "lte",
-        "value": 10.0,
-        "unit": "mTorr",
-    }
-    assert query["goals"] == [{"metric": "ionFlux", "direction": "maximize", "unit": "10¹⁸ m⁻²s⁻¹"}]
-
-
-def test_context_rule_reads_reference_before_querying_derived_bounds():
-    baseline = run("A", energy=100)
-    target = run("B", energy=105)
-    backend = ScopedBackend(
-        [baseline, target], {"activeRun": {"runId": "A", "runVersionId": baseline["runVersionId"]}}
-    )
-    result = invoke(
-        "이 Run보다 에너지를 조금 더 높인 후보를 찾아줘",
-        {"context_rules": ["energy_slightly_higher"]},
-        backend,
-    )
-    assert result["answer"]["status"] == "MATCH"
-    assert backend.queries[0] == (None, True)
-    query, references_only = backend.queries[1]
-    assert not references_only
-    assert query["constraints"]
-    assert query["constraints"][0]["metric"] == "meanIonEnergy"
-    assert "context_rules" not in query

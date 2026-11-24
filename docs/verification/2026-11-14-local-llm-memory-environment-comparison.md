@@ -113,7 +113,7 @@ private `diagnosis/run.py` 종료 코드0·Qwen1회·actual input244·인자 불
 
 공용 웹5173·백엔드8080의 HTTP200, Qwen·d1의 기존 sleep 상태와 단일 슬롯을 확인했다.
 공용 DB 컨테이너1개만 실행 중이며 healthy이고 검사 컨테이너는 남아 있지 않았다. Docker 엔진 총량3,054,383,104B를 유지했다.
-v2/v3 워커·프런트엔드·백엔드·Qwen·d1 서비스 프로세스6개를 보존했다. 남은 Node 보조 프로세스는 중복 서버가 아닌 Codex 내부 도구 런타임으로 확인해 유지했다.
+보호 대상 그래프 워커·프런트엔드·백엔드·Qwen·d1 서비스 프로세스6개를 보존했다. 남은 Node 보조 프로세스는 중복 서버가 아닌 Codex 내부 도구 런타임으로 확인해 유지했다.
 Codex 본체·Chrome·IDE 등 사용자 앱, 데이터와 모델 설정은 변경하지 않았다. 캐시는 OFF다.
 
 기록은 같은 비공개 경로의 `cleanup-before.json`, `cleanup-selected.json`, `cleanup-result.json`,

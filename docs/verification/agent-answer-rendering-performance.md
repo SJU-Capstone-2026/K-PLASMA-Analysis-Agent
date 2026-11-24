@@ -1,6 +1,8 @@
 # 답변 렌더링과 검색 표시 데이터 재사용의 성능 검증
 
-2026-10-08. `feat/agent-graph-v1`, PR #12의 후속 변경이다. 앞선 카드·그래프 탭 즉시 표시 이후 관찰한 저장 요청 시작 지연을 줄인다. [이전 측정 기록](agent-optimistic-turn-ui.md)과 [조건 결과 탭 개선](candidate-tab-save.md)은 별도 단계의 기록으로 보존한다.
+> 당시 검증 기록이다. 현재 화면 검증은 [팀 실행 가이드](../development.md#검증)를 따른다.
+
+2026-10-08. 초기 채팅 화면의 후속 변경이다. 앞선 카드·그래프 탭 즉시 표시 이후 관찰한 저장 요청 시작 지연을 줄인다. [이전 측정 기록](agent-optimistic-turn-ui.md)과 [조건 결과 탭 개선](candidate-tab-save.md)은 별도 단계의 기록으로 보존한다.
 
 ## 문제 발견 → 원인 → 해결 방식 → 결과
 
@@ -27,7 +29,7 @@
 - 이미 실행 중인 backend **8080**, PostgreSQL **15432**, 등록 Run **150개**, 저장 turn **20개**, 기존 공통 후보 **11개** 화면. 150개 카드 동시 표시 시험은 아니다.
 - **응답 mock·고정 지연·네트워크 throttling·진단용 Profiler/시간 마커 없음**. 실제 브라우저 클릭과 ResourceTiming/MutationObserver를 사용한다.
 - 전→후→후→전(ABBA), 실행마다 동작별 워밍업5회 제외 후20회. 전후 각각 **40개 표본/동작**, nearest-rank 중앙값/p95(20번째/38번째 표본).
-- baseline plugin은 `useConversation`, `AgentPage`, `V1AnswerView`, `v1-search-model` 네 파일을 위 Git ref의 소스로 대체한다. hook만 교체해서 이번 컴포넌트 개선을 수정 전으로 잘못 측정하지 않는다. 다른 소스와 API/DB는 동일하다.
+- baseline plugin은 대화 훅, 화면, 답변 렌더러, 검색 결과 모델 네 파일을 위 Git ref의 소스로 대체한다. hook만 교체해서 이번 컴포넌트 개선을 수정 전으로 잘못 측정하지 않는다. 다른 소스와 API/DB는 동일하다.
 - 각 실행의 이전 저장 응답 반영을 기다린 뒤 다음 클릭을 측정한다. 실행당 UI PATCH50회와 별도 복원 PATCH1회. 전후 각각 클릭/저장100회, 네 실행의 복원 총4회. 측정 중 빌드/다른 테스트를 동시에 실행하지 않았다.
 
 ### 실제 결과
@@ -58,7 +60,7 @@ DOM은 click 이벤트 capture→선택 class/aria-selected의 MutationObserver 
 - 새 테스트는 입력창 입력의 불필요한 재계산을 수정 전에 실패로 재현했다. 실제 표시 함수의 실행을 관찰하며 함수/답변 컴포넌트를 대체하지 않는다. UI 변경 뒤 선택 표시, 최신 handler/후보 그룹 참조, 새 답변의 정확한 Run 버전, 질문 변경의 안내 갱신, 대화 제거 후 캐시 폐기를 검증한다.
 - `npm test`: Frontend **188**, TS Agent **33**, 참조 검증 도구 **34** 통과. 외부 원본 전용 **4**건 명시 skip.
 - `npm run typecheck`(e2e 포함), `npm run lint`, `npm run build`, `npm run verify:public-files`, `git diff --check`: 통과.
-- `cd frontend && npx playwright test --config src/features/agent/agent-v1.playwright.config.ts agent-v1.pw.ts`: **4/4** 통과, **390/800/1008/1440px**. 응답 전 카드·조건 탭·그래프 탭 변경, 빠른 연속 클릭, 저장 후 reload, 키보드·모달·가로 넘침을 확인했다. 390/1440px 인공 데이터 화면도 직접 확인했다. 기존 markup/CSS/수치/정렬은 유지한다.
+- 당시 화면 회귀 검사: **4/4** 통과, **390/800/1008/1440px**. 응답 전 카드·조건 탭·그래프 탭 변경, 빠른 연속 클릭, 저장 후 reload, 키보드·모달·가로 넘침을 확인했다. 390/1440px 인공 데이터 화면도 직접 확인했다. 기존 markup/CSS/수치/정렬은 유지한다.
 - 기존 저장 거절·응답 유실·첫 탭 실패·새 대화/초기화·선택 직후 질문의 회귀 테스트도 통과했다.
 - `ce-simplify-code`의 재사용·명료성·효율과 `ce-code-review`의 정확성·캐시 수명·최신 callback·저장 경쟁·검증 충실성 관점을 요청대로 단독 검토했다. 적용이 필요한 구체적 결함은 발견하지 않았다. 서브 에이전트/독립 교차 모델 리뷰는 수행하지 않았으며 팀원 승인은 별도다.
 - Python/backend 테스트·실제 모델 호출·부하 테스트는 이번 프론트 변경의 로컬 검증에서 재실행하지 않았다. 실제 서버/DB 클릭 시험과 구분한다.

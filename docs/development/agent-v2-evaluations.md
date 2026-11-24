@@ -5,8 +5,7 @@ Agent 전체 평가는 모델이 직접 계획을 만드는 웹·API 흐름을 �
 두 유료 명령을 CI나 하나의 자동 실행 명령으로 묶지 않는다.
 
 [3회차 평가 기록](../verification/2026-11-11-agent-v2-round3.md)에 웹 39/40·API 37/40·Decisions 80/80과 실제 평가 조건을 기록했다.
-향후 v3 개발 규칙·비교 방법과 첫 복제 계획은 [별도 문서 PR #34](https://github.com/SJU-Capstone-2026/K-PLASMA-Analysis-Agent/pull/34)에 분리했다.
-v3 실행기와 ON/OFF 기능은 아직 구현하지 않았다.
+아래 명령과 결과는 표준 V2 기준이다. 로컬 모델은 [LocalLLM 실행 가이드](agent-v2-local-llm.md)를 따른다.
 
 | 평가 | 기본 실행량 | 범위 | 외부 준비물 |
 | --- | --- | --- | --- |

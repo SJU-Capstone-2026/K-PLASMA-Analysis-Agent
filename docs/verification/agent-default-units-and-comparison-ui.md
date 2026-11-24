@@ -1,6 +1,8 @@
 # 기본 단위와 비교 UI 후속 검증
 
-2026-10-07 사용자 승인에 따라 단위 생략 시 재질문 정책을 기본 단위 적용으로 변경했다. 이전 [Tool Calling 검증](agent-v1-tool-calling-and-answers.md)은 당시 정책의 역사적 기록이다. 수치 엔진과 고정 그래프의 도구 네 개는 유지한다.
+> 당시 검증 기록이다. 현재 화면 검증은 [팀 실행 가이드](../development.md#검증)를 따른다.
+
+2026-10-07 사용자 승인에 따라 단위 생략 시 재질문 정책을 기본 단위 적용으로 변경했다. 수치 엔진과 고정 그래프의 도구 네 개는 유지한다.
 
 ## 변경과 원인
 
@@ -21,7 +23,7 @@
 | 서버 계약·HTTP·DB·상태 | Java 21에서 `backend/gradlew -p backend test --console=plain`: **153 통과 / 17 suite**, 실패·오류 0 |
 | JavaScript·화면 계약 | `npm test`: frontend **150 통과**, agent **33 통과 / 4 skip**, scripts **34 통과** |
 | 실제 모델 전체 그래프 | `PYTHONPATH=agent/python/src:agent/python agent/python/.venv/bin/python -m evals.run_acceptance --repeat 1 --concurrency 3`: **22/22 통과**, `gpt-5.6-luna` / `none`, Phoenix 활성 |
-| 실제 HTTP·DB·worker·브라우저 | `KPLASMA_V1_LIVE_WIDTHS=1440 node scripts/agent/verify.mjs --live`: **2/2 통과**, 네 도구·단위 생략·선택·추가 입력·모달·reload 및 layout geometry |
+| 실제 HTTP·DB·worker·브라우저 | 당시 전체 연결 검사: **2/2 통과**, 네 도구·단위 생략·선택·추가 입력·모달·reload 및 layout geometry |
 | 네 폭의 브라우저 | `node scripts/agent/verify.mjs`: **5/5 통과**, 실제 서버와 고정 모델 test double, 390/800/1008/1440px |
 | 정적 검사·빌드 | `npm run typecheck`, `npm run lint`, `npm run build`, Ruff·Mypy·`npm run verify:public-files`: 통과 |
 
@@ -33,4 +35,4 @@
 
 ## 적용
 
-그래프 빌드는 `v1-2026-10-07.tool-2`, 프롬프트 버전은 `tool-selection-2`다. 서버·Agent를 새 코드로 재시작하고 frontend를 새로 열어 적용한다. 버전이 다른 미완료 요청은 새 질문으로 제출하고 완료 답변은 재생성하지 않는다. DB 마이그레이션이나 fallback 활성화는 필요하지 않다. 단독 검토를 수행했으며 팀원의 PR 승인은 별도로 필요하다.
+측정 당시 프롬프트 버전은 `tool-selection-2`다. 서버·Agent를 새 코드로 재시작하고 frontend를 새로 열어 적용한다. 버전이 다른 미완료 요청은 새 질문으로 제출하고 완료 답변은 재생성하지 않는다. DB 마이그레이션이나 fallback 활성화는 필요하지 않다. 단독 검토를 수행했으며 팀원의 PR 승인은 별도로 필요하다.

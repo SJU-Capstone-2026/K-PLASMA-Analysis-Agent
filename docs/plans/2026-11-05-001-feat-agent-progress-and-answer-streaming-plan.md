@@ -10,6 +10,8 @@ execution: code
 
 # Agent 진행 기록과 실시간 답변 표시 구현 계획
 
+> 이 문서는 당시 작업 기록이다. 현재 실행·검증 명령은 [팀 실행 가이드](../development.md)를 따른다.
+
 ## Goal Capsule
 
 사용자가 기다리는 동안 현재 수행 중인 작업을 짧은 실행 기록으로 보여준다. 작업이 끝나면 기록을 접고 `2분 8초 동안 작업함`과 구분선을 답변 위에 표시한다. 일반 개념 답변과 실험 해석은 모델이 생성하는 동안 화면에 이어서 표시한다.
@@ -42,7 +44,7 @@ execution: code
 |---|---|
 | R7 | 다른 채팅방으로 이동해도 작업은 원래 방에서 계속되며, 돌아오거나 새로고침해도 올바른 진행 상태와 결과를 복원한다. |
 | R8 | 최신 대화를 따라 읽는 경우에만 답변 증가에 맞춰 스크롤한다. 과거 대화를 읽는 경우에는 기존 아래 화살표를 사용한다. |
-| R9 | 단순 조회·수치 비교·그래프 표시에 답변 작성 LLM을 추가하지 않는다. v1 기본 대화와 v2 대화 모두 처리 상태를 표시한다. |
+| R9 | 단순 조회·수치 비교·그래프 표시에 답변 작성 LLM을 추가하지 않는다. 모든 분석 대화가 처리 상태를 표시한다. |
 | R10 | 입력 대기·조회 0건·데이터 비가용·실행 실패·연결 복구를 서로 다른 상태로 안내한다. |
 
 ### 사용자와 확정한 결정
@@ -159,12 +161,12 @@ v2 재계획 최대 2회, 답변 수정 최대 1회, 수정 후 다시 검토하
 
 | 영역 | 현재 상태와 사용할 경로 |
 |---|---|
-| 진행 UI | `frontend/src/features/agent/PendingRequest.tsx`가 하나의 `stage`를 큰 패널에 표시한다. v1 단계 사전이 중심이다. |
+| 진행 UI | `frontend/src/features/agent/PendingRequest.tsx`가 하나의 `stage`를 큰 패널에 표시한다. 당시 단계 사전이 중심이다. |
 | 브라우저 구독 | `frontend/src/features/agent/useConversation.ts`가 최초 350ms 이후 약 750ms 주기로 요청 상태를 조회한다. 그 사이 지나간 단계 이력은 복원하기 어렵다. |
 | worker 상태 | `agent/python/src/kplasma_agent/backend_client.py`의 `RequestBackend.stage`와 `worker.py`의 주기 heartbeat가 있다. |
 | v2 실행 | `graphs/v2.py`, `v2/backend.py`, `v2/executor.py`에서 모델 호출 허가, 저장 결과 재사용, 도구 실행, 검증을 구분할 수 있다. |
 | 답변 모델 | `model_client.py`의 `_request`가 현재 전체 응답을 기다린다. 설치된 OpenAI Python SDK는 잠금 파일 기준 2.54.0이다. |
-| 답변 구조 | v1 일반 답변에는 텍스트 경로가 있다. v2는 `GeneralAnswerDraft` 또는 `DataAnswerDraft` JSON을 만든다. |
+| 답변 구조 | 기존 일반 답변에는 텍스트 경로가 있다. v2는 `GeneralAnswerDraft` 또는 `DataAnswerDraft` JSON을 만든다. |
 | 수치 처리 | `v2/composition.py`가 근거 ID·허용 값·단위를 확인하고 `{{value:…}}`를 실제 값으로 채운다. |
 | 화면 본문 | `V2AnswerView.tsx`는 해석·전제·한계를 나눠 표시한다. `GeneralAnswerCard.tsx`의 `AnswerMarkdown`이 수식·Markdown 렌더러다. |
 | 최종 저장 | `AgentRequestService.finalizeRequest`가 완료 답변을 요청에 기록된 방의 turn으로 저장한다. |
@@ -256,7 +258,7 @@ v2 재계획 최대 2회, 답변 수정 최대 1회, 수정 후 다시 검토하
 실제 모델 출력에는 Responses 스트리밍을 사용한다. 공식 문서는 응답 생성 중 출력 조각을 처리하는 방식과 구조화된 출력 스트리밍을 안내한다. 설치된 SDK에서는 `response.output_text.delta`와 누적 원문을 받을 수 있지만, 응용 프로그램의 중간 JSON 필드 처리가 추가로 필요하다. [OpenAI 공식 스트리밍 문서](https://developers.openai.com/api/docs/guides/streaming-responses), [구조화된 출력 문서](https://developers.openai.com/api/docs/guides/structured-outputs?api-mode=responses)
 
 1. 기존 작성 호출에 스트리밍 observer를 연결한다. 모델, 추론 수준, strict schema, 출력 한도, usage·추적, 호출 예산을 유지한다. SDK의 `text.format`과 `text_format`을 동시에 지정하지 않는다.
-2. v1 일반 개념의 텍스트 답변은 본문 조각을 바로 투영한다. v1의 다른 구조화 작성 경로는 현재 답변 계약별 허용 본문 필드 adapter를 두고, 기존 코드가 확정하는 수치를 그대로 사용한다. v2 JSON은 `paragraphs[i]`, 해석 `text`, `assumptions[i]`, 한계 `text`만 공개 본문으로 추출한다. 공개 본문이 없는 정상 결과에는 가짜 문장을 생성하지 않는다.
+2. 기존 일반 개념의 텍스트 답변은 본문 조각을 바로 투영한다. 기존 구조화 작성 경로는 현재 답변 계약별 허용 본문 필드 adapter를 두고, 기존 코드가 확정하는 수치를 그대로 사용한다. v2 JSON은 `paragraphs[i]`, 해석 `text`, `assumptions[i]`, 한계 `text`만 공개 본문으로 추출한다. 공개 본문이 없는 정상 결과에는 가짜 문장을 생성하지 않는다.
 3. 스트리밍 decoder는 JSON 경로, 문자열 escape와 필드 종료를 추적한다. `O1`까지 도착한 근거 ID가 `O12`로 이어질 수 있으므로, 중간 문자열을 확정된 참조로 사용하지 않는다.
 4. writer용 스키마에서는 근거 목록이 본문보다 먼저 나오도록 속성 순서를 조정하는 안을 우선 검증한다. 실제 생성 순서가 달라도 참조가 확정될 때까지 해당 수치 표현은 대기한다. 저장된 답변의 필드 의미와 기존 호환성은 유지한다.
 5. 수치 참조 처리 함수를 현재 `assemble_answer`에서 공용 순수 함수로 분리해 미리보기와 최종 조립이 같이 사용한다. 근거 존재, 인용 목록 포함, 요청 값 부분 존재와 단위 형식 검사를 유지한다.
@@ -298,7 +300,7 @@ v2 재계획 최대 2회, 답변 수정 최대 1회, 수정 후 다시 검토하
 - 새 이벤트 DTO·저장소·SSE 서비스와 기존 `AgentRequestController.java`, `AgentWorkerController.java`, `AgentRequestService.java`, `AgentRequestRepository.java`, `backend/src/main/java/com/kplasma/analysisagent/agent/v2/V2ExecutionRepository.java`.
 - `backend/src/main/java/com/kplasma/analysisagent/contract/WorkspaceDto.java`.
 - `agent/src/contracts/index.ts`, 필요 시 별도 공개 이벤트 계약 파일.
-- `docs/api/openapi.yaml`, `docs/contracts/agent-v1.openapi.yaml`, `docs/contracts/agent-v2.openapi.json`.
+- `docs/api/openapi.yaml`, `docs/contracts/agent.openapi.yaml`, `docs/contracts/agent-v2.openapi.json`.
 
 **접근** 요청별 순서와 멱등 기록, 짧은 트랜잭션, 상태와 완료 이벤트의 원자성, 실행 시간 누적, 현재 유효 결과의 버전 있는 읽기 전용 투영, 구독과 연결 정리를 구현한다.
 
@@ -310,7 +312,7 @@ v2 재계획 최대 2회, 답변 수정 최대 1회, 수정 후 다시 검토하
 
 **선행** U1. **대상** R1, R9, R10.
 
-**파일** `agent/python/src/kplasma_agent/backend_client.py`, `worker.py`, `graphs/v1.py`, `graphs/v2.py`, `v2/backend.py`, `v2/executor.py`와 진행 문구 코드 사전.
+**파일** `agent/python/src/kplasma_agent/backend_client.py`, `worker.py`, `graphs/v2.py`, `v2/backend.py`, `v2/executor.py`와 진행 문구 코드 사전.
 
 **접근** 실제 실행 허가 이후에 시작을 기록하고, 검증·저장된 결과에서 완료 건수를 만든다. 현재 계획의 유효 결과 연결을 확정해 공개하며, 재계획 때 영향받은 연결을 교체한다. 사용자 확인, 재계획, 코드 연산, 검토, 수정, 캐시 재사용을 구분한다. phase만 바뀌는 주기 heartbeat는 공개 기록 생성과 분리한다.
 
@@ -348,7 +350,7 @@ v2 재계획 최대 2회, 답변 수정 최대 1회, 수정 후 다시 검토하
 
 **선행** U2, U3, U4. **대상** R4~R8.
 
-**파일** `graphs/v1.py`, `graphs/v2.py`, `v2/model_gateway.py`, `v2/contracts.py`의 writer 스키마 투영, `frontend/src/features/agent/useConversation.ts`, `AgentPage.tsx`, `V2AnswerView.tsx`, `GeneralAnswerCard.tsx`, `math-markdown.ts`와 새 스트리밍 미리보기 컴포넌트.
+**파일** `graphs/v2.py`, `v2/model_gateway.py`, `v2/contracts.py`의 writer 스키마 투영, `frontend/src/features/agent/useConversation.ts`, `AgentPage.tsx`, `V2AnswerView.tsx`, `GeneralAnswerCard.tsx`, `math-markdown.ts`와 새 스트리밍 미리보기 컴포넌트.
 
 **접근** 최초 작성과 수정 시도마다 답변 버전을 구분한다. 작성·검토 중 상태를 표시하고, 검증된 결과를 읽기 전용 카드로 먼저 보여주며 수정 때 해석 영역만 재시작한다. 최종 저장 결과를 한 번만 기존 답변 컴포넌트로 전환한다. 과거 메시지와 다른 방에는 조각을 합치지 않는다.
 
@@ -374,7 +376,7 @@ v2 재계획 최대 2회, 답변 수정 최대 1회, 수정 후 다시 검토하
 2. Python 제어 스트림은 마지막 조각을 보류한 상태에서 첫 본문을 관찰할 수 있어야 한다. 최종 공개 답변과 기존 조립 결과가 같고, 모델 호출 수가 늘지 않아야 한다.
 3. 프론트엔드 타입 검사와 관련 단위 검사에서 이벤트 reducer, 요청/방 경계, 답변 버전 전환과 기존 렌더러 호환성을 검증한다.
 4. 브라우저는 390 / 800 / 1008 / 1440px에서 진행 기록·HITL·입력·그래프·수식·자동 스크롤·아래 화살표·가로 넘침을 확인한다.
-5. 동일한 세 종류 질문으로 v1과 v2를 확인한다. 일반 설명, 작성 LLM 없는 데이터 비교, 검토가 있는 해석을 분리하고, 과장된 인공 초안으로 수정 스트림도 확인한다.
+5. 동일한 세 종류 질문으로 텍스트와 복합 응답을 확인한다. 일반 설명, 작성 LLM 없는 데이터 비교, 검토가 있는 해석을 분리하고, 과장된 인공 초안으로 수정 스트림도 확인한다.
 6. SSE 단절과 재접속은 같은 요청을 복원해야 한다. 새 질문 제출, 모델 재호출, 도구 재실행과 최종 turn 중복 저장이 생기면 실패다.
 7. 재시작·복구 중에는 기존 호출 결과 불명 정책을 따른다. 저장 여부를 모르는 모델 작업을 이벤트 복원을 이유로 다시 호출하지 않는다.
 8. 공개 이벤트와 최종 답변의 실제 데이터는 로컬 검증 경로에 보관한다. 저장소에는 계약·코드·인공 테스트 데이터와 요약 결과만 남긴다.

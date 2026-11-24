@@ -36,8 +36,8 @@ public final class LocalRuntimeAccessFilter extends OncePerRequestFilter {
     private volatile Instant expires = Instant.EPOCH;
 
     public LocalRuntimeAccessFilter(@Value("${AGENT_LOCAL_RUNTIME_ENABLED:false}") boolean enabled,
-            @Value("${kplasma.agent.default-graph-version:v1}") String defaultGraphVersion,
-            @Value("${kplasma.agent.supported-graph-versions:v1,v2}") String supportedGraphVersions,
+            @Value("${kplasma.agent.default-graph-version:v2}") String defaultGraphVersion,
+            @Value("${kplasma.agent.supported-graph-versions:v2}") String supportedGraphVersions,
             @Value("${AGENT_LOCAL_UI_ORIGIN:}") String origin,
             @Value("${AGENT_LOCAL_API_HOST:}") String host,
             @Value("${AGENT_LOCAL_BOOTSTRAP_TOKEN:}") String bootstrap) {

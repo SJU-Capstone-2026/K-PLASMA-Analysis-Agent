@@ -115,7 +115,7 @@ class BrowserBridge {
       }
     });
     await this.page.goto(`${this.web}/?view=agent`,{waitUntil:'domcontentloaded',timeout:30000});
-    await this.page.getByRole('combobox',{name:'Agent 버전'}).waitFor({state:'visible'});
+    await this.page.getByRole('group',{name:'분석 실행 모드'}).waitFor({state:'visible'});
     await this.page.bringToFront();
     return {ok:true,browser:'chromium',headful:command.headless!==true,ready:true};
   }
@@ -157,18 +157,17 @@ class BrowserBridge {
         'Run option snapshot differs from the waiting request');
       const planned=planRunSelection(options.options,pending,expected,item.baseline);
       input=planned.input;
-      const picker=panel.locator('.v1-run-selection');
-      await picker.getByRole('searchbox',{name:'실험 검색'}).waitFor({state:'visible'});
+      await panel.getByRole('searchbox',{name:'실험 검색'}).waitFor({state:'visible'});
       for(const option of planned.chosen) {
-        const checkbox=picker.getByRole('checkbox',{name:`${option.key} · ${option.ref.runId} · ${option.ref.runVersionId}`,exact:true});
+        const checkbox=panel.getByRole('checkbox',{name:`${option.key} · ${option.ref.runId} · ${option.ref.runVersionId}`,exact:true});
         demand(await checkbox.isEnabled(),`Visible checkbox unavailable: ${option.ref.runId}`);
         await checkbox.check();
         demand(await checkbox.isChecked(),`Visible checkbox did not retain selection: ${option.ref.runId}`);
       }
-      demand(await picker.getByRole('checkbox',{checked:true}).count()===planned.chosen.length,'Visible selected count differs from intended input');
+      demand(await panel.getByRole('checkbox',{checked:true}).count()===planned.chosen.length,'Visible selected count differs from intended input');
       if(input.baselineKey) {
-        const baseline=picker.getByLabel(/비교 기준/);
-        if(!await baseline.isVisible())await picker.getByText('선택 옵션',{exact:true}).click();
+        const baseline=panel.getByLabel(/비교 기준/);
+        if(!await baseline.isVisible())await panel.getByText('선택 옵션',{exact:true}).click();
         await baseline.selectOption(input.baselineKey);
         demand(await baseline.inputValue()===input.baselineKey,'Visible baseline value differs');
       }
@@ -370,10 +369,12 @@ class BrowserBridge {
       const preparedRefs=prepared.candidateReference?.runs??(prepared.conversation?.activeRun?[prepared.conversation.activeRun]:[]);
       demand(equal(preparedRefs.map(ref=>ref.runId),item.selected),'Prepared workspace Run tags differ from this case','PREFLIGHT');
       demand(!prepared.activeAgentRequest&&!prepared.conversation?.turns?.length,'Case requires the prepared fresh conversation','PREFLIGHT');
-      const version=this.page.getByRole('combobox',{name:'Agent 버전'});
-      await version.waitFor({state:'visible'});
-      await this.page.waitForFunction(()=>{const select=document.querySelector('select[aria-label="Agent 버전"]');return select&&!select.disabled;},{},{timeout:15000});
-      await version.selectOption(this.graphVersion);
+      const modes=this.page.getByRole('group',{name:'분석 실행 모드'});
+      const modeName=this.graphVersion==='v2_localLLM'?'로컬':'일반';
+      const mode=modes.getByRole('button',{name:modeName,exact:true});
+      await mode.waitFor({state:'visible'});
+      if(await mode.getAttribute('aria-pressed')!=='true')await mode.click({timeout:15000});
+      await modes.getByRole('button',{name:modeName,exact:true,pressed:true}).waitFor({timeout:15000});
       await this.page.getByRole('textbox',{name:'공정 데이터에 질문하기',exact:true}).fill(item.question);
       const [acceptedResponse]=await Promise.all([
         this.page.waitForResponse(response=>new URL(response.url()).pathname==='/api/agent/requests'&&response.request().method()==='POST',{timeout:20000}),

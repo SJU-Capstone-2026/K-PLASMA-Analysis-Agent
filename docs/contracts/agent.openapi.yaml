@@ -1,10 +1,10 @@
 openapi: 3.1.0
 info:
-  title: K-PLASMA Agent Graph v1
+  title: K-PLASMA Agent shared request API
   version: 3.0.0
   description: |
     Python LangGraph worker; Spring owns durable request acceptance and final turns.
-    Existing fallback is preserved as source but is not invoked by v1.
+    Active execution uses v2 or v2_localLLM. Historical requests and completed answers remain readable.
     Bounded reverse queries filter first, including wording such as near/가깝게.
     A soft target_range requires explicit permission to include outside-range Runs.
     Reverse snapshots add candidateEvaluations keyed by exact runId/runVersionId,
@@ -16,9 +16,9 @@ info:
     goal tabs. New reverse snapshots keep goalResults as an empty compatibility
     array; objectiveResults retain independent condition matches.
     Search presentation stays compatible. Search/general answers retain schemaVersion 2. Extended comparisons use schemaVersion 3.
-    One native tool call selects forward_lookup, reverse_search, compare_runs or generate_answer.
-    Old completed schema-1 answers remain readable; old pending jobs fail the build fingerprint fence.
-    All worker endpoints require X-Agent-Token configured by AGENT_WORKER_TOKEN.
+    Both active graphs use durable plans with bounded tool execution and review.
+    Old completed schema-1 answers remain readable. Requests from retired graphs cannot be claimed or resumed.
+    Worker endpoints require the deployment’s X-Agent-Token for the requested graph.
     The worker has no database credentials. A synchronous HTTP checkpoint adapter
     stores typed serializer bytes as JSON/base64 in PostgreSQL under the same
     transaction/row lock as generation, request revision, status and lease checks.
@@ -97,7 +97,7 @@ paths:
             schema: { $ref: '#/components/schemas/Submission' }
       responses:
         '200': { $ref: '#/components/responses/Request' }
-        '409': { description: STALE_CONTEXT, REQUEST_IN_PROGRESS or IDEMPOTENCY_CONFLICT }
+        '409': { description: STALE_CONTEXT, REQUEST_IN_PROGRESS, GRAPH_VERSION_RETIRED or IDEMPOTENCY_CONFLICT }
   /api/agent/requests/{id}:
     parameters: [{ $ref: '#/components/parameters/RequestId' }]
     get:
@@ -205,94 +205,17 @@ paths:
   /api/agent/requests/{id}/run-options:
     parameters: [{ $ref: '#/components/parameters/RequestId' }]
     get:
-      operationId: getFixedRunSelectionPage
+      operationId: getRunOptions
       parameters:
         - { $ref: '#/components/parameters/PendingInputId' }
-        - { name: format, in: query, required: false, schema: { type: integer, enum: [2] } }
-        - { name: query, in: query, schema: { type: string, maxLength: 256 } }
-        - { name: sort, in: query, schema: { enum: [ascending, descending], default: ascending } }
-        - { name: cursor, in: query, schema: { type: string, maxLength: 4000 } }
-        - { name: pageSize, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 30 } }
-      description: Latest catalogue pages and exact selected versions; DB literal substring search and natural numeric ordering. Cursor is bound to request revision, pending input, snapshot, query and sort. Selected or explicitly attached deleted versions remain visible and disabled in selected/attached state; unselected deleted Runs disappear from the live catalogue. No workspace history or full Run payload is loaded. Graph v1 requires format=2. Graph v2 omits format and reads its frozen filtered candidates, including search measurements and original search order; it does not fall back to the live catalogue.
+      description: Frozen filtered candidates for v2 and v2_localLLM, including search measurements and original search order.
       responses:
         '200':
-          description: At most pageSize options, with a keyset cursor.
+          description: Selection candidates for the current pending input.
           content:
             application/json:
-              schema:
-                oneOf:
-                  - { $ref: '#/components/schemas/RunSelectionPage' }
-                  - { $ref: '#/components/schemas/LegacyV2RunOptions' }
-        '400': { description: Invalid query, cursor or page size. }
+              schema: { $ref: '#/components/schemas/RunOptions' }
         '409': { description: Wrong request epoch or pending input, or CLIENT_REFRESH_REQUIRED. }
-  /api/agent/requests/{id}/run-options/count:
-    parameters: [{ $ref: '#/components/parameters/RequestId' }]
-    get:
-      operationId: countFixedRunSelectionMatches
-      parameters:
-        - { $ref: '#/components/parameters/PendingInputId' }
-        - { name: query, in: query, schema: { type: string, maxLength: 256 } }
-      responses:
-        '200':
-          description: Selection session metadata plus matchingCount (including disabled options); independent of the page request.
-          content:
-            application/json:
-              schema:
-                type: object
-                required: [format, requestId, requestRevision, pendingInputId, snapshotId, selectionRevision, totalCount, baselineKey, matchingCount]
-                properties:
-                  format: { const: 2 }
-                  requestId: { type: string, format: uuid }
-                  requestRevision: { type: integer }
-                  pendingInputId: { type: string }
-                  snapshotId: { type: string, format: uuid }
-                  selectionRevision: { type: integer }
-                  totalCount: { type: integer }
-                  baselineKey: { type: [string, 'null'] }
-                  matchingCount: { type: integer, minimum: 0 }
-        '409': { description: Stale pending input. }
-  /api/agent/requests/{id}/run-selection:
-    parameters: [{ $ref: '#/components/parameters/RequestId' }]
-    get:
-      operationId: getPersistedRunSelection
-      parameters:
-        - { $ref: '#/components/parameters/PendingInputId' }
-        - { name: cursor, in: query, schema: { type: string, maxLength: 4000 } }
-        - { name: pageSize, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 30 } }
-      responses:
-        '200':
-          description: Selected exact versions only, paged in stable ordinal order.
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/RunSelectionState' }
-        '409': { description: Stale pending input. }
-    post:
-      operationId: changePersistedRunSelection
-      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
-      description: Serialized revision-fenced mutation. add/remove accept 1..100 unique aliases. search/all capture currently matching exact versions and union them with existing selection. Catalogue reads never persist unselected candidates. clear removes all selections. baseline must be selected and available. Retries with the same key/body do not reapply a mutation and return current selection state. Selection is deleted atomically on resume/cancel/reset/final failure.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [pendingInputId, expectedRequestRevision, expectedSelectionRevision, operation]
-              properties:
-                pendingInputId: { type: string, maxLength: 200 }
-                expectedRequestRevision: { type: integer }
-                expectedSelectionRevision: { type: integer }
-                operation: { enum: [add, remove, search, all, clear, baseline] }
-                keys: { type: array, minItems: 1, maxItems: 100, uniqueItems: true, items: { type: string, maxLength: 80 } }
-                query: { type: string, maxLength: 256 }
-                baselineKey: { type: [string, 'null'], maxLength: 80 }
-      responses:
-        '200':
-          description: Current selection metadata and first 30 selected options.
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/RunSelectionState' }
-        '400': { description: Invalid aliases, baseline or unavailable Run. }
-        '409': { description: STALE_REQUEST or IDEMPOTENCY_CONFLICT. }
   /api/agent/requests/{id}/resume:
     parameters: [{ $ref: '#/components/parameters/RequestId' }]
     post:
@@ -310,11 +233,11 @@ paths:
                 pendingInputId: { type: string }
                 input:
                   type: object
-                  description: Text replies use type=text and text. Run selection uses type=run_selection, snapshotId and selectionRevision; the server resolves at least two persisted exact references. Legacy runKeys/baselineKey replies remain accepted with their original order. Comparison options use type=comparison_options and baselineKey and/or trendAxis. A decision_threshold pending (RECORD_REUSE) accepts type=decision_threshold with an integer threshold, or a text reply such as "3건"; invalid values end in a notice without excluding Runs. Browser replies never supply comparisonReference; server enriches trusted events.
+                  description: Text replies use type=text and text. Run selection uses type=run_selection, runKeys and optional baselineKey; the server resolves exact versions from frozen candidate options in the requested order. Comparison options use type=comparison_options and baselineKey and/or trendAxis. A decision_threshold pending (RECORD_REUSE) accepts type=decision_threshold with an integer threshold, or a text reply such as "3건"; invalid values end in a notice without excluding Runs. Browser replies never supply comparisonReference; server enriches trusted events.
                   additionalProperties: true
       responses:
         '200': { $ref: '#/components/responses/Request' }
-        '409': { description: STALE_REQUEST, INPUT_LIMIT or IDEMPOTENCY_CONFLICT }
+        '409': { description: STALE_REQUEST, INPUT_LIMIT, GRAPH_VERSION_RETIRED or IDEMPOTENCY_CONFLICT }
   /api/agent/requests/{id}/cancel:
     parameters: [{ $ref: '#/components/parameters/RequestId' }]
     post:
@@ -331,15 +254,15 @@ paths:
           application/json:
             schema:
               type: object
-              required: [workerId]
+              required: [workerId, supportedGraphVersions]
               properties:
                 workerId: { type: string, maxLength: 200 }
                 leaseSeconds: { type: integer, minimum: 5, maximum: 300, default: 60 }
                 supportedGraphVersions:
                   type: array
                   minItems: 1
-                  items: { enum: [v1, v2, v2_localLLM] }
-                  description: Exact worker-owned graph identities enabled by this deployment. Omitted retains the legacy v1 claim behavior; a local worker must explicitly advertise v2_localLLM.
+                  items: { enum: [v2, v2_localLLM] }
+                  description: Explicit worker-owned graph identities enabled by the deployment. v2 and v2_localLLM require their own worker credentials in a shared deployment.
       responses:
         '200':
           description: >-
@@ -476,7 +399,7 @@ paths:
     post:
       operationId: suspendAgentRequest
       security: [{ workerToken: [] }]
-      description: Save interrupt checkpoint before this call. Lease is released. Resume preserves checkpoint. run_selection creates a small selection session and retains only explicit attached references. Lists are read directly from current catalogue rows with keyset pagination; only selected exact versions are persisted. snapshotId identifies selection state, not a full catalogue snapshot.
+      description: Save interrupt checkpoint before this call. Lease is released. Resume preserves checkpoint. run_selection freezes exact version candidates and preserves the order of the source execution, when available.
       requestBody: { $ref: '#/components/requestBodies/Mutation' }
       responses:
         '200': { $ref: '#/components/responses/Request' }
@@ -684,7 +607,7 @@ components:
       properties:
         durationMs: { type: integer, minimum: 0, description: Fixed cumulative RUNNING milliseconds; no queue/HITL time. }
         activities: { type: array, items: { $ref: '#/components/schemas/PublicActivityRecord' } }
-    LegacyV2RunOptions:
+    RunOptions:
       type: object
       description: Frozen candidates of a graph-v2 selection, without format=2.
       required: [requestId, requestRevision, pendingInputId, options]
@@ -715,46 +638,6 @@ components:
                 additionalProperties: { $ref: './agent-answer-v2.schemas.yaml#/components/schemas/ScalarDatum' }
               selectable: { type: boolean }
               unavailableReason: { type: [string, 'null'] }
-    RunSelectionPage:
-      type: object
-      required: [format, requestId, requestRevision, pendingInputId, snapshotId, selectionRevision, totalCount, baselineKey, options, hasMore, nextCursor]
-      properties:
-        format: { const: 2 }
-        requestId: { type: string, format: uuid }
-        requestRevision: { type: integer }
-        pendingInputId: { type: string }
-        snapshotId: { type: string, format: uuid }
-        selectionRevision: { type: integer }
-        totalCount:
-          type: [integer, 'null']
-          description: Null on page/selection reads; use the independent count endpoint for current catalogue totals.
-        baselineKey: { type: [string, 'null'] }
-        hasMore: { type: boolean }
-        nextCursor: { type: [string, 'null'] }
-        options:
-          type: array
-          maxItems: 100
-          items:
-            type: object
-            required: [key, ref, conditions, selectable, unavailableReason, selected]
-            properties:
-              key: { type: string }
-              ref: { $ref: '#/components/schemas/RunRef' }
-              conditions:
-                type: object
-                required: [pressure, sourcePower, biasPower]
-                additionalProperties: { $ref: './agent-answer-v2.schemas.yaml#/components/schemas/ScalarDatum' }
-              selectable: { type: boolean }
-              selected: { type: boolean }
-              unavailableReason: { type: [string, 'null'] }
-    RunSelectionState:
-      allOf:
-        - { $ref: '#/components/schemas/RunSelectionPage' }
-        - type: object
-          required: [selectedCount, unavailableCount]
-          properties:
-            selectedCount: { type: integer }
-            unavailableCount: { type: integer }
     OutputResponse:
       type: object
       additionalProperties: false
@@ -768,7 +651,7 @@ components:
             additionalProperties: false
             required: [metadata, features, display]
             properties:
-              metadata: { $ref: './agent-answer-v3.schemas.yaml#/$defs/OutputMetadata' }
+              metadata: { $ref: './agent-comparison-answer.schemas.yaml#/$defs/OutputMetadata' }
               features:
                 type: object
                 additionalProperties: { $ref: './agent-answer-v2.schemas.yaml#/components/schemas/ScalarDatum' }
@@ -858,6 +741,7 @@ components:
       required: [text, stateToken]
       properties:
         text: { type: string, minLength: 1, maxLength: 16000 }
+        graphVersion: { enum: [v2, v2_localLLM], description: Omitted uses the deployment default. }
         stateToken: { $ref: '#/components/schemas/StateToken' }
         baseline: { $ref: '#/components/schemas/RunRef' }
         selectedRunRef: { $ref: '#/components/schemas/RunRef' }
@@ -888,7 +772,7 @@ components:
         executionSummary: { $ref: '#/components/schemas/ExecutionSummary' }
         status: { enum: [QUEUED, RUNNING, NEEDS_INPUT, COMPLETED, FAILED, CANCELLED] }
         stage: { type: string }
-        graphVersion: { enum: [v1, v2, v2_localLLM] }
+        graphVersion: { type: string, readOnly: true, description: Identity of the graph that accepted this request. Retired identifiers can appear on stored requests. }
         question: { type: [string, 'null'] }
         pendingInput:
           type: [object, 'null']
@@ -904,7 +788,7 @@ components:
         answerSnapshot:
           oneOf:
             - { $ref: './agent-answer-v2.schemas.yaml#/components/schemas/AnswerSnapshotV2' }
-            - { $ref: './agent-answer-v3.schemas.yaml' }
+            - { $ref: './agent-comparison-answer.schemas.yaml' }
             - { $ref: './agent-v2.answer.schema.json' }
             - { $ref: './agent-v2-local-llm.answer.schema.json' }
             - type: object
@@ -952,7 +836,7 @@ components:
             pressure: { type: number, description: Canonical mTorr }
             sourcePower: { type: number, description: Canonical W }
             biasPower: { type: number, description: Canonical W including zero }
-        answer: { type: object, description: Existing AgentResponse with v1 answerSnapshot. }
+        answer: { type: object, description: AgentResponse with a composite answerSnapshot matching the request graph. }
         limit: { type: integer, minimum: 1, maximum: 4 }
 
 # Reverse scoped-context contract (search result schema is defined in agent-answer-v2.schemas.yaml):

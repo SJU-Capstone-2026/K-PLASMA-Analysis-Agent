@@ -110,12 +110,13 @@ for(const action of ['newConversation','reset'] as const)test.each(displayCases)
 
 for(const selecting of [true,false])for(const failure of [undefined,'rejected','lost-response'] as const)test(`question waits for and verifies Run ${selecting?'selection':'deselection'} (${failure??'success'})`,async()=>{
  const run=syntheticRun();const ref={runId:run.runId,runVersionId:run.runVersionId};
+ workspace.conversation.agentGraphVersion='v2';
  workspace.conversation.turns[0].answerRunRefs=[ref];
  workspace.conversation.turns[0].answerSnapshot.result=JSON.parse(JSON.stringify({kind:'reverse_search',resultStatus:'MATCH',commonCandidates:[{run:toRunSummary(run),evaluations:[]}]}));
  if(!selecting)workspace.conversation.turns[0].ui.selectedCandidateRunId=run.runId;
  let submitted:unknown;const original=globalThis.fetch;
  vi.stubGlobal('fetch',vi.fn((path:string,init:RequestInit={})=>{
-  if(path==='/api/agent/requests'){submitted=JSON.parse(String(init.body));return Promise.resolve(Response.json({requestId:'diagnostic-request',requestRevision:0,status:'FAILED',stage:'interpret',graphVersion:'v1',question:'선택한 실험 설명',pendingInput:null,error:{code:'TEST',message:'실행 전 중단'},partialResult:null,turnId:null,answerSnapshot:null,inputEvents:[]}));}
+  if(path==='/api/agent/requests'){submitted=JSON.parse(String(init.body));return Promise.resolve(Response.json({requestId:'diagnostic-request',requestRevision:0,status:'FAILED',stage:'interpret',graphVersion:'v2',question:'선택한 실험 설명',pendingInput:null,error:{code:'TEST',message:'실행 전 중단'},partialResult:null,turnId:null,answerSnapshot:null,inputEvents:[]}));}
   return original(path,init);
  }));
  const {result}=renderHook(()=>useConversation());await waitFor(()=>expect(result.current.ready).toBe(true));

@@ -68,12 +68,11 @@ export function createLocalSession({api,uiOrigin,bootstrapToken,connection,metad
 }
 
 /** Owns only its freshly created synthetic DB, storage and child processes. */
-export async function startV1Environment(output,mode='stub',options={}){
-  const graphVersion=options.graphVersion??(mode==='stub'?'v1':'v2');
-  if(mode==='stub'&&graphVersion!=='v1')throw new Error('Variant graphs require their own scripted worker');
+export async function startEvaluationEnvironment(output,mode='stub',options={}){
+  const graphVersion=options.graphVersion??'v2';
   const envFile=options.envFile??process.env.KPLASMA_VERIFY_ENV_FILE;
   const python=process.env.KPLASMA_VERIFY_PYTHON??join(repo,'agent/python/.venv',process.platform==='win32'?'Scripts/python.exe':'bin/python');
-  if(mode!=='stub')runtimeWorkerSpec(graphVersion,{live:mode==='live',envFile});
+  const workerSpec=runtimeWorkerSpec(graphVersion,{live:mode==='live',envFile});
   if(graphVersion==='v2_localLLM'&&mode==='live'){
     assertLocalReadiness(python,envFile,{...process.env,PYTHONPATH:join(repo,'agent/python/src')});
   }
@@ -93,9 +92,9 @@ export async function startV1Environment(output,mode='stub',options={}){
   try{
     try{
       process.env.AGENT_WORKER_TOKEN=token;
+      process.env.AGENT_SUPPORTED_GRAPH_VERSIONS=graphVersion;
+      process.env.AGENT_DEFAULT_GRAPH_VERSION=graphVersion;
       if(isLocal){
-        process.env.AGENT_SUPPORTED_GRAPH_VERSIONS='v2_localLLM';
-        process.env.AGENT_DEFAULT_GRAPH_VERSION='v2_localLLM';
         process.env.AGENT_LOCAL_RUNTIME_ENABLED='true';process.env.AGENT_LOCAL_UI_ORIGIN=uiOrigin;
         process.env.AGENT_LOCAL_API_HOST='';process.env.AGENT_LOCAL_BOOTSTRAP_TOKEN=bootstrapToken;
       }
@@ -120,13 +119,11 @@ export async function startV1Environment(output,mode='stub',options={}){
     if((await terminalBatch(backend.url,accepted.batchId,headers)).status!=='SUCCESS')throw new Error('Synthetic import failed');
     await writeFile(connection,JSON.stringify(metadata),{mode:0o600});
     if(mode!=='none'){
-      const args=mode==='stub'?['agent/python/tests/runtime_worker.py','--connection',connection]:
-        runtimeWorkerSpec(graphVersion,{live:mode==='live',envFile}).concat(mode==='live'?[]:['--connection',connection]);
+      const args=mode==='live'?workerSpec:workerSpec.concat('--connection',connection);
       const env={...process.env,PHOENIX_COLLECTOR_ENDPOINT:'',PHOENIX_API_KEY:'',AGENT_BACKEND_URL:backend.url,AGENT_WORKER_TOKEN:token,PYTHONPATH:join(repo,'agent/python/src')};
       if(mode==='live'&&isLocal){
         env.AGENT_V2_LOCAL_LLM_BACKEND_URL=backend.url;env.AGENT_V2_LOCAL_LLM_WORKER_TOKEN=token;
       }else if(mode==='live'){
-        env.OPENAI_MODEL='gpt-5.6-luna';env.OPENAI_REASONING_EFFORT='none';
         env.AGENT_V2_PLAN_REVIEW_ENABLED='true';
         env.AGENT_MODEL_TIMEOUT_SECONDS='90';
       }

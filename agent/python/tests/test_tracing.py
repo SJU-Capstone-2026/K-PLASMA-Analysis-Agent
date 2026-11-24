@@ -19,7 +19,10 @@ def test_phoenix_configuration_does_not_change_recovery_versions(tmp_path, monke
     assert settings.phoenix_api_key == "test-private-key"
     assert settings.phoenix_project_name == "K-PLASMA"
     assert "test-private-key" not in repr(settings)
-    assert settings.versions() == Settings().versions()
+    from kplasma_agent.v2.model_gateway import V2Settings
+    from kplasma_agent.worker import _recovery_versions
+
+    assert _recovery_versions(V2Settings.from_env(settings)) == _recovery_versions(V2Settings.from_env(Settings()))
 
 
 def test_register_uses_space_http_endpoint_and_batch_without_global_instrumentation(monkeypatch):

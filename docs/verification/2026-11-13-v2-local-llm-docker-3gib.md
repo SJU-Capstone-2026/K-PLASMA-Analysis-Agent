@@ -103,7 +103,7 @@ DB·인공 검사를 통과하고 웹 평가를 완료했지만 **메모리 경�
 - 기존 `db/measure.py`를 비공개 복사본에서 재사용해 원본 읽기 전용·사본 복원·동시 조회를 측정했고 exit0이었다.
 - `node -- scripts/agent/measure-local-llm.mjs --env-file <private-profile>`와 같은 기존 검사 본체로 새 전체 스택 증거를 만들었다.
 - 기존 `evals.run_flow --live --graph-version v2_localLLM --mode browser --limit 5` 본체로 실행했고 exit0이었다.
-- 원래v2/v3 소스49개 hash, PlanDraft·submit_plan schema와 runtime_profile 불변을 재확인했다. 제품 코드 수정이 없어 전체 소프트웨어 단위 테스트는 재실행하지 않았다.
+- 원래보호 대상 그래프 소스49개 hash, PlanDraft·submit_plan schema와 runtime_profile 불변을 재확인했다. 제품 코드 수정이 없어 전체 소프트웨어 단위 테스트는 재실행하지 않았다.
 - 새 메모리 증거를 `verify_memory_report`로 다시 검증했고 Docker 종료 후에도 `MemoryMiB=3072`가 유지됨을 확인했다.
 - 소유 Qwen·격리 DB·백엔드·웹·브라우저를 정리했다. Docker도 정상 종료했고 기존 d1은 sleep 상태로 유지했다. 다른 앱은 종료하지 않았다.
 - 실제 답변·화면·질문·DB·모델 원문·시점별 카운터는 Git 밖의 비공개 경로에 보존했다. 활성 앱의 private 실행 프로필 승격, commit/push/PR은 하지 않았다.

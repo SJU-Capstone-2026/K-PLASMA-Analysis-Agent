@@ -35,10 +35,8 @@ class BackendClient:
             raise BackendError(code, response.status_code >= 500)
         return response.json()
 
-    def claim(self, worker_id, supported_graph_versions=None):
-        body = {"workerId": worker_id, "leaseSeconds": 60}
-        if supported_graph_versions is not None:
-            body["supportedGraphVersions"] = supported_graph_versions
+    def claim(self, worker_id, supported_graph_versions):
+        body = {"workerId": worker_id, "leaseSeconds": 60, "supportedGraphVersions": supported_graph_versions}
         return self.call("POST", "claim", json=body)
 
     def bind(self, claim):
@@ -53,9 +51,6 @@ class RequestBackend:
         self.prefix = f"requests/{claim['request']['requestId']}/"
         self.fence = {k: claim[k] for k in ("claimGeneration", "requestRevision")}
         self.progress = ProgressReporter(self)
-        self.graph_version = claim.get("request", {}).get("graphVersion", "v1")
-        self.operation_kind = None
-        self.public_stage = None
 
     def public_event(self, kind, payload, key):
         body = {**self.fence, "eventKey": key, "type": kind, "payload": payload}
@@ -78,27 +73,7 @@ class RequestBackend:
             return result
 
     def stage(self, stage=None, **fields):
-        result = self.post("heartbeat", stage=stage, leaseSeconds=60, **fields)
-        self.operation_kind = fields.get("operationKind", self.operation_kind)
-        if self.graph_version == "v1" and stage:
-            code = {
-                "select_tool": "PLAN", "guard": "PLAN_VALIDATE", "gather": "QUESTION_CHECK",
-                "calculate": {"forward_lookup": "FORWARD_LOOKUP", "reverse_search": "REVERSE_SEARCH",
-                              "compare_runs": "COMPARE_RUNS"}.get(self.operation_kind or "", "DERIVE"),
-                "load_comparison_outputs": "COMPARE_OUTPUTS", "validate_result": "RESULT_VALIDATE",
-                "generate_answer": "GENERAL_ANSWER", "validate_answer": "RESULT_VALIDATE",
-                "present": "COMMIT", "commit": "COMMIT",
-            }.get(stage)
-            if code and (self.public_stage is None or self.public_stage[0] != code):
-                if self.public_stage is not None:
-                    previous, identity = self.public_stage
-                    self.progress.activity(previous, "completed", identity=identity)
-                identity = self.progress.activity(code)
-                self.public_stage = (code, identity)
-        return result
-
-    def attempt(self, stage):
-        return self.post("attempt", stage=stage, limit=4)
+        return self.post("heartbeat", stage=stage, leaseSeconds=60, **fields)
 
     def context(self, refs=None, *, reverse_query=None, forward_query=None, references_only=False):
         fields = {"requiredRunRefs": refs or []}

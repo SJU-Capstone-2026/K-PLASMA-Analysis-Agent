@@ -1,23 +1,21 @@
-import {isCompositeGraphVersion} from 'agent';
 import {useEffect,useMemo,useState} from 'react';
-import type {AgentRequestView,LegacyRunOptions,RunOption,Snapshot} from 'agent';
-import {fetchLegacyRunOptions} from '../../api/agent';
+import type {AgentRequestView,RunOptions,RunOption,Snapshot} from 'agent';
+import {fetchRunOptions} from '../../api/agent';
 import {measurementText,metricNames,numberText,reasons,reverseSearchCriteria} from './agent-contract';
-import {RunPicker} from './RunPicker';
 
 type RunSelectionProps={request:AgentRequestView;sending:boolean;onResume:(input:Snapshot)=>Promise<void>;onError:(error:unknown)=>void;onCancel?:()=>Promise<void>};
 export function RunSelectionPanel(props:RunSelectionProps){
  const key=`${props.request.requestId}:${props.request.requestRevision}:${props.request.pendingInput!.id}`;
- return isCompositeGraphVersion(props.request.graphVersion)?<LegacyRunPicker key={key} {...props}/>:<RunPicker key={key} {...props}/>;
+ return <RunSelectionOptions key={key} {...props}/>;
 }
 
-function LegacyRunPicker({request,sending,onResume,onError,onCancel}:RunSelectionProps){
+function RunSelectionOptions({request,sending,onResume,onError,onCancel}:RunSelectionProps){
  const pending=request.pendingInput!;
  const [options,setOptions]=useState<RunOption[]>([]);const [loaded,setLoaded]=useState(false);const [error,setError]=useState('');
- const [criteria,setCriteria]=useState<LegacyRunOptions['searchCriteria']>();
+ const [criteria,setCriteria]=useState<RunOptions['searchCriteria']>();
  const [query,setQuery]=useState('');const [order,setOrder]=useState('source');const [selected,setSelected]=useState(new Set<string>());const [baseline,setBaseline]=useState('');const [retry,setRetry]=useState(0);
  useEffect(()=>{const controller=new AbortController();setLoaded(false);setCriteria(undefined);setError('');setSelected(new Set());setBaseline('');setQuery('');setOrder('source');
-  fetchLegacyRunOptions(request.requestId,pending.id,controller.signal).then(result=>{
+  fetchRunOptions(request.requestId,pending.id,controller.signal).then(result=>{
    if(controller.signal.aborted)return;
    if(result.requestId!==request.requestId||result.pendingInputId!==pending.id||result.requestRevision!==request.requestRevision)throw new Error('실험 선택 상태가 바뀌었습니다. 화면을 새로고침해 주세요.');
    setOptions(result.options);setCriteria(result.searchCriteria);setLoaded(true);

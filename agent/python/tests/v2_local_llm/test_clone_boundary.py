@@ -227,9 +227,13 @@ def test_test_fixtures_do_not_import_another_runtime_or_test_support():
 def test_this_change_preserves_the_original_v2_files(manifest):
     root = PACKAGE.parents[4]
     archived_prefixes = ("agent/python/src/kplasma_agent/v3/", "agent/python/tests/v3/")
+    retired_transport_files = {
+        "agent/python/src/kplasma_agent/backend_client.py",
+        "agent/python/src/kplasma_agent/config.py",
+    }
     for relative, expected in manifest["preservedFiles"].items():
-        # The immutable bootstrap manifest also records the retired graph.
-        if relative.startswith(archived_prefixes):
+        # The bootstrap manifest predates v3 retirement and the shared transport cleanup.
+        if relative.startswith(archived_prefixes) or relative in retired_transport_files:
             continue
         path = root / relative
         assert hashlib.sha256(path.read_bytes()).hexdigest() == expected, path

@@ -27,7 +27,7 @@ class ForwardQueryContextTest extends WorkspaceTestSupport {
     private void start() throws Exception {
         var request=ok("POST","/api/agent/requests",Map.of("text","인공 순방향 조회","stateToken",token()),UUID.randomUUID().toString());
         path="/requests/"+request.get("requestId").stringValue();
-        var claim=json(internal("/claim",Map.of("workerId","forward-test","leaseSeconds",60)));
+        var claim=json(internal("/claim",Map.of("workerId","forward-test","leaseSeconds",60,"supportedGraphVersions",List.of("v2"))));
         fence=Map.of("claimGeneration",claim.get("claimGeneration").longValue(),"requestRevision",claim.get("requestRevision").longValue());
         assertThat(internal(path+"/heartbeat",body(Map.of("stage","gather","operationKind","forward_lookup"))).statusCode()).isEqualTo(200);
     }

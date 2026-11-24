@@ -8,7 +8,7 @@ import {mkdtemp, readFile, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {repo, sleep,freePort} from '../reference/runtime.mjs';
-import {startV1Environment,graphVersionArgument,runtimeWorkerSpec} from './runtime.mjs';
+import {startEvaluationEnvironment,graphVersionArgument,runtimeWorkerSpec} from './runtime.mjs';
 
 const output = await mkdtemp(join(tmpdir(), 'kplasma-v2-restart-'));
 const graphVersion=graphVersionArgument();
@@ -62,7 +62,7 @@ function searchIds(state) {
   return steps.findLast(step => step.outputs.toolResult?.kind === 'reverse_search').outputs.toolResult.commonRunIds.toSorted();
 }
 try {
-  environment = await startV1Environment(output, 'none',
+  environment = await startEvaluationEnvironment(output, 'none',
     {graphVersion,uiOrigin:`http://127.0.0.1:${await freePort()}`});
   const runs = (await request('/api/runs')).filter(run => run.catalogStatus === 'READY').sort((a, b) => a.metrics.ionFlux - b.metrics.ionFlux);
   assert.deepEqual(runs.map(run => run.metrics.ionFlux), [1, 40, 60]);

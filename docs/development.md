@@ -1,16 +1,16 @@
 # 팀 로컬 실행
 
-저장소를 clone한 뒤 저장소 루트에서 실행한다. Java 21, Node 22.23.3(`.node-version`), npm 10.9.9, uv, 실행 중인 Docker가 필요하다. Gradle 8.14.3은 Wrapper가 설치한다. PostgreSQL 18.6-alpine3.24는 Compose와 검증 실행기가 사용한다. 실행 프로세스는 PostgreSQL·backend·Python LangGraph worker·frontend 네 개다. Python 패치 버전과 의존성은 `agent/python/.python-version`, `uv.lock`으로 고정한다.
+저장소를 clone한 뒤 저장소 루트에서 실행한다. Java 21, Node 22.23.3(`.node-version`), npm 10.9.9, uv, 실행 중인 Docker가 필요하다. Gradle 8.14.3은 Wrapper가 설치한다. PostgreSQL 18.6-alpine3.24는 Compose와 검증 실행기가 사용한다. 공통 프로세스는 PostgreSQL·백엔드·프런트엔드다. 분석 모드에 따라 일반 V2 워커와 로컬 V2 워커를 시작한다. Python 패치 버전과 의존성은 `agent/python/.python-version`, `uv.lock`으로 고정한다.
 
 ```sh
 npm ci
-cp .env.example .env
+test -f .env || cp .env.example .env
 uv sync --project agent/python --frozen
 ```
 
 자기 `.env`에서 비밀번호를 설정한다. `source .env`는 셸 코드로 읽으므로 공백·`$`·`!`·`#` 등의 문자가 있는 값은 작은따옴표로 감싼다. 예: `POSTGRES_PASSWORD='choose-your-local-password!$#'`. 이 예시를 그대로 공용 비밀번호로 쓰지 않는다. `.env`는 Git에서 제외되며 예시 파일만 공유한다. 작은따옴표 자체가 포함되는 복잡한 값은 셸과 Compose 양쪽에서 안전하게 읽히는지 확인한다. 타인이 보낸 `.env`를 검토 없이 source하지 않는다.
 
-`OPENAI_API_KEY`와 backend·worker가 공유하는 무작위 `AGENT_WORKER_TOKEN`도 설정한다. 모델 기본값은 `gpt-5.6-luna`, 추론 수준은 `none`이다. 키는 브라우저로 보내지 않으며 worker만 읽는다. 토큰 생성 예: `python3 -c 'import secrets; print(secrets.token_urlsafe(32))'`. 출력은 자신의 `.env`에만 저장한다. 이미 `.env`가 있다면 예시 파일로 덮어쓰지 않는다.
+일반 V2는 `OPENAI_API_KEY`와 백엔드·워커가 공유하는 무작위 `AGENT_WORKER_TOKEN`을 사용한다. 계획·답변의 기본 모델은 `gpt-6-luna`, 추론 수준은 `low`이며 계획 검토는 기본 활성화된다. 모델별 설정은 [일반 V2 가이드](development/agent-v2.md)를 따른다. 토큰은 `python3 -c 'import secrets; print(secrets.token_urlsafe(32))'`로 만든 뒤 자기 `.env`에 보관한다. 로컬 분석만 쓸 때는 [LocalLLM 설정](development/agent-v2-local-llm.md#공통-backend와-화면)을 따른다.
 
 기본 DB 5432가 이미 사용 중이면 `POSTGRES_PORT=15432`처럼 비어 있는 포트를 골라 `DB_URL=jdbc:postgresql://localhost:15432/kplasma`도 함께 바꾼다. backend 기본 8080을 바꾸면 `BACKEND_PORT`와 `VITE_API_TARGET`을 함께 바꾼다. 기존 Docker 컨테이너를 종료할 필요는 없다.
 
@@ -38,23 +38,22 @@ curl http://localhost:8080/api/health
 npm run dev:agent
 ```
 
-새 대화에서 v1 또는 v2를 선택하며 첫 요청 후 대화의 버전이 고정된다. 기본 버전은 v1이며 CI의 실행 검증 기준은 v2다. 모델이나 worker가 없을 때 JavaScript fallback으로 전환하지 않는다. 대기 중인 요청은 PostgreSQL에 남으며 worker가 다시 시작하면 회수한다. 실행 중인 작업은 임대가 만료된 뒤 재개되므로 강제 종료 후 최대 약 일 분이 필요할 수 있다. 다른 그래프·프롬프트·모델 설정으로 바뀐 미완료 작업은 `RECOVERY_VERSION_MISMATCH`로 종료하며 과거 완료 답변을 다시 생성하지 않는다. 기존 fallback 소스는 `agent/src/`에 남아 있으며 과거 스냅샷만 기존 카드로 표시한다.
+프런트엔드 기본 주소는 [http://localhost:5173](http://localhost:5173)이다. `VITE_API_TARGET`의 `/api` 프록시로 백엔드에 연결한다. DB와 저장소가 준비되면 health 응답이 `UP`이다. PostgreSQL 볼륨과 백엔드 원본 보관소를 함께 보존하면 불변 Run 버전과 원본 계보를 추적할 수 있다. `bootRun`의 기본 `./storage`는 `backend/storage/`에 해당한다. JAR를 다른 폴더에서 실행할 때는 `KPLASMA_STORAGE_ROOT`를 원하는 절대 경로로 설정한다.
 
-frontend 기본 주소는 [http://localhost:5173](http://localhost:5173)다. `VITE_API_TARGET`의 `/api` 프록시로 backend에 연결한다. health 응답은 DB·저장소 모두 준비되면 `UP`이며 실패하면 HTTP 503을 반환한다. PostgreSQL volume, backend 원본 보관소, frontend 정적 파일은 서로 다른 역할이다. `bootRun` 기본 `./storage`는 `backend/storage/`에 해당한다. JAR를 다른 작업 폴더에서 실행할 때는 `KPLASMA_STORAGE_ROOT`를 원하는 절대 경로로 설정한다. 보관소와 DB를 같이 보존해야 불변 Run 버전과 원본 계보를 추적할 수 있다.
+## 분석 모드와 대화
 
-## v1의 Tool Calling과 답변
+- 버전 선택의 `v2`는 표준 `v2`이며 새 설치의 기본 모드다. `v2_localLLM`은 독립 그래프 `v2_localLLM`이며 준비 및 웹 인증을 마친 배포에서 사용할 수 있다.
+- 첫 요청이 수락되면 실행 모드가 대화에 저장된다. 다른 모드를 사용하려면 새 대화에서 해당 버전을 선택한다. 과거 답변과 Run 참조는 이전 대화에서 다시 확인한다. 버전 정보 없이 저장된 답변이 있는 과거 대화에서는 새 질문을 보내려면 새 대화를 연다.
+- 백엔드의 `AGENT_SUPPORTED_GRAPH_VERSIONS`, `AGENT_DEFAULT_GRAPH_VERSION`과 프런트엔드의 `VITE_AGENT_SUPPORTED_GRAPH_VERSIONS`, `VITE_AGENT_DEFAULT_GRAPH_VERSION`을 서로 맞춘다. 이전 설정에 폐기된 모드가 섞여 있으면 활성 목록에서 제외된다. 이전 기본값은 일반 V2가 목록에 있는 경우에만 일반 V2로 바뀐다. 로컬 전용 기본값은 `v2_localLLM`으로 설정한다.
+- 의사결정 Agent는 표준 V2가 활성화된 환경에서 별도 대화방을 사용한다. `npm run dev:decision-demo`는 인공 Run을 쓰는 미리보기다. [대화방과 의사결정 흐름](development/conversation-rooms.md)
 
-등록한 도구는 `forward_lookup`, `reverse_search`, `compare_runs`, `generate_answer` 네 개다. 첫 LLM 호출은 strict function schema로 도구 하나와 인자를 반환하며, LangGraph의 고정 노드가 단위·수치·참조를 검증하고 실행한다. 순·역방향 조회는 계산 결과를 기존 프로토타입 카드로 표시한다. 수치 조건의 단위가 없으면 LLM은 null을 반환하고 코드가 고정된 기본 단위를 적용한다: 압력 mTorr, 소스·바이어스 W, 평균 이온 에너지·IED 폭 eV, 이온 플럭스 10¹⁸ m⁻²s⁻¹. 적용 내역은 `unitAssumptions`로 답변에 저장하고 재열람 시에도 안내한다. 명시한 단위를 우선하며, 와트·왓트·e볼트 등의 표기는 LLM이 정규화하고 지원하는 배율 변환은 코드가 수행한다. 지원하지 않거나 물리량과 맞지 않는 명시 단위, 수치·조건 연결이 불명확한 질문은 추가 입력을 요청한다. 높게·낮게만 요청한 정렬은 단위를 묻지 않는다.
+두 모드는 검증된 계획 단계로 순방향 조회, 역방향 검색, Run 비교, 설명을 실행한다. 공정 조건이나 비교 기준이 부족하면 확인을 요청하고 같은 요청을 이어간다. 모델과 워커 연결 오류는 화면에 표시한다. 대기 요청은 PostgreSQL에서 다시 회수한다. 만료된 임대 후 실행을 재개하며 그래프·프롬프트·모델 설정이 달라져 이어갈 수 없는 미완료 요청은 `RECOVERY_VERSION_MISMATCH`로 끝난다. 이미 저장된 답변을 다시 생성하지 않는다.
 
-실험의 값·차이·경향·가능한 원인은 모두 `compare_runs`로 처리한다. **이 Run으로 이어서 질문** 또는 **전체 후보 기준 질문**으로 명시한 정확한 버전이 두 개 이상 필요하다. 참조가 없거나 불명확하면 실험 선택 화면이 나오며 검색·정렬·전체 선택과 기준 실험 선택을 제공한다. 선택 답변은 같은 요청을 재개하고 도구 선택 LLM을 다시 호출하지 않는다. 원문에 Run 이름이나 “아까 실험”을 적었다는 이유로 과거 실험을 자동 선택하지 않는다.
+[공용 Agent API](contracts/agent.openapi.yaml)와 [V2 계획·실행 API](contracts/agent-v2.openapi.json)에서 데이터 계약을 확인할 수 있다.
 
-비교 수치와 관찰 문장은 코드가 계산한다. 두 번째 LLM은 원문 질문과 확정된 결과를 받아 관찰 문장을 선택하고 가능한 해석·가정·한계를 설명한다. 검증 실패는 한 번 보완을 요청하며, 계속 실패하면 오류와 검증된 수치만 표시하고 미완성 설명을 완료 답변으로 저장하지 않는다. 비교 기준을 요청했다면 기준 선택을 요구하고, 선택하지 않은 실험을 모델이 임의로 기준으로 지정하지 못한다. 기준 없는 두 Run 비교는 절대 차이를 표시한다. 경향 분석의 인접 변화량·변화율은 전역 기준이 없어도 유지한다. 실험 버전·데이터 상태와 중복된 계산 관찰은 접어서 열어 볼 수 있다. 일반 개념 질문은 `generate_answer`에서 원문을 그대로 일반 LLM에 전달하며 개념 목록·개수 제한이나 Run 조회를 거치지 않는다. 일반 지식 답변은 문헌 검토를 거친 답변이 아니다.
+## 일반 V2의 선택적 Phoenix Cloud 추적
 
-새 완료 답변은 `AnswerSnapshotV2`로 저장하며 예전 schema 1 완료 답변도 읽을 수 있다. 변경된 그래프·프롬프트와 맞지 않는 미완료 요청은 취소 후 다시 질문한다. worker를 새 코드로 재시작해야 전환이 적용된다. API와 JSON 계약은 [Agent API](contracts/agent-v1.openapi.yaml), [답변 schema 2](contracts/agent-answer-v2.schemas.yaml)를 따른다.
-
-## Phoenix Cloud 추적
-
-Phoenix Settings의 collector endpoint와 API key를 기존 `.env`에 추가한다. Space URL은 프로젝트 화면 주소의 `/s/<space>`까지만 사용한다. 프로젝트 이름은 Phoenix에 만든 이름과 같아야 한다.
+일반 V2에서만 사용하는 옵션이다. 로컬 모드의 모델 요청과 추적은 기기 안에 머문다. Phoenix Settings의 collector endpoint와 API key를 기존 `.env`에 추가한다. Space URL은 프로젝트 화면 주소의 `/s/<space>`까지만 사용한다. 프로젝트 이름은 Phoenix에 만든 이름과 같아야 한다.
 
 ```dotenv
 PHOENIX_COLLECTOR_ENDPOINT=https://app.phoenix.arize.com/s/your-space
@@ -67,7 +66,7 @@ uv sync --project agent/python --frozen --extra tracing
 npm run dev:agent
 ```
 
-기존 worker는 종료하고 다시 실행한다. 시작 로그의 `Phoenix tracing ready: project=K-PLASMA`를 확인한 뒤 새 질문을 보낸다. Phoenix 프로젝트의 Traces/Spans에서 `agent.request`를 열면 그래프 노드, LLM 호출, backend context·checkpoint·최종 저장의 시간과 결과를 확인할 수 있다. `llm.tool_selection`은 도구 후보·선택·인자, `llm.responses`는 비교 설명, `llm.general_answer`는 일반 답변을 기록한다. 프롬프트·입력 JSON·원문 응답·검증 결과·모델·추론 설정·토큰 수와 실제 Responses 입력(`llm.responses_input`)을 확인할 수 있다. 질문·문맥·Run 수치를 포함한 전체 노드 상태와 최종 답변을 설정한 클라우드로 전송한다. API 키와 내부 인증 토큰은 제외하며 opaque checkpoint 직렬화와 heartbeat polling은 수집하지 않는다.
+기존 worker는 종료하고 다시 실행한다. 시작 로그의 `Phoenix tracing ready: project=K-PLASMA`를 확인한 뒤 새 질문을 보낸다. Phoenix 프로젝트의 Traces/Spans에서 `agent.request`를 열면 그래프 노드, LLM 호출, backend context·checkpoint·최종 저장의 시간과 결과를 확인할 수 있다. `v2.plan`은 계획 생성을, `llm.decisions`는 의미 검토를 기록한다. 프롬프트·입력 JSON·원문 응답·검증 결과·모델·추론 설정·토큰 수와 실제 Responses 입력(`llm.responses_input`)을 확인할 수 있다. 질문·문맥·Run 수치를 포함한 전체 노드 상태와 최종 답변을 설정한 클라우드로 전송한다. API 키와 내부 인증 토큰은 제외하며 opaque checkpoint 직렬화와 heartbeat polling은 수집하지 않는다.
 
 `session.id`는 Agent 요청 ID다. 추가 입력이나 재시작은 같은 session에 새 실행 trace를 만들며, generation/revision·`kplasma.resumed`와 그래프·프롬프트 버전으로 당시 실행을 구분한다. `NEEDS_INPUT`은 정상 대기이며 오류로 표시하지 않는다. 수치 검증이나 모델 오류는 안전한 `error.code`로 표시한다. 관찰 코드는 상태·수치·최종 저장·복구 버전을 바꾸지 않는다.
 
@@ -83,7 +82,7 @@ SDK/API 기준: [Phoenix OTEL 설정](https://arize.com/docs/phoenix/tracing/how
 
 같은 source hash 재업로드는 중복이다. OS 메타데이터만 달라진 동일 idempotency-key 요청은 OS 파일을 제외한 canonical 파일 hash를 기준으로 기존 배치를 반환한다. 전체 전송 바이트의 동일성을 보장하는 계약은 아니다. 작업의 **다시 처리**는 같은 보관 원본으로 새 처리 시도와 성공 시 새 불변 버전을 만든다. 실패하면 이전 성공 버전을 계속 쓴다. 과거 대화와 판단 기록은 당시 버전을 참조한다.
 
-**새 대화**는 대화·활성 Run·후보 참조와 진행 중인 Agent 요청을 비운다. **데모 데이터 초기화**는 여기에 판단 기록도 비운다. 두 동작 모두 업로드 원본·Run·그래프·불변 버전을 유지한다. 공용 서버·로그인은 이번 범위 밖이다.
+**새 대화**는 이전 대화를 목록에 보존하며 새 방의 활성 Run과 후보 참조를 비운다. **데모 데이터 초기화**는 대화방과 판단 기록을 지운다. 두 동작 모두 업로드 원본·Run·그래프·불변 버전을 유지한다.
 
 ### 기존 Run의 전체 그래프 채우기
 
@@ -124,6 +123,7 @@ Run 삭제는 일반적인 데이터 관리 기능이다. 이 작업을 위해 P
 ```sh
 npm test
 npm run test:agent
+npm run test:agent:local
 uv run --project agent/python --frozen ruff check agent/python/src agent/python/tests agent/python/evals
 uv run --project agent/python --frozen mypy agent/python/src
 npm run typecheck
@@ -133,19 +133,21 @@ backend/gradlew -p backend test --console=plain
 npm exec --workspace frontend -- playwright install chromium
 npm run test:ui:v2
 npm run test:e2e
+npm run test:e2e -- --graph-version v2_localLLM
 npm run test:agent:restart
+npm run test:agent:restart -- --graph-version v2_localLLM
 npm run verify:public-files
 ```
 
-Linux에서 브라우저 시스템 의존성이 없으면 `playwright install --with-deps chromium`을 사용한다. 기본 CI의 Agent 검사 대상은 v2다. `test:agent`는 v2 그래프와 평가기 및 공통 계산을 검사한다. `test:ui:v2`는 기존 v2 비교 그래프·대화방·Run 태그·진행·스트리밍을 390/800/1008/1440px에서 확인한다.
+Linux에서 브라우저 시스템 의존성이 없으면 `playwright install --with-deps chromium`을 사용한다. 기본 CI는 `test:agent`와 `test:agent:local`로 일반·로컬 V2 그래프, 평가기, 공통 계산을 검사한다. `test:ui:v2`는 기존 v2 비교 그래프·대화방·Run 태그·진행·스트리밍을 390/800/1008/1440px에서 확인한다.
 
-`test:e2e`는 인공 입력 3 Run을 만들고 독립 PostgreSQL·backend JAR·Python v2 worker·Vite를 시작한다. 일반 개념, 엄격한 검색 경계, 실험 선택 후 비교→max→검색과 네 화면 폭을 검사한다. HTTP·그래프·체크포인트·수치 계산은 실제 구현을 쓰며 모델만 고정 응답으로 대체한다. 실제 LLM 판단 정확도 검증은 아니다. `npm run test:e2e:live`는 같은 v2 흐름에 실제 모델을 연결하며 키와 API 사용량이 필요하다. 제품 worker에는 테스트 모델 선택 옵션이 없다.
+`test:e2e`는 인공 Run을 등록하고 독립 PostgreSQL·백엔드 JAR·워커·Vite를 시작한다. 일반 개념, 엄격한 검색 경계, 실험 선택 후 비교→max→검색과 네 화면 폭을 검사한다. 일반 모드에서는 의사결정 시연도 검사하고 로컬 모드에서는 로컬 인증을 사용한다. HTTP·그래프·체크포인트·수치 계산은 실제 구현을 쓰며 모델만 고정 응답으로 대체한다. 실제 LLM 판단 정확도 검증은 아니다. `npm run test:e2e:live`는 같은 v2 흐름에 실제 모델을 연결하며 키와 API 사용량이 필요하다. 제품 worker에는 테스트 모델 선택 옵션이 없다.
 
 DB는 테스트 전용 이름과 임의 localhost 포트로 생성하며 자기 컨테이너만 정리한다. 다른 개발 DB나 서버를 재사용하지 않는다. Gradle build 출력과 project cache도 실행별로 나뉘고 복사한 JAR로 서버를 실행한다. 기본 제품 서버의 Clock을 변경하지 않는다. v2 검증 결과는 명령이 출력하는 임시 폴더에만 보관한다. 질문·응답·체크포인트·trace·토큰이 포함될 수 있는 연결 파일을 게시하지 않는다.
 
-`test:agent:restart`는 독립 인공 환경에서 서버와 자기 v2 테스트 worker를 강제 종료한다. 접수 상태 복원, 선택 대기·체크포인트와 고정 선택지, 비교→max→검색 재개와 정확한 Run 버전, 완료 답변의 멱등 재개를 네 시나리오로 확인한다. 실제 그래프·HTTP·DB를 사용하고 모델만 고정 응답이며 기본 CI에 포함한다.
+`test:agent:restart`는 독립 인공 환경에서 서버와 해당 모드의 테스트 워커를 강제 종료한다. 접수 상태 복원, 선택 대기·체크포인트와 고정 선택지, 비교→max→검색 재개와 정확한 Run 버전, 완료 답변의 멱등 재개를 네 시나리오로 확인한다. 실제 그래프·HTTP·DB를 사용하고 모델만 고정 응답이며 기본 CI에 포함한다.
 
-v1 전용 그래프·fallback 평가·브라우저는 기본 CI 대상에서 제외한다. 과거 기록의 읽기와 공통 API·계산·보안 검사는 유지한다. `frontend/playwright.config.ts`, v1 전용 Playwright 설정과 `test:e2e:legacy`는 과거 검증용으로 보존한다. 외부 원본 비교용 `verify:reference`의 전체 UI 단계도 역사적 fallback 검증 범위다. v2 전체 그래프의 실제 모델 평가와 HTTP/DB/브라우저 실행의 차이·명령은 [Agent v2 운영과 평가](development/agent-v2.md)를 따른다.
+공통 API·계산·보안과 과거 대화 읽기도 회귀 검사에 포함된다. 외부 기준을 사용한 비교 절차는 아래에서 설명한다. 실제 모델 평가와 HTTP·DB·브라우저 검사의 차이는 [Agent V2 운영과 평가](development/agent-v2.md)를 따른다.
 
 이미 검증한 Chromium을 명시할 때는 `KPLASMA_BROWSER_EXECUTABLE`에 실행 파일 경로를 넣을 수 있다. 보고서에 실제 browser.version을 기록하며 기준과 React는 같은 브라우저 컨텍스트의 폰트·ko-KR locale·Asia/Seoul 시간대·1배율·고정 시각을 사용한다. 개발자 개인 설치 경로는 소스에 하드코딩하지 않는다.
 
@@ -174,7 +176,7 @@ npm run verify:reference
 
 ## 정상 종료
 
-backend와 frontend 터미널에서 각각 `Ctrl+C`를 누른다. DB는 다음 명령으로 멈추며 volume과 원본은 남는다.
+워커와 백엔드, 프런트엔드 터미널에서 각각 `Ctrl+C`를 누른다. DB는 다음 명령으로 멈추며 volume과 원본은 남는다.
 
 ```sh
 docker compose stop postgres
@@ -182,12 +184,8 @@ docker compose stop postgres
 
 일반 종료·초기화 절차에 원본 삭제나 DB volume 삭제를 포함하지 않는다. Java 테스트에는 Mockito 동적 agent/CDS 경고가 나올 수 있으며 결과와 함께 공개한다. 일부 Playwright 로그의 NO_COLOR/FORCE_COLOR 경고는 도구 환경 경고다. 테스트 실패·데이터 차이를 이 경고로 간주해 숨기지 않는다.
 
-## 순차 PR 검토와 병합
+## 외부 원본 수치 대조
 
-이번 구현은 10개 순차 PR을 선행 PR 브랜치에 쌓아 증분 diff로 검토한다(PR2 base는 PR1 브랜치 등). 의존 feature 브랜치를 base로 둔 PR을 그 브랜치에 바로 병합하지 않는다. 선행 PR이 main에 병합되면 작성자/팀이 후속 브랜치를 최신 main 위로 다시 정리하고 base를 main으로 바꾼 뒤 병합한다. 브랜치 재작성은 [협업 가이드](../CONTRIBUTING.md)의 합의된 개인 브랜치 `--force-with-lease` 규칙을 따른다. 자동 retarget/rebase나 원격 브랜치 보호 활성화를 가정하지 않는다. 이 문서는 main 병합이나 push 권한을 추가로 부여하지 않는다.
-
-### Python v1의 외부 원본 수치 대조
-
-원본 프로토타입 폴더를 명시하여 `KPLASMA_PROTOTYPE_ROOT=/path/to/prototype npm run verify:agent-reference`를 실행한다. Node는 외부 원본의 순수 검색 함수를 검증용 oracle로만 실행하고, Python v1 결과와 비교한다. 제품 worker의 fallback/Node bridge 경로와는 관계없다. 원본 Run 값은 프로세스 메모리에서만 다루며 stdout에는 사례 수·실패 사례 번호·정책 차이·원본 파일 해시만 남긴다.
+원본 프로토타입 폴더를 명시하여 `KPLASMA_PROTOTYPE_ROOT=/path/to/prototype npm run verify:agent-reference`를 실행한다. Node는 외부 원본의 순수 검색 함수를 검증용 oracle로만 실행하고, 공유 Python 검색 엔진의 결과와 비교한다. 제품 worker의 fallback/Node bridge 경로와는 관계없다. 원본 Run 값은 프로세스 메모리에서만 다루며 stdout에는 사례 수·실패 사례 번호·정책 차이·원본 파일 해시만 남긴다.
 
 이 명령은 전체 exact 및 한 off-grid 순방향의 scalar 값/차이, 역방향 hard 조건과 min/max 목표의 후보·그룹·근접 순서를 대조한다. 계획 X5에 따른 비가용 값 제외는 원본의 null→0 암묵 변환과 의도적으로 다르며 별도 집계한다. soft 범위·엄격 부등호의 변경 정책은 인공 수치 테스트에서 검증한다. 전체 원본 화면/곡선 대조를 의미하지 않는다.

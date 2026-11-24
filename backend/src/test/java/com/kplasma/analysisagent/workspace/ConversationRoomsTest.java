@@ -16,7 +16,7 @@ class ConversationRoomsTest extends WorkspaceTestSupport {
         assertThat(demo.get("conversations").get(0).get("decisionDemo").booleanValue()).isTrue();
         rejects("POST", "/api/agent/requests",
             Map.of("stateToken", token(), "graphVersion", "v1", "text", "Synthetic question"),
-            "wrong-demo-graph", 409, "GRAPH_VERSION_MISMATCH");
+            "wrong-demo-graph", 400, "INVALID_AGENT_REQUEST");
         var restored = ok("POST", "/api/workspace/conversations/" + analysis + "/activate",
             Map.of("stateToken", token()), null);
         assertThat(restored.get("conversation").get("agentGraphVersion").isNull()).isTrue();

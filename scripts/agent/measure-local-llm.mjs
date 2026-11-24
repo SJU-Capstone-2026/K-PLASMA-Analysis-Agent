@@ -5,7 +5,7 @@ import {createRequire} from 'node:module';
 import {tmpdir} from 'node:os';
 import {join,resolve} from 'node:path';
 import {once} from 'node:events';
-import {startV1Environment} from './runtime.mjs';
+import {startEvaluationEnvironment} from './runtime.mjs';
 import {command,freePort,repo,sleep} from '../reference/runtime.mjs';
 
 const args=process.argv.slice(2);
@@ -28,7 +28,7 @@ async function stopFrontend(){
  if(frontend.exitCode===null&&frontend.signalCode===null){frontend.kill('SIGKILL');await stopped;}
 }
 try{
- environment=await startV1Environment(output,'none',{graphVersion:'v2_localLLM',uiOrigin:web});
+ environment=await startEvaluationEnvironment(output,'none',{graphVersion:'v2_localLLM',uiOrigin:web});
  const log=createWriteStream(join(output,'frontend.log'));
  frontend=spawn(process.execPath,[join(repo,'node_modules/vite/bin/vite.js'),'--host','127.0.0.1',
   '--port',String(port),'--strictPort'],{cwd:join(repo,'frontend'),stdio:['ignore','pipe','pipe'],
@@ -50,9 +50,9 @@ try{
  await context.addCookies([{name:'KPLASMA_LOCAL_SESSION',value:cookie[1],url:web+'/api',httpOnly:true,sameSite:'Strict'}]);
  const page=await context.newPage();
  await page.goto(web+'/?view=agent',{waitUntil:'networkidle'});
- const version=page.getByRole('combobox',{name:'Agent 버전'});
- await version.waitFor();
- if(await version.inputValue()!=='v2_localLLM')throw new Error('LOCAL_MEASUREMENT_GRAPH_MISMATCH');
+ const mode=page.getByRole('group',{name:'분석 실행 모드'}).getByRole('button',{name:'로컬',exact:true});
+ await mode.waitFor();
+ if(await mode.getAttribute('aria-pressed')!=='true')throw new Error('LOCAL_MEASUREMENT_GRAPH_MISMATCH');
  await writeFile(join(output,'stack-ready.json'),JSON.stringify({synthetic_only:true,web}),{mode:0o600});
  await command(join(repo,'agent/python/.venv/bin/python'),['-m','evals.local_llm_measure','--env-file',envFile,
   '--stack-connection',environment.connection,'--output',join(output,'measurement.json')],{

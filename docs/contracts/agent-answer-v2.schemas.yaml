@@ -1,5 +1,5 @@
 # Compatibility: closed objects; run-condition observation IDs were added in observations-2.
-# Extended waveform comparisons use agent-answer-v3.schemas.yaml. Older snapshots remain readable.
+# Extended waveform comparisons use agent-comparison-answer.schemas.yaml. Older snapshots remain readable.
 # Generated from Python public contracts; artificial wire examples: agent/tests/support/answer-v2-wire.json
 components:
   schemas:

@@ -37,7 +37,7 @@ test('cloud UI does not exchange or consume a local bootstrap',async()=>{
 
 test('shared UI bootstraps before its first data request even with a cloud default',async()=>{
  vi.stubEnv('VITE_AGENT_DEFAULT_GRAPH_VERSION','v2');
- vi.stubEnv('VITE_AGENT_SUPPORTED_GRAPH_VERSIONS','v1,v2,v2_localLLM');
+ vi.stubEnv('VITE_AGENT_SUPPORTED_GRAPH_VERSIONS','v2,v2_localLLM');
  window.history.replaceState({},'','/#local-bootstrap=synthetic-shared-session');
  const fetch=vi.fn(async(path:string)=>path==='/api/local-runtime/session'
   ?{ok:true,status:204}:new Response('{}',{headers:{'Content-Type':'application/json'}}));

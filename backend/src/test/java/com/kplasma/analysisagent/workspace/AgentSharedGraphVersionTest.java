@@ -15,7 +15,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 @TestPropertySource(properties={"kplasma.agent.worker-token=synthetic-cloud-worker",
     "kplasma.agent.local-worker-token=synthetic-local-worker",
-    "kplasma.agent.supported-graph-versions=v1,v2,v2_localLLM", "kplasma.agent.default-graph-version=v2",
+    "kplasma.agent.supported-graph-versions=v2,v2_localLLM", "kplasma.agent.default-graph-version=v2",
     "AGENT_LOCAL_RUNTIME_ENABLED=false", "AGENT_LOCAL_UI_ORIGIN=http://127.0.0.1:5173",
     "AGENT_LOCAL_API_HOST=", "AGENT_LOCAL_BOOTSTRAP_TOKEN=synthetic-shared-bootstrap"})
 class AgentSharedGraphVersionTest extends WorkspaceTestSupport {
@@ -83,11 +83,15 @@ class AgentSharedGraphVersionTest extends WorkspaceTestSupport {
         assertThat(exchange("GET", "/api/workspace", null, null, null, null).statusCode()).isEqualTo(401);
         var cloudMemory=review();cloudMemory.put("reviewId","REV-shared-cloud");cloudMemory.put("comment","CLOUD_MEMORY");
         ok("POST","/api/decisions",write(cloudMemory),"cloud-memory");
+        var historicalMemory=review();historicalMemory.put("reviewId","REV-retired-v1");
+        historicalMemory.put("comment","HISTORICAL_V1_MEMORY");
+        ok("POST","/api/decisions",write(historicalMemory),"v1-memory");
+        jdbc.update("update decision set origin_graph_version='v1' where review_id='REV-retired-v1'");
         var cloud = ok("POST", "/api/agent/requests", Map.of("text", "private-cloud-question",
             "stateToken", token(), "graphVersion", "v2"), "cloud-question");
         forbidden(claim("synthetic-local-worker", List.of("v2")));
         forbidden(claim("synthetic-cloud-worker", List.of("v2_localLLM")));
-        var cloudClaim = claim("synthetic-cloud-worker", List.of("v1", "v2"));
+        var cloudClaim = claim("synthetic-cloud-worker", List.of("v2"));
         assertThat(cloudClaim.statusCode()).describedAs(cloudClaim.body()).isEqualTo(200);
         assertThat(json(cloudClaim).path("request").path("requestId").asString())
             .isEqualTo(cloud.path("requestId").asString());
@@ -96,8 +100,8 @@ class AgentSharedGraphVersionTest extends WorkspaceTestSupport {
         ok("POST", "/api/workspace/new-conversation", Map.of("stateToken", token()), null);
         var local = ok("POST", "/api/agent/requests", Map.of("text", "private-local-question",
             "stateToken", token(), "graphVersion", "v2_localLLM"), "local-question");
-        forbidden(claim("synthetic-cloud-worker", List.of("v1", "v2", "v2_localLLM")));
-        var noCloudWork = claim("synthetic-cloud-worker", List.of("v1", "v2"));
+        forbidden(claim("synthetic-cloud-worker", List.of("v2", "v2_localLLM")));
+        var noCloudWork = claim("synthetic-cloud-worker", List.of("v2"));
         assertThat(noCloudWork.statusCode()).describedAs(noCloudWork.body()).isEqualTo(200);
         assertThat(json(noCloudWork).path("request").isNull()).isTrue();
         var localClaim = claim("synthetic-local-worker", List.of("v2_localLLM"));
@@ -120,11 +124,11 @@ class AgentSharedGraphVersionTest extends WorkspaceTestSupport {
         assertThat(exchange("POST",localRoot+"/context",localFence,"synthetic-local-worker",null,null).statusCode()).isEqualTo(200);
         var localRecords=exchange("POST",localRoot+"/decision-records",localFence,"synthetic-local-worker",null,null);
         assertThat(localRecords.statusCode()).describedAs(localRecords.body()).isEqualTo(200);
-        assertThat(localRecords.body()).contains("LOCAL_ONLY_MEMORY","CLOUD_MEMORY");
+        assertThat(localRecords.body()).contains("LOCAL_ONLY_MEMORY","CLOUD_MEMORY","HISTORICAL_V1_MEMORY");
         ok("POST","/api/agent/requests/"+local.path("requestId").asString()+"/cancel",Map.of(),"cancel-local");
         ok("POST","/api/workspace/new-conversation",Map.of("stateToken",token()),null);
-        var reuse=ok("POST","/api/agent/requests",Map.of("text","cloud-memory-question","stateToken",token(),"graphVersion","v1"),"cloud-memory-question");
-        var reuseClaim=claim("synthetic-cloud-worker",List.of("v1","v2"));
+        var reuse=ok("POST","/api/agent/requests",Map.of("text","cloud-memory-question","stateToken",token(),"graphVersion","v2"),"cloud-memory-question");
+        var reuseClaim=claim("synthetic-cloud-worker",List.of("v2"));
         assertThat(reuseClaim.statusCode()).isEqualTo(200);
         String reuseRoot="/internal/agent/requests/"+reuse.path("requestId").asString();
         var fence=Map.<String,Object>of("claimGeneration",json(reuseClaim).path("claimGeneration").longValue(),
@@ -134,20 +138,20 @@ class AgentSharedGraphVersionTest extends WorkspaceTestSupport {
         assertThat(exchange("POST",reuseRoot+"/context",fence,"synthetic-cloud-worker",null,null).statusCode()).isEqualTo(200);
         var cloudRecords=exchange("POST",reuseRoot+"/decision-records",fence,"synthetic-cloud-worker",null,null);
         assertThat(cloudRecords.statusCode()).describedAs(cloudRecords.body()).isEqualTo(200);
-        assertThat(cloudRecords.body()).contains("CLOUD_MEMORY").doesNotContain("LOCAL_ONLY_MEMORY");
+        assertThat(cloudRecords.body()).contains("CLOUD_MEMORY","HISTORICAL_V1_MEMORY").doesNotContain("LOCAL_ONLY_MEMORY");
         String query="?claimGeneration="+fence.get("claimGeneration")+"&requestRevision="+fence.get("requestRevision");
         assertThat(exchange("GET",reuseRoot+"/context"+query,null,"synthetic-cloud-worker",null,null).body())
             .contains("CLOUD_MEMORY").doesNotContain("LOCAL_ONLY_MEMORY");
         assertThat(exchange("POST",reuseRoot+"/context",fence,"synthetic-cloud-worker",null,null).body())
             .doesNotContain("LOCAL_ONLY_MEMORY");
-        assertThat(ok("GET","/api/decisions",null,null).toString()).contains("CLOUD_MEMORY","LOCAL_ONLY_MEMORY");
+        assertThat(ok("GET","/api/decisions",null,null).toString()).contains("CLOUD_MEMORY","LOCAL_ONLY_MEMORY","HISTORICAL_V1_MEMORY");
         jdbc.update("update agent_request set manifest=jsonb_set(manifest,'{decisionRecords}',?::jsonb) where id=?::uuid",
             mapper.writeValueAsString(List.of(Map.of("reviewId","REV-local-private","comment","LOCAL_ONLY_MEMORY"))),reuse.path("requestId").asString());
         forbidden(exchange("GET",reuseRoot+"/context"+query,null,"synthetic-cloud-worker",null,null));
         forbidden(exchange("POST",reuseRoot+"/context",fence,"synthetic-cloud-worker",null,null));
         forbidden(exchange("GET",reuseRoot+"/checkpoint"+query,null,"synthetic-cloud-worker",null,null));
         jdbc.update("update agent_request set lease_until=clock_timestamp()-interval '1 second' where id=?::uuid",reuse.path("requestId").asString());
-        forbidden(claim("synthetic-cloud-worker",List.of("v1","v2")));
+        forbidden(claim("synthetic-cloud-worker",List.of("v2")));
         jdbc.update("update decision set origin_graph_version=null where review_id='REV-local-private'");
         forbidden(exchange("GET",reuseRoot+"/checkpoint"+query,null,"synthetic-cloud-worker",null,null));
         assertThat(ok("GET","/api/decisions",null,null).toString()).contains("LOCAL_ONLY_MEMORY");

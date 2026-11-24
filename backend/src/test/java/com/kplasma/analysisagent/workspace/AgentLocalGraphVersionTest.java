@@ -67,6 +67,10 @@ class AgentLocalGraphVersionTest extends WorkspaceTestSupport {
 
     @Test void localIntakeDefaultsToItsOwnVersionAndRejectsCloudBeforeEnqueue() throws Exception {
         assertSessionBoundary();
+        var beforeDemo = token();
+        rejects("POST", "/api/workspace/new-conversation", Map.of("stateToken", beforeDemo, "decisionDemo", true),
+            null, 400, "INVALID_AGENT_REQUEST");
+        assertThat(token()).isEqualTo(beforeDemo);
         for (String version : List.of("v1", "v2")) {
             var rejected = send("POST", "/api/agent/requests",
                 Map.of("text", "실행하지 않을 인공 질문", "stateToken", token(), "graphVersion", version), "reject-" + version);

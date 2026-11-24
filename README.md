@@ -1,69 +1,39 @@
 # PLASMATE
 
-플라즈마 공정 파트너
+<img src="frontend/public/plasmate.png" alt="PLASMATE 마스코트" width="160">
 
-세종대학교 2026-2 캡스톤 컴싸 레파지토리
+세종대학교 컴퓨터공학과 2026-2 캡스톤 프로젝트. 등록된 플라즈마 실험 Run을 조회하고 공정 조건을 비교해 다음 실험의 근거를 찾습니다.
 
-## 프로젝트 방향
+| 기능 | 동작 |
+| --- | --- |
+| **분석 Agent · 일반** | 표준 V2가 질문을 계획하고 OpenAI 모델로 검토합니다. 조건 조회, 목표 후보 탐색, Run 비교, 변화·개념 설명을 지원합니다. |
+| **분석 Agent · 로컬** | LocalLLM v2.8의 Qwen이 계획을 작성하고, 코드가 원문에서 확정 가능한 조건과 단계 연결을 보완한 뒤 Flash가 검토합니다. 모델 요청은 기기 안에서 처리합니다. |
+| **의사결정 Agent** | 목표를 지표로 풀어 사용자에게 확인받고, 표준 V2로 다음 실험 후보의 수치와 장단점을 비교합니다. |
+| **Run 관리** | 폴더·ZIP으로 등록한 실험의 원본과 불변 버전을 보존하고 상세 수치와 그래프를 표시합니다. |
 
-K-PLASMA 프로토타입 v12.3.1의 UI·UX와 기능을 실제 애플리케이션으로 이관합니다. 분석 Agent는 Python LangGraph v1·v2로 질문을 처리합니다. 의사결정 Agent는 표준 v2를 사용해 목표를 확인하고 다음 실험 후보를 비교합니다. 순방향 조회·역방향 탐색·Run 비교·변화 설명·개념 설명을 지원하며, 실제 파일 업로드·파싱·재처리를 제공합니다. 1차 사용 환경은 팀원 각자의 로컬 개발 환경입니다.
+분석 Agent의 **Agent 버전**에서 일반 V2나 로컬 V2를 선택합니다. 실행 모드를 바꾸려면 새 대화를 열고 원하는 버전을 고릅니다. 이전 대화는 왼쪽 목록에서 다시 볼 수 있습니다.
 
-주요 제품 코드 영역은 `backend/`, `frontend/`, `agent/`로 구성합니다.
+## 실행하기
 
-- 백엔드: Spring Boot + Gradle
-- 프론트엔드: React + TypeScript + Vite
-- 데이터베이스: PostgreSQL
+Java 21, Node 22.23.3, npm 10.9.9, uv, Docker를 준비합니다. Python은 `agent/python/.python-version`과 잠금 파일을 따릅니다.
 
-`frontend`는 화면, `backend`는 데이터와 요청·결과의 영속 저장, `agent/python`은 LangGraph worker를 담당합니다. 기존 JavaScript fallback 소스·테스트·과거 답변 렌더러는 보존하지만 신규 질문 경로에서는 호출하지 않습니다. 모델 연결 오류는 명시적으로 표시합니다.
+- [팀 로컬 실행 가이드](docs/development.md)에서 PostgreSQL, Spring Boot, Vite, 일반 V2 워커를 시작합니다.
+- [LocalLLM 준비 가이드](docs/development/agent-v2-local-llm.md)에서 Apple Silicon용 Qwen·Flash, 로컬 연결 인증, 메모리 검사를 준비합니다. 일반·로컬은 웹, 백엔드, DB를 공유하고 각각의 워커가 질문을 처리합니다.
+- 의사결정 Agent를 먼저 보려면 공통 의존성을 설치한 뒤 `npm run dev:decision-demo`를 실행합니다. 미리보기는 인공 Run과 고정 모델 응답을 사용합니다. [의사결정 시연 안내](docs/development/conversation-rooms.md)
 
-## 설계와 계획
+| 경로 | 역할 |
+| --- | --- |
+| `frontend/` | React·TypeScript 화면 |
+| `backend/` | Spring Boot API, PostgreSQL 저장, Run 업로드·파싱 |
+| `agent/python/` | LangGraph 일반 V2와 LocalLLM 워커 |
 
-- [Agent Graph v1 구현 계획](docs/superpowers/plans/2026-10-04-agent-graph-v1-plan.md): 다섯 도구·질문 해석·수치 검증·장애 복구 계약.
-- [Agent v1 구현·검증 기록](docs/verification/agent-v1.md): 실제 모델·프로세스 장애·원본 scalar 대조 결과와 남은 검토 범위.
-- [v12.3.1 실제 구현 설계](docs/superpowers/specs/2026-10-03-v12.3.1-implementation-design.md): 사용자 승인된 기능·데이터 정책과 검증 기준. 데이터 범위는 기존 3변수의 150 Run입니다.
-- [상세 구현 계획](docs/superpowers/plans/2026-10-03-v12.3.1-implementation-plan.md): 12개 구현 작업, 공통 계약, 의존 순서·PR 단위·검증 기준. 사용자가 승인했으며 작업별 구현·검토 방식으로 진행합니다.
-- [기준 프로토타입 조사](docs/superpowers/research/2026-10-03-v12.3.1-discovery.md): 화면·fallback·수치·원본 파일과 기존 테스트 확인 결과.
+## 개발과 검증
 
-승인된 12개 작업의 제품 구현과 로컬 검증을 마쳤으며 최종 리뷰의 Catalog 진행 재개·상세 disclosure·Turn UUID 수정도 반영했습니다. 검증 범위와 유예는 [수용 검증](docs/verification/acceptance.md)에 기록했습니다. 최종 수정의 독립 리뷰와 PR 전달은 별도 gate이며 원격 CI나 팀원의 clean-clone 실행 완료를 의미하지 않습니다.
+- [표준 V2 그래프와 평가](docs/development/agent-v2.md)
+- [공용 API 계약](docs/api/openapi.yaml)
+- [프로토타입 수용 검증](docs/verification/acceptance.md)
+- [협업 가이드](CONTRIBUTING.md) · [저장소 작업 규칙](AGENTS.md) · [PR 템플릿](.github/PULL_REQUEST_TEMPLATE.md)
 
-## 로컬 실행과 검증
+PR CI는 인공 데이터와 고정 모델 응답으로 두 실행 모드의 계약, 브라우저, 재시작 복구를 검사합니다. 실제 모델 평가와 별도 검증 명령은 [팀 실행 가이드의 검증 절차](docs/development.md#검증)를 따릅니다.
 
-Java 21, Node 22.23.3, npm 10.9.9, uv와 Docker를 준비한 뒤 [팀 실행 문서](docs/development.md)를 따라 PostgreSQL·backend·Python worker·frontend를 시작합니다. Python은 `agent/python/.python-version`과 `uv.lock`으로 고정합니다. `OPENAI_API_KEY`, `OPENAI_MODEL=gpt-5.6-luna`, `OPENAI_REASONING_EFFORT=none`, backend·worker 공통 `AGENT_WORKER_TOKEN`을 설정합니다.
-
-```sh
-npm ci
-uv sync --project agent/python --frozen
-npm test
-npm run test:agent
-npm run typecheck
-npm run lint
-npm run build
-backend/gradlew -p backend test --console=plain
-npm exec --workspace frontend -- playwright install chromium
-npm run test:ui:v2
-npm run test:e2e
-npm run test:agent:restart
-npm run verify:public-files
-```
-
-기본 CI의 Agent 실행·평가·브라우저 기준은 v2입니다. `test:agent`는 v2 그래프·평가기와 공통 계산을, `test:ui:v2`는 네 화면 폭의 그래프·대화방·스트리밍을 검사합니다. `test:e2e`와 `test:agent:restart`는 독립 PostgreSQL·backend·Python v2 그래프에서 고정 모델 응답을 사용합니다. `test:e2e:live`는 실제 LLM을 연결하므로 API 키와 호출 비용이 필요합니다. 공통 API·보안·과거 기록 호환성 검사는 유지합니다. 기본 CI는 실제 데이터나 API 키를 포함하지 않으며 검증 artifact를 업로드하지 않습니다. 자세한 범위와 실제 모델 평가 명령은 [Agent v2 운영과 평가](docs/development/agent-v2.md)를 참고하세요.
-
-의사결정 Agent는 `npm run dev:decision-demo`로 미리 볼 수 있습니다. 실행 조건과 흐름은 [대화방과 시연 안내](docs/development/conversation-rooms.md)를 참고하세요.
-
-[수용 검증](docs/verification/acceptance.md)과 [원본 102개 대응표](docs/verification/prototype-test-map.md)는 통과·실패·유예·미검증 범위를 구분합니다. D1–D5와 남은 차이가 있으므로 전체 100% 동등성으로 표현하지 않습니다. 새 대화와 데모 초기화는 업로드한 Run·그래프·원본을 유지합니다. 종료 절차는 DB volume과 원본을 보존합니다.
-
-## 코드와 실제 데이터의 공유
-
-GitHub에는 코드·설계 문서·DB 스키마·마이그레이션·설정 예시를 관리합니다. 실제 결과 원본, 실제 결과·그래프 JSON, DB 데이터·백업, 사용자 대화·판단 기록은 올리지 않습니다. 해당 로컬 보관 경로는 `.gitignore`에서 제외합니다.
-
-1차에는 팀원 각자가 코드를 clone하고 자기 데이터를 업로드해 개발합니다. 같은 기준 150개 Run이 필요한 경우 데이터는 GitHub 밖에서 공유해 각자 적재합니다. clone만으로 실제 데이터가 제공되는 구성은 아닙니다. 데이터 적재·검증 절차는 구현 계획에 포함합니다.
-
-팀 공용 백엔드·DB·파일 보관소는 후속 작업입니다.
-
-## 협업 문서
-
-- [협업 가이드](CONTRIBUTING.md): 작업 브랜치, PR, 리뷰, 검증 및 원격 저장소 보호 설정
-- [저장소 작업 규칙](AGENTS.md): 개발자와 코딩 에이전트가 함께 지킬 규칙
-- [PR 템플릿](.github/PULL_REQUEST_TEMPLATE.md)
-
-모든 변경은 작업 브랜치에서 진행하고 PR로 반영합니다. `main` 직접 push는 금지합니다. 브랜치 보호와 CI는 원격 저장소 연결 후 별도로 설정해야 합니다.
+실제 Run 원본·그래프, DB 백업, 사용자 대화, 비밀값과 원시 평가 로그는 Git에서 제외한 경로에 보관합니다. 기준 150 Run은 GitHub 밖에서 공유하고 각자 등록합니다.

@@ -21,7 +21,7 @@ class DecisionRecordsContextTest extends WorkspaceTestSupport {
     private void start(String operationKind) throws Exception {
         var request=ok("POST","/api/agent/requests",Map.of("text","인공 판단 기록 질문","stateToken",token()),UUID.randomUUID().toString());
         path="/requests/"+request.get("requestId").stringValue();
-        var claimed=json(internal("/claim",Map.of("workerId","decision-test","leaseSeconds",60)));
+        var claimed=json(internal("/claim",Map.of("workerId","decision-test","leaseSeconds",60,"supportedGraphVersions",List.of("v2"))));
         fence=Map.of("claimGeneration",claimed.get("claimGeneration").longValue(),"requestRevision",claimed.get("requestRevision").longValue());
         assertThat(internal(path+"/heartbeat",body(Map.of("operationKind",operationKind))).statusCode()).isEqualTo(200);
     }

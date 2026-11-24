@@ -23,7 +23,7 @@ Q01~Q05 웹 평가와 API 평가의 실제 접수는 모두 **0건**이다. 성�
 - llama.cpp b12317과 동봉 라이브러리 hash를 확인했다. 실행 인자는 Metal `MTL0`, GPU layers `all`, context 32,768, batch/ubatch 512, 동시 요청 1이다.
 - 계획 생각 ON / writer OFF, 생각 예산 2,048, 전체 출력 계획 6,000 / writer 3,000, 호출 90초, 입력 16K를 유지했다.
 - sample 생성 설정은 계획서의 명시값을 사용했다. MLX와 GGUF의 양자화·실행 환경·sampling도 다르므로 생각 모드만의 효과를 측정한 대조 실험이 아니다.
-- 실제 `submit_plan` parameters와 PlanDraft schema가 변경 전과 동일함을 비교했다. local 그래프·도구·최종 답변 계약과 기존 v2/v3 Python 소스도 변경 전 hash/내용을 보존했다.
+- 실제 `submit_plan` parameters와 PlanDraft schema가 변경 전과 동일함을 비교했다. local 그래프·도구·최종 답변 계약과 변경 전 보호 대상 그래프 Python 소스도 변경 전 hash/내용을 보존했다.
 - 기존 d1 모델·프로세스·검토 규칙은 변경하지 않았다. 이번 메모리 검사는 d1 추론 전 중단되어 새 구성의 실제 Qwen↔d1 전체 교대 실행은 미검증이다.
 
 ## 인공 native 호출 결과
@@ -84,7 +84,7 @@ git diff --check
 
 기존 테스트의 MLX alias/포트/생각 OFF 기대와 메모리 fixture는 새 프로필에 맞췄다.
 LM Studio load/unload 전용 테스트는 native sleep·잘못된 모델·실제 프로세스 검사로 교체했으며 최초 clone 증거는 재생성하지 않았다.
-실제 v3 서버/모델 평가는 하지 않았다.
+
 
 실험용 Qwen 서버·측정용 backend/UI/DB·이번 빌드 daemon은 정리했다. 기존 d1과 사용자 앱은 유지했다.
 기존 활성 private 실행 프로필에는 새 환경을 승격하지 않았다. 새 private 프로필·모델·원시 결과·복구용 변경 전 파일은 로컬에 남겼다.

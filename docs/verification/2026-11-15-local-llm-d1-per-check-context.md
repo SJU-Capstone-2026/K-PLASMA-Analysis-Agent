@@ -14,7 +14,7 @@
 - 질문·이력·확정 문맥·원본 계획·검토 지침·선택지·검사 ID·원본 snapshot·digest는 바꾸지 않는다. 검사나 잘못된 판정을 코드로 생략·보정하지 않는다.
 - `full|per_check` 설정, `d1-context-1` 규칙 버전과 selector/catalog/언어 투영/계약 의존성 hash를 실행 중 서비스, worker 설정·메모리 증거·복구 identity에서 대조한다. 기본값은 `full`이다.
 - count와 추론에 같은 조립 경로를 적용하고 실제 packed hash, usage, 모델 해제, 선별/전체/fallback 메타데이터를 내부에서 대조한다. 최종 사용자 응답과 SSE에 이 메타데이터를 추가하지 않는다.
-- 그래프 노드·분기·HITL·실행 도구·`submit_plan`·계획/최종 응답 schema와 v2/v3 소스는 변경하지 않았다. 재계획 최대 2회·답변 재작성 최대 1회도 유지한다.
+- 그래프 노드·분기·HITL·실행 도구·`submit_plan`·계획/최종 응답 schema와 보호 대상 그래프 소스는 변경하지 않았다. 재계획 최대 2회·답변 재작성 최대 1회도 유지한다.
 
 ## 고정 조건과 실행 수
 
@@ -113,7 +113,7 @@ OS 메모리, allocator, RSS는 다른 지표이며 합산하지 않는다. OS �
 ## CPU 검증과 재현 기록
 
 - 관련 local/응답/계약 검증: **768 passed, 8 initial_clone deselected**.
-- 저장소 루트에서 전체 Python 검증: **1,548 passed, 8 initial_clone deselected**. 처음 `agent/python`에서 전체 검증했을 때 기존 v1 테스트 4개가 저장소 루트 기준 fixture 경로를 찾지 못했으며, 루트에서 실행해 모두 통과했다. 이 때문에 제품 코드나 fixture를 바꾸지 않았다.
+- 저장소 루트에서 전체 Python 검증: **1,548 passed, 8 initial_clone deselected**. 처음 `agent/python`에서 전체 검증했을 때 기존 회귀 검사 4개가 저장소 루트 기준 fixture 경로를 찾지 못했으며, 루트에서 실행해 모두 통과했다. 이 때문에 제품 코드나 fixture를 바꾸지 않았다.
 - Node 로컬 실행기·측정 명령: **8 passed**.
 - mypy: **125 source files 통과**. Ruff와 공개 파일 guard, clone 경계·원본 계약 검증 통과.
 - MLX 전용 가상환경에서도 새 선별 모듈의 import와 일반 unit 입력 전체 유지를 실제 모델 로딩 없이 확인했다.
