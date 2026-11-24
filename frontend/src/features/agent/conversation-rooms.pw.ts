@@ -56,7 +56,7 @@ for(const width of [390,800,1008,1440])test(`saved rooms keep answers and Run ta
  await expect(page.getByText('저장된 원래 답변입니다.',{exact:true})).toBeVisible();
  const originalSnapshot=JSON.stringify(workspace.conversation.turns);
  await showRooms();await sidebar.getByRole('button',{name:'새 채팅 만들기'}).click();
- await expect(page.getByRole('heading',{name:'실험 결과와 공정 조건을 질문해 보세요.'})).toBeVisible();
+ await expect(page.getByRole('heading',{name:'실험 결과를 함께 살펴봐요'})).toBeVisible();
  const guide=page.getByText('대표 질문으로 시작해 보세요',{exact:true});
  const examples=page.getByRole('list',{name:'대표 질문'});
  await expect(guide).toBeVisible();
@@ -66,8 +66,9 @@ for(const width of [390,800,1008,1440])test(`saved rooms keep answers and Run ta
  await expect(examples.getByRole('button')).toHaveCount(9);
  const rows=await examples.getByRole('button').evaluateAll(buttons=>buttons.map(button=>({
   whiteSpace:getComputedStyle(button).whiteSpace,top:button.getBoundingClientRect().top,
+  right:button.getBoundingClientRect().right,
  })));
- expect(rows.every(row=>row.whiteSpace==='nowrap')).toBe(true);
+ expect(rows.every(row=>row.whiteSpace==='nowrap'&&row.right<=width)).toBe(true);
  expect(new Set(rows.map(row=>row.top)).size).toBe(9);
  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1)).toBe(true);
  await page.screenshot({path:info.outputPath('analysis-examples.png')});

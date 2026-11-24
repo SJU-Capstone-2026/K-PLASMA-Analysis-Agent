@@ -206,19 +206,20 @@ export function AgentPage({conversation,notify,onDetail,onRecord,onEvidence}:Age
  return <RunColorsProvider key={colorScope} scope={colorScope} enabled={conversation.ready}>
  <div className="agent-page agent-page--wide analysis-agent">
  <header className="agent-page-header analysis-agent-header">
+  {hasConversation&&<button className="button button--ghost button--small" type="button" data-action="new-conversation"
+   disabled={changingMode} onClick={()=>conversation.newConversation().catch(catchError)}>새 대화</button>}
   <div className="analysis-agent-modes" role="group" aria-label="분석 실행 모드">
    {graphModes.map(({version,label})=><button key={version} type="button"
     aria-pressed={conversation.graphVersion===version}
     disabled={!graphVersions.includes(version)||!conversation.ready||pending&&!archivedConversation||changingMode||!!conversation.provisionalMessage}
     onClick={()=>void changeMode(version)}>{label}</button>)}
   </div>
-  {hasConversation&&<button className="button button--ghost button--small" type="button" data-action="new-conversation"
-   disabled={changingMode} onClick={()=>conversation.newConversation().catch(catchError)}>새 대화</button>}
  </header>
  <section ref={liveRegion} className="agent-conversation agent-conversation--wide">
- <div className="agent-thread" aria-live="polite">{thread.length?thread.map(item=>item.turn?<ConversationTurn key={item.id} turn={item.turn} message={item.message} onAction={dispatchAction}/>:<div key={item.id}><AgentUserMessage question={item.message!.question} refs={item.message!.submittedRunRefs}/>{item.message!.requestId!==conversation.activeRequest?.requestId&&['FAILED','CANCELLED'].includes(item.message!.status)&&(item.message!.status==='CANCELLED'?<CompletedAgentProgress status="CANCELLED" summary={item.message!.executionSummary}/>:<p className="v1-limitation">분석을 완료하지 못했습니다.</p>)}</div>):!conversation.provisionalMessage&&!conversation.activeRequest?<section className="agent-welcome analysis-agent-welcome">
+ <div className="agent-thread" aria-live="polite">{thread.length?thread.map(item=>item.turn?<ConversationTurn key={item.id} turn={item.turn} message={item.message} onAction={dispatchAction}/>:<div key={item.id}><AgentUserMessage question={item.message!.question} refs={item.message!.submittedRunRefs}/>{item.message!.requestId!==conversation.activeRequest?.requestId&&['FAILED','CANCELLED'].includes(item.message!.status)&&(item.message!.status==='CANCELLED'?<CompletedAgentProgress status="CANCELLED" summary={item.message!.executionSummary}/>:<p className="v1-limitation">분석을 완료하지 못했습니다.</p>)}</div>):!conversation.provisionalMessage&&!conversation.activeRequest?<section className="agent-welcome">
   <BrandMark className="agent-welcome-mark"/>
-  <h1>실험 결과와 공정 조건을 질문해 보세요.</h1>
+  <h1>실험 결과를 함께 살펴봐요</h1>
+  <p>조건을 입력하거나 채팅창에서 <strong>@</strong>로 Run을 골라 비교해 보세요.</p>
   <details className="analysis-agent-examples">
    <summary>대표 질문으로 시작해 보세요</summary>
    <ul aria-label="대표 질문">

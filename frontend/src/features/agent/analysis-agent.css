@@ -1,28 +1,41 @@
+.analysis-agent {
+  position: relative;
+}
+
+.analysis-agent:not(:has(.agent-welcome)) {
+  padding-top: 36px;
+}
+
 .analysis-agent .analysis-agent-header {
-  min-height: 44px;
+  position: absolute;
+  inset-block-start: -12px;
+  inset-inline-end: -8px;
+  z-index: 1;
+  margin: 0;
   align-items: center;
   flex-direction: row;
   justify-content: flex-end;
-  gap: 10px;
+  gap: 8px;
 }
 
 .analysis-agent-modes {
   display: inline-flex;
-  gap: 3px;
-  padding: 3px;
+  gap: 2px;
+  padding: 2px;
   border: 1px solid var(--color-border, #dce4ef);
-  border-radius: 9px;
+  border-radius: 8px;
   background: #f5f7fb;
 }
 
 .analysis-agent-modes button {
-  min-height: 36px;
-  padding: 0 15px;
+  min-height: 28px;
+  padding: 0 11px;
   border: 1px solid transparent;
   border-radius: 6px;
   background: transparent;
   color: #51617a;
   font: inherit;
+  font-size: 13px;
   cursor: pointer;
 }
 
@@ -38,46 +51,16 @@
   cursor: default;
 }
 
-.analysis-agent .agent-thread:has(> .analysis-agent-welcome) {
-  flex: 1 0 auto;
-  grid-template-columns: minmax(0, 1fr);
-  align-content: center;
-}
-
-.analysis-agent .analysis-agent-welcome {
-  width: min(100%, 640px);
-  min-width: 0;
-  grid-template-columns: minmax(0, 1fr);
-  margin-inline: auto;
-  padding: 24px 8px;
-  border: 0;
-  background: none;
-  box-shadow: none;
-}
-
-.analysis-agent-welcome .agent-welcome-mark {
-  width: 84px;
-  height: 84px;
-  object-fit: contain;
-  border: 0;
-  border-radius: 0;
-  background: none;
-  box-shadow: none;
-}
-
-.analysis-agent-welcome h1 {
-  margin: 10px 0 0;
-  font-size: clamp(17px, 2.4vw, 22px);
-  font-weight: 650;
-  letter-spacing: -.025em;
-}
-
 .analysis-agent-examples {
   width: min(100%, 580px);
-  margin: 20px auto 0;
+}
+
+.analysis-agent-examples:not([open]) {
+  height: 0;
 }
 
 .analysis-agent-examples summary {
+  margin-top: 12px;
   min-height: 40px;
   width: fit-content;
   margin-inline: auto;
