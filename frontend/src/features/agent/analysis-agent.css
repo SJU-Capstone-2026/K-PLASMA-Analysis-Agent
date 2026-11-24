@@ -1,0 +1,112 @@
+.analysis-agent {
+  position: relative;
+}
+
+.analysis-agent:not(:has(.agent-welcome)) {
+  padding-top: 36px;
+}
+
+.analysis-agent .analysis-agent-header {
+  position: absolute;
+  inset-block-start: -12px;
+  inset-inline-end: -8px;
+  z-index: 1;
+  margin: 0;
+  align-items: center;
+  flex-direction: row;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.analysis-agent-modes {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--color-border, #dce4ef);
+  border-radius: 8px;
+  background: #f5f7fb;
+}
+
+.analysis-agent-modes button {
+  min-height: 28px;
+  padding: 0 11px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: #51617a;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.analysis-agent-modes button[aria-pressed="true"] {
+  border-color: #dbe3f1;
+  background: #fff;
+  color: #294d9b;
+  font-weight: 650;
+}
+
+.analysis-agent-modes button:disabled {
+  opacity: .55;
+  cursor: default;
+}
+
+.analysis-agent-examples {
+  width: min(100%, 580px);
+}
+
+.analysis-agent-examples:not([open]) {
+  height: 0;
+}
+
+.analysis-agent-examples summary {
+  margin-top: 12px;
+  min-height: 40px;
+  width: fit-content;
+  margin-inline: auto;
+  padding: 9px 13px;
+  color: #3f5e95;
+  cursor: pointer;
+}
+
+.analysis-agent-examples ul {
+  margin: 8px 0 0;
+  padding: 0;
+  border-top: 1px solid #e3eaf4;
+  list-style: none;
+  text-align: left;
+}
+
+.analysis-agent-examples li {
+  min-width: 0;
+  border-bottom: 1px solid #e3eaf4;
+}
+
+.analysis-agent-examples button {
+  display: block;
+  width: 100%;
+  min-height: 41px;
+  padding: 8px 10px;
+  overflow: hidden;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.analysis-agent-examples button:hover,
+.analysis-agent-examples button:focus-visible {
+  background: #eff4ff;
+}
+
+.analysis-agent-history-note {
+  margin: 12px 0;
+  color: var(--color-text-muted);
+  font-size: 13px;
+  text-align: center;
+}

@@ -8,7 +8,7 @@ import {syntheticRun} from '../../test/runs';
 const runs=[600,800,1000].map(bias=>syntheticRun(bias));
 const ref=(run:RunRef):RunRef=>({runId:run.runId,runVersionId:run.runVersionId});
 const turn:TurnSnapshot={id:'candidates',askedAt:'2026-10-08T00:00:00Z',question:'인공 후보 조회',intent:'REVERSE_SEARCH',context:null,answerRunRefs:runs.map(ref),answerSnapshot:JSON.parse(JSON.stringify({implementationId:'v1',schemaVersion:1,kind:'reverse_search',result:{kind:'reverse_search',resultStatus:'MATCH',commonCandidates:runs.map(run=>({run,evaluations:[]})),goalResults:[],nearMisses:[]}})),ui:structuredClone(initialTurnUi)};
-function Harness(){const conversation=useConversation();return <AgentPage conversation={conversation} records={[]} notify={()=>{}} onDetail={()=>{}} onRecord={()=>{}} onEvidence={()=>{}} onDemo={async()=>{}}/>;}
+function Harness(){const conversation=useConversation();return <AgentPage conversation={conversation} records={[]} notify={()=>{}} onDetail={()=>{}} onRecord={()=>{}} onEvidence={()=>{}}/>;}
 function server(){
  let workspace:WorkspaceView={...structuredClone(emptyWorkspace),conversation:{version:1,activeRun:null,agentGraphVersion:'v2',turns:[structuredClone(turn)]}};
  const submitted:AgentSubmission[]=[];let release:(()=>void)|undefined;let hold=false;

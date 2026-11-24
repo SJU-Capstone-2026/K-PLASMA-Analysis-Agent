@@ -200,11 +200,10 @@ test('selected graph browser answers on artificial data', async ({page}) => {
     const before = await (await apiCall(page,'/api/workspace')).json() as WorkspaceView;
     await apiCall(page,'/api/workspace/new-conversation',{stateToken:before.stateToken});
     await page.goto('/?view=agent');
-    const selector = page.getByRole('combobox', {name: 'Agent 버전'});
-    await expect(selector).toBeVisible();
+    const mode = page.getByRole('button', {name: graphVersion==='v2_localLLM'?'로컬':'일반',exact:true});
+    await expect(mode).toBeVisible();
     await expect(page.getByRole('textbox', {name: '공정 데이터에 질문하기'})).toBeEnabled();
-    if(graphVersion==='v2_localLLM')await expect(selector).toHaveValue(graphVersion);
-    else {await expect(selector).toBeEnabled();await selector.selectOption(graphVersion);}
+    await expect(mode).toHaveAttribute('aria-pressed','true');
     const accepted = await ask(page, item.question);
     expect(accepted.graphVersion).toBe(graphVersion);
     let result = await terminal(page, accepted.requestId);
@@ -329,7 +328,7 @@ test('Decision Agent runs approved @ searches and candidate selection through st
   await searchFor(alternative);
   await expect(page.getByRole('heading',{name:'조건을 만족한 후보 0개'})).toBeVisible({timeout:12000});
   await page.getByRole('button',{name:'분석 Agent',exact:true}).click();
-  await expect(page.getByRole('combobox',{name:'Agent 버전'})).toBeVisible();
+  await expect(page.getByRole('group',{name:'분석 실행 모드'})).toBeVisible();
   const after=await (await page.request.get(`${api}/api/workspace`)).json() as WorkspaceView;
   expect(after.stateToken.conversationEpoch).toBe(before.stateToken.conversationEpoch);
   expect(after.conversation).toEqual(before.conversation);

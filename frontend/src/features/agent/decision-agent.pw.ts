@@ -97,7 +97,7 @@ test('Decision Agent approves criteria, compares the nominated Run and stays sep
  const input=page.getByRole('textbox',{name:'공정 데이터에 질문하기'});
  const composerTag=page.locator('.decision-agent .agent-composer .run-context-chip');
  await expect(page.getByRole('button',{name:`${defaultRun.runId} 채팅에서 제거`})).toBeVisible();
- await expect(page.getByRole('combobox',{name:'Agent 버전'})).toHaveCount(0);
+ await expect(page.getByRole('group',{name:'분석 실행 모드'})).toHaveCount(0);
  for(const width of [390,800,1008,1440]){
   await page.setViewportSize({width,height:1000});
   if(width===390)await page.getByRole('button',{name:'메뉴 열기'}).click();
@@ -198,7 +198,7 @@ test('Decision Agent approves criteria, compares the nominated Run and stays sep
  await expect(page.getByText('600 W → 400 W')).toBeVisible();
  await page.emulateMedia({reducedMotion:'reduce'});
  await page.getByRole('button',{name:'분석 Agent',exact:true}).click();
- await expect(page.getByRole('combobox',{name:'Agent 버전'})).toBeVisible();
+ await expect(page.getByRole('group',{name:'분석 실행 모드'})).toBeVisible();
  await page.getByRole('button',{name:'의사결정 Agent',exact:true}).click();
  await expect(choice.getByText(candidate.runId)).toBeVisible();
  await expect(tradeoffTable).toBeVisible();
@@ -214,4 +214,48 @@ test('Decision Agent approves criteria, compares the nominated Run and stays sep
  }
  await page.getByRole('button',{name:'초기화',exact:true}).click();
  await expect(welcome).toBeInViewport();
+});
+
+for(const width of [390,800,1008,1440])test(`analysis and decision welcomes share the same layout at ${width}px`,async({page})=>{
+ await page.setViewportSize({width,height:1000});
+ const stamp='2026-01-01T00:00:00Z';
+ const rooms=[{conversationEpoch:1,title:'분석 대화',createdAt:stamp,updatedAt:stamp},
+  {conversationEpoch:2,title:'의사결정 대화',createdAt:stamp,updatedAt:stamp,decisionDemo:true}];
+ let epoch=1;
+ await page.route('**/api/**',async route=>{
+  const path=new URL(route.request().url()).pathname;
+  if(!path.startsWith('/api/'))return route.continue();
+  if(path==='/api/runs')return route.fulfill({json:[syntheticRun(400)]});
+  if(path==='/api/decisions')return route.fulfill({json:[]});
+  if(path.endsWith('/activate'))epoch=path.includes('/2/')?2:1;
+  else if(path!=='/api/workspace')throw new Error(`Unexpected request ${path}`);
+  return route.fulfill({json:{...emptyWorkspace,conversations:rooms,
+   stateToken:{workspaceEpoch:1,conversationEpoch:epoch,revision:0}}});
+ });
+ async function openAgent(name:string){
+  const menu=page.getByRole('button',{name:'메뉴 열기'});
+  if(await menu.isVisible())await menu.click();
+  await page.getByRole('button',{name,exact:true}).click();
+  await expect(page.locator('#current-view-label')).toHaveText(name);
+ }
+ function welcomeLayout(){
+  return page.locator('.agent-welcome:visible').evaluate(welcome=>{
+   const mark=welcome.querySelector('img')!.getBoundingClientRect();
+   const heading=welcome.querySelector('h1,h2')!;
+   const description=welcome.querySelector('p')!;
+   const headingBox=heading.getBoundingClientRect(),descriptionBox=description.getBoundingClientRect();
+   return {markX:mark.x,markY:mark.y,markWidth:mark.width,markHeight:mark.height,
+    headingSize:getComputedStyle(heading).fontSize,headingTop:headingBox.top,
+    descriptionSize:getComputedStyle(description).fontSize,descriptionTop:descriptionBox.top};
+  });
+ }
+ await page.goto('/');
+ await expect(page.getByRole('heading',{name:'실험 결과를 함께 살펴봐요'})).toBeInViewport();
+ const modes=page.getByRole('group',{name:'분석 실행 모드'});
+ await expect(modes.getByRole('button',{name:'로컬'})).toBeEnabled();
+ expect((await modes.boundingBox())?.height).toBe(34);
+ const analysis=await welcomeLayout();
+ await openAgent('의사결정 Agent');
+ await expect(page.getByRole('heading',{name:'다음 실험 조건을 함께 찾아요'})).toBeInViewport();
+ await expect.poll(welcomeLayout).toEqual(analysis);
 });
