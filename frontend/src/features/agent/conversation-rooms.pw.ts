@@ -64,7 +64,12 @@ for(const width of [390,800,1008,1440])test(`saved rooms keep answers and Run ta
  await input.fill(`@${runs[1].runId}`);
  await page.getByRole('option').filter({hasText:runs[1].runId}).click();
  await expect(composer.locator('.run-context-chip strong')).toHaveText(runs[1].runId);
- await input.fill('두 번째 방의 질문');await composer.getByRole('button',{name:'분석',exact:true}).click();
+ await input.fill('두 번째 방의 질문');
+ await expect(input).toHaveCSS('box-shadow','none');
+ const [tagBox,inputBox]=await Promise.all([composer.locator('.run-context-chip').boundingBox(),input.boundingBox()]);
+ expect(tagBox?.x).toBe(inputBox?.x);
+ expect(inputBox!.y-tagBox!.y-tagBox!.height).toBe(4);
+ await composer.getByRole('button',{name:'분석',exact:true}).click();
  await expect(page.getByText('새 방에 저장된 답변입니다.',{exact:true})).toBeVisible();
  expect(posted[0].attachedRunRefs).toEqual([ref(1)]);
  await input.fill('두 번째 방에서 이어 쓸 질문');

@@ -110,7 +110,7 @@ export async function startV1Environment(output,mode='stub',options={}){
     const session=isLocal?createLocalSession({api:backend.url,uiOrigin,bootstrapToken,connection,metadata}):null;
     const headers=session?.headers??{};
     if(session)await session.refresh();
-    const folder=await syntheticFolder(output);
+    const folder=await syntheticFolder(output,{decisionDemo:graphVersion==='v2'&&options.decisionDemo});
     for(const pressure of [4,6]){
       const path=join(folder,`artificial-${pressure}/0d_result/log/solver.log`);
       const text=await readFile(path,'utf8');

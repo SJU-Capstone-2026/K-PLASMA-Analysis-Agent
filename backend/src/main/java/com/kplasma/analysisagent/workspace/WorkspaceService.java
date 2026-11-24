@@ -91,11 +91,13 @@ public class WorkspaceService {
         if(!Objects.equals(reference,current.candidateReference())||!Objects.equals(active,current.conversation().activeRun()))repository.invalidateAgentReferences(current.stateToken());
         repository.references(reference,active);repository.advance();return repository.lock();
     }
-    @Transactional public WorkspaceView newConversation(StateToken token){return clear(token,false);}
+    @Transactional public WorkspaceView newConversation(StateToken token,boolean decisionDemo){
+        var current=repository.lock();epochs(token,current.stateToken());revision(token,current.stateToken());
+        repository.newConversation(token,decisionDemo);return repository.lock();
+    }
     @Transactional public WorkspaceView activateConversation(StateToken token,long conversation){
         var current=repository.lock();epochs(token,current.stateToken());revision(token,current.stateToken());
         repository.activateConversation(token,conversation);return repository.lock();
     }
-    @Transactional public WorkspaceView reset(StateToken token){return clear(token,true);}
-    private WorkspaceView clear(StateToken token,boolean reset){var current=repository.lock();epochs(token,current.stateToken());revision(token,current.stateToken());repository.clear(reset);return repository.lock();}
+    @Transactional public WorkspaceView reset(StateToken token){var current=repository.lock();epochs(token,current.stateToken());revision(token,current.stateToken());repository.reset(token);return repository.lock();}
 }

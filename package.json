@@ -8,6 +8,7 @@
   "packageManager": "npm@10.9.9",
   "scripts": {
     "dev": "npm run dev -w frontend",
+    "dev:decision-demo": "node scripts/agent/preview-decision.mjs",
     "dev:agent": "node scripts/agent/worker.mjs",
     "dev:agent:local": "node -- scripts/agent/local-llm.mjs start",
     "check:agent:local": "node -- scripts/agent/local-llm.mjs status",

@@ -1,5 +1,7 @@
-import type {AgentActivity,AgentExecutionSummary,AgentProgressSnapshot} from 'agent';
+import type {AgentActivity,AgentExecutionSummary} from 'agent';
 import {metricNames} from './agent-contract';
+
+type DescribeActivity=(activity:AgentActivity)=>string|undefined;
 
 const activityText:Record<string,readonly [string,string]>={
  QUEUED:['분석을 시작할 준비 중','분석 준비를 마쳤어요'],
@@ -40,45 +42,52 @@ function textFor(activity:AgentActivity){
  return activityText[activity.code]?.[complete?1:0]??(complete?'작업을 마쳤어요':'작업을 처리하는 중');
 }
 
-function latestActivities(activities:AgentActivity[]){
+export function latestActivities(activities:AgentActivity[],saved=false){
  const byId=new Map<string,AgentActivity>();
  for(const activity of activities){
   const previous=byId.get(activity.activityId);
   if(!previous||previous.seq<activity.seq)byId.set(activity.activityId,activity);
  }
- return [...byId.values()].sort((a,b)=>a.seq-b.seq);
+ // A completed request means the final answer has been saved.
+ return [...byId.values()].sort((a,b)=>a.seq-b.seq).map(activity=>saved&&activity.code==='COMMIT'
+  &&activity.phase==='started'?{...activity,phase:'completed' as const}:activity);
 }
 
-function ActivityRecord({activity,current=false}:{activity:AgentActivity;current?:boolean}){
+function ActivityRecord({activity,current=false,describeActivity}:{activity:AgentActivity;current?:boolean;describeActivity?:DescribeActivity}){
  return <li className={`agent-activity${current?' agent-activity--current':''}`}>
   <span className={current?'agent-activity-spinner':'agent-activity-check'} aria-hidden="true">{current?'':activity.phase==='started'?'·':activity.phase==='reused'?'↺':'✓'}</span>
-  <span role={current?'status':undefined}>{textFor(activity)}</span>
+  <span role={current?'status':undefined}>{describeActivity?.(activity)??textFor(activity)}</span>
  </li>;
 }
 
-export function AgentProgress({progress,stage,queued=false}:{progress?:AgentProgressSnapshot;stage:string;queued?:boolean}){
- const activities=latestActivities(progress?.activities??[]);
- const current=queued?undefined:activities.filter(activity=>activity.phase==='started').at(-1);
+export function AgentProgress({events,stage,queued=false,pending=true,recentLimit=3,describeActivity,statusText}:{
+ events?:AgentActivity[];stage:string;queued?:boolean;pending?:boolean;recentLimit?:number;
+ describeActivity?:DescribeActivity;statusText?:string;
+}){
+ const activities=latestActivities(events??[]);
+ const current=queued||!pending?undefined:activities.filter(activity=>activity.phase==='started').at(-1);
  const completed=activities.filter(activity=>activity.phase!=='started');
- const recent=completed.slice(-3);
+ const recent=completed.slice(-recentLimit);
  const earlier=activities.filter(activity=>activity!==current&&!recent.includes(activity));
  return <div className="agent-progress" aria-live="off">
   {earlier.length>0&&<details className="agent-progress-history">
    <summary>이전 작업 {earlier.length}개</summary>
-   <ul aria-label="이전 작업 기록">{earlier.map(activity=><ActivityRecord key={activity.activityId} activity={activity}/>)}</ul>
+   <ul aria-label="이전 작업 기록">{earlier.map(activity=><ActivityRecord key={activity.activityId} activity={activity} describeActivity={describeActivity}/>)}</ul>
   </details>}
   <ul aria-label="최근 작업 기록">
-   {recent.map(activity=><ActivityRecord key={activity.activityId} activity={activity}/>)}
-   {current&&<ActivityRecord activity={current} current/>}
+   {recent.map(activity=><ActivityRecord key={activity.activityId} activity={activity} describeActivity={describeActivity}/>)}
+   {current&&<ActivityRecord activity={current} current describeActivity={describeActivity}/>}
   </ul>
-  {!current&&<p className="agent-activity agent-activity--current" role="status">
+  {pending&&!current&&<p className="agent-activity agent-activity--current" role="status">
    <span className="agent-activity-spinner" aria-hidden="true"/>
-   {queued?activityText.QUEUED[0]:activities.length?'요청을 처리하고 있습니다.':stages[stage]??'요청을 처리하고 있습니다.'}
+   {statusText??(queued?activityText.QUEUED[0]:activities.length?'요청을 처리하고 있습니다.':stages[stage]??'요청을 처리하고 있습니다.')}
   </p>}
  </div>;
 }
 
-export function CompletedAgentProgress({summary,status='COMPLETED'}:{summary?:AgentExecutionSummary|null;status?:'COMPLETED'|'FAILED'|'CANCELLED'}){
+export function CompletedAgentProgress({summary,status='COMPLETED',describeActivity}:{
+ summary?:AgentExecutionSummary|null;status?:'COMPLETED'|'FAILED'|'CANCELLED';describeActivity?:DescribeActivity;
+}){
  const seconds=Math.floor(Math.max(0,summary?.durationMs??0)/1000);
  const elapsed=seconds<60?`${seconds}초`:`${Math.floor(seconds/60)}분${seconds%60?` ${seconds%60}초`:''}`;
  if(status==='CANCELLED')return <div className="agent-progress-complete">
@@ -86,13 +95,11 @@ export function CompletedAgentProgress({summary,status='COMPLETED'}:{summary?:Ag
  </div>;
  if(!summary)return null;
  const time=seconds===0?'1초 미만':elapsed;
- // COMPLETED is persisted only after the final answer has been saved.
- const activities=latestActivities(summary.activities).map(activity=>status==='COMPLETED'&&activity.code==='COMMIT'
-  &&activity.phase==='started'?{...activity,phase:'completed' as const}:activity);
+ const activities=latestActivities(summary.activities,status==='COMPLETED');
  return <div className="agent-progress-complete">
   <details className="agent-progress-history">
    <summary>{time} 동안 작업함{status==='FAILED'?' · 실패':''}<span className="agent-progress-chevron" aria-hidden="true">›</span></summary>
-   {activities.length>0&&<ul aria-label="완료된 작업 기록">{activities.map(activity=><ActivityRecord key={activity.activityId} activity={activity}/>)}</ul>}
+   {activities.length>0&&<ul aria-label="완료된 작업 기록">{activities.map(activity=><ActivityRecord key={activity.activityId} activity={activity} describeActivity={describeActivity}/>)}</ul>}
   </details>
   <hr/>
  </div>;

@@ -1,9 +1,12 @@
-# K-PLASMA-Analysis-Agent
+# PLASMATE
+
+플라즈마 공정 파트너
+
 세종대학교 2026-2 캡스톤 컴싸 레파지토리
 
 ## 프로젝트 방향
 
-K-PLASMA 프로토타입 v12.3.1의 UI·UX와 기능을 실제 애플리케이션으로 이관합니다. 신규 질문은 Python LangGraph v1에서 처리합니다. 순방향 조회·역방향 탐색·Run 비교·변화 설명·개념 설명을 지원하며, 실제 파일 업로드·파싱·재처리를 제공합니다. 1차 사용 환경은 팀원 각자의 로컬 개발 환경입니다.
+K-PLASMA 프로토타입 v12.3.1의 UI·UX와 기능을 실제 애플리케이션으로 이관합니다. 분석 Agent는 Python LangGraph v1·v2로 질문을 처리합니다. 의사결정 Agent는 표준 v2를 사용해 목표를 확인하고 다음 실험 후보를 비교합니다. 순방향 조회·역방향 탐색·Run 비교·변화 설명·개념 설명을 지원하며, 실제 파일 업로드·파싱·재처리를 제공합니다. 1차 사용 환경은 팀원 각자의 로컬 개발 환경입니다.
 
 주요 제품 코드 영역은 `backend/`, `frontend/`, `agent/`로 구성합니다.
 
@@ -11,7 +14,7 @@ K-PLASMA 프로토타입 v12.3.1의 UI·UX와 기능을 실제 애플리케이�
 - 프론트엔드: React + TypeScript + Vite
 - 데이터베이스: PostgreSQL
 
-`frontend`는 화면, `backend`는 데이터와 요청·결과의 영속 저장, `agent/python`은 LangGraph v1 worker를 담당합니다. 기존 JavaScript fallback 소스·테스트·과거 답변 렌더러는 보존하지만 신규 질문 경로에서는 호출하지 않습니다. 모델 연결 오류는 명시적으로 표시합니다.
+`frontend`는 화면, `backend`는 데이터와 요청·결과의 영속 저장, `agent/python`은 LangGraph worker를 담당합니다. 기존 JavaScript fallback 소스·테스트·과거 답변 렌더러는 보존하지만 신규 질문 경로에서는 호출하지 않습니다. 모델 연결 오류는 명시적으로 표시합니다.
 
 ## 설계와 계획
 
@@ -44,6 +47,8 @@ npm run verify:public-files
 ```
 
 기본 CI의 Agent 실행·평가·브라우저 기준은 v2입니다. `test:agent`는 v2 그래프·평가기와 공통 계산을, `test:ui:v2`는 네 화면 폭의 그래프·대화방·스트리밍을 검사합니다. `test:e2e`와 `test:agent:restart`는 독립 PostgreSQL·backend·Python v2 그래프에서 고정 모델 응답을 사용합니다. `test:e2e:live`는 실제 LLM을 연결하므로 API 키와 호출 비용이 필요합니다. 공통 API·보안·과거 기록 호환성 검사는 유지합니다. 기본 CI는 실제 데이터나 API 키를 포함하지 않으며 검증 artifact를 업로드하지 않습니다. 자세한 범위와 실제 모델 평가 명령은 [Agent v2 운영과 평가](docs/development/agent-v2.md)를 참고하세요.
+
+의사결정 Agent는 `npm run dev:decision-demo`로 미리 볼 수 있습니다. 실행 조건과 흐름은 [대화방과 시연 안내](docs/development/conversation-rooms.md)를 참고하세요.
 
 [수용 검증](docs/verification/acceptance.md)과 [원본 102개 대응표](docs/verification/prototype-test-map.md)는 통과·실패·유예·미검증 범위를 구분합니다. D1–D5와 남은 차이가 있으므로 전체 100% 동등성으로 표현하지 않습니다. 새 대화와 데모 초기화는 업로드한 Run·그래프·원본을 유지합니다. 종료 절차는 DB volume과 원본을 보존합니다.
 

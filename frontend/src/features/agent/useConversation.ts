@@ -125,8 +125,9 @@ export function useConversation(){
   void load();
   return()=>{clearTimeout(timer);c.abort();controllers.current.delete(c);};
  },[activeRequest?.requestId,resultRevision,subscriptionRevision]);
- async function submit(text:string,_clarification?:Snapshot,requestContext?:{candidateReference:ReferenceState;activeRun:RunRef|null}):Promise<void>{
+ async function submit(text:string,_clarification?:Snapshot,requestContext?:{candidateReference:ReferenceState;activeRun:RunRef|null;room?:StateToken}):Promise<void>{
   if(!text.trim()||!ready)return;if(reservation.current||busy.current||inProgress(active.current))throw new Error('진행 중인 요청을 완료하거나 취소해 주세요.');
+  if(requestContext?.room&&!sameEpoch(requestContext.room,current.current.stateToken))throw new Error('대화방이 바뀌었습니다. 의사결정 Agent에서 다시 실행해 주세요.');
   reservation.current=true;setSending(true);
   const token={...current.current.stateToken};const intendedSelection=selectedCandidate(displayedWorkspace());
   try{if(!submission.current){const explicit=explicitReferences(displayedWorkspace(),requestContext);const key=crypto.randomUUID();submission.current={key,posted:false,body:{text,stateToken:token,...(!current.current.conversation.agentGraphVersion&&draftGraph.current!=='v1'?{graphVersion:draftGraph.current}:{}),attachedRunRefs:explicit.refs.map(asRef),referenceOrigins:explicit.origins,...(intendedSelection?{selectedRunRef:asRef(intendedSelection)}:{}),...(requestContext?.activeRun?{baseline:asRef(requestContext.activeRun)}:{}),...(requestContext?.candidateReference?{candidateReferences:requestContext.candidateReference.runs.map(asRef)}:{})}};showMessage({requestId:key,clientMessageId:key,createdAt:new Date().toISOString(),question:text,submittedRunRefs:explicit.refs.map(asRef),status:'SENDING',turnId:null});saveOutbox();}}catch(e){reservation.current=false;setSending(false);throw e;}
@@ -171,12 +172,12 @@ export function useConversation(){
  // Resolve additions/removals inside the queue, after reconciling the latest saved references.
  const setReference=(reference:ReferenceState|((state:WorkspaceView)=>ReferenceState),activeRun?:RunRef|null)=>serialize(async()=>{invalidate(true);const c=controller();const epoch=generation.current;try{if(!await reconcile(c,epoch))return;const resolved=typeof reference==='function'?reference(current.current):reference;const target=activeRun===undefined?(resolved?.runs.length===1?resolved.runs[0]:null):activeRun;const next=await writeReference(current.current.stateToken,resolved?{...resolved,runs:resolved.runs.map(asRef)}:null,target?asRef(target):null,c.signal);if(!c.signal.aborted&&epoch===generation.current)apply(next);}catch(e){if(!c.signal.aborted&&epoch===generation.current){try{await reconcile(c,epoch);}catch{/* The last restored request stays visible while offline. */}throw e;}}finally{controllers.current.delete(c);}});
  async function refresh(){invalidate(true);await serialize(async()=>{const c=controller();try{const next=await fetchWorkspace(c.signal);if(!c.signal.aborted){apply(next);setError('');}}finally{controllers.current.delete(c);}});}
- async function replace(reset:boolean){if(ready)invalidate();await serialize(async()=>{
+ async function replace(reset:boolean,decisionDemo=false){if(ready)invalidate();await serialize(async()=>{
   if(!ready)invalidate();const c=controller();const epoch=generation.current;
   try{
    // A UI write may have committed even if its response or recovery read was interrupted.
    if(!await reconcile(c,epoch))return;
-   const next=await replaceConversation(current.current.stateToken,reset);
+   const next=await replaceConversation(current.current.stateToken,reset,decisionDemo);
    if(!c.signal.aborted&&epoch===generation.current){draftGraph.current=deployment.defaultVersion;setDraftGraphVersion(deployment.defaultVersion);apply(next);setError('');}
   }finally{controllers.current.delete(c);}
  });}
@@ -204,6 +205,6 @@ export function useConversation(){
  }
  return {state,ready,error,provisionalMessage,selectGraphVersion,selectConversation,
   graphVersion:state.conversation.agentGraphVersion??draftGraphVersion,
-pending:sending||polling(activeRequest)||activeRequest?.status==='NEEDS_INPUT',activeRequest,resultPreview,sending,submit,resume,cancel,updateTurnUi,setReference,refresh,newConversation:()=>replace(false),reset:()=>replace(true)};
+pending:sending||polling(activeRequest)||activeRequest?.status==='NEEDS_INPUT',activeRequest,resultPreview,sending,submit,resume,cancel,updateTurnUi,setReference,refresh,newConversation:(decisionDemo=false)=>replace(false,decisionDemo),reset:()=>replace(true)};
 }
 export type ConversationController=Omit<ReturnType<typeof useConversation>,'resultPreview'>&{resultPreview?:AgentResultProjection|null};

@@ -10,7 +10,7 @@ const output = await mkdtemp(join(tmpdir(), 'kplasma-v2-browser-'));
 console.log(`Browser evidence: ${output}`);
 const frontendPort=await freePort();
 const environment = await startV1Environment(output, live ? 'live' : 'stub-v2',
-  {graphVersion,uiOrigin:`http://127.0.0.1:${frontendPort}`});
+  {graphVersion,decisionDemo:!live,uiOrigin:`http://127.0.0.1:${frontendPort}`});
 try {
   await command(join(repo, 'node_modules/.bin/playwright'), ['test', '--config', 'v2.playwright.config.ts'], {
     cwd: join(repo, 'frontend'),
