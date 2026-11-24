@@ -56,10 +56,27 @@ for(const width of [390,800,1008,1440])test(`saved rooms keep answers and Run ta
  await expect(page.getByText('저장된 원래 답변입니다.',{exact:true})).toBeVisible();
  const originalSnapshot=JSON.stringify(workspace.conversation.turns);
  await showRooms();await sidebar.getByRole('button',{name:'새 채팅 만들기'}).click();
- await expect(page.getByRole('heading',{name:'실제 Run과 공정 원리를 함께 설명합니다'})).toBeVisible();
+ await expect(page.getByRole('heading',{name:'실험 결과를 함께 살펴봐요'})).toBeVisible();
+ const guide=page.getByText('대표 질문으로 시작해 보세요',{exact:true});
+ const examples=page.getByRole('list',{name:'대표 질문'});
+ await expect(guide).toBeVisible();
+ await expect(examples).toBeHidden();
+ await page.screenshot({path:info.outputPath('analysis-welcome.png')});
+ await guide.click();
+ await expect(examples.getByRole('button')).toHaveCount(9);
+ const rows=await examples.getByRole('button').evaluateAll(buttons=>buttons.map(button=>({
+  whiteSpace:getComputedStyle(button).whiteSpace,top:button.getBoundingClientRect().top,
+  right:button.getBoundingClientRect().right,
+ })));
+ expect(rows.every(row=>row.whiteSpace==='nowrap'&&row.right<=width)).toBe(true);
+ expect(new Set(rows.map(row=>row.top)).size).toBe(9);
+ expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1)).toBe(true);
+ await page.screenshot({path:info.outputPath('analysis-examples.png')});
+ await guide.click();
+ await expect(examples).toBeHidden();
  const composer=page.locator('#agent-query-form');
  await expect(composer.locator('.run-context-chip')).toHaveCount(0);
- await page.getByRole('combobox',{name:'Agent 버전'}).selectOption('v2');
+ await expect(page.getByRole('button',{name:'일반',exact:true})).toHaveAttribute('aria-pressed','true');
  const input=composer.getByRole('textbox');
  await input.fill(`@${runs[1].runId}`);
  await page.getByRole('option').filter({hasText:runs[1].runId}).click();

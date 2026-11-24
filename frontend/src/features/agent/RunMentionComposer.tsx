@@ -102,7 +102,7 @@ export function RunMentionComposer({text, onText, add, disabled, onStop, inputId
         aria-label="공정 데이터에 질문하기" aria-autocomplete="list"
         aria-controls={matches.length ? listId : undefined}
         aria-activedescendant={highlighted >= 0 ? `${listId}-${highlighted}` : undefined}
-        placeholder="공정 질문을 입력하거나 @로 Run 추가"
+        placeholder="질문을 입력하세요 · @로 Run 추가"
         value={text}
         onFocus={event => {setFocused(true);setCaret(event.currentTarget.selectionStart);}}
         onBlur={() => {setFocused(false);setDismissed(false);}}

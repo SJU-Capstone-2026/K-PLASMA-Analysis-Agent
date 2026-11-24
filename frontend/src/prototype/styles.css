@@ -1665,19 +1665,22 @@ select:focus { border-color: var(--color-primary); box-shadow: 0 0 0 3px rgba(65
   gap: 12px;
 }
 
+.agent-page--wide .agent-thread:has(> .agent-welcome) {
+  flex: 1 0 auto;
+  grid-template-columns: minmax(0, 1fr);
+  align-content: center;
+  padding-bottom: 20px;
+}
+
 .agent-welcome {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   min-height: 270px;
   place-items: center;
   align-content: center;
   padding: 38px 26px;
-  border: 1px solid #d9e3f5;
-  border-radius: 18px;
-  background:
-    radial-gradient(circle at 50% -10%, rgba(65, 104, 232, .12), transparent 48%),
-    linear-gradient(180deg, #fff 0%, #f8faff 100%);
+  color: #23344f;
   text-align: center;
-  box-shadow: 0 12px 34px rgba(36, 63, 117, .07);
 }
 
 .agent-avatar {
@@ -1695,10 +1698,20 @@ select:focus { border-color: var(--color-primary); box-shadow: 0 0 0 3px rgba(65
   object-fit: contain;
 }
 
-.agent-welcome h2 { margin: 0 0 7px; font-size: 23px; letter-spacing: -.025em; }
-.agent-welcome p { max-width: 520px; margin: 0; color: var(--color-text-muted); line-height: 1.65; }
-.agent-welcome > div:last-child { display: flex; gap: 7px; margin-top: 18px; flex-wrap: wrap; justify-content: center; }
-.agent-welcome > div:last-child span { padding: 7px 10px; border-radius: 8px; background: #edf2ff; color: #3654a4; font-size: 11px; font-weight: 750; }
+.agent-welcome :is(h1, h2) { margin: 0 0 7px; font-size: 23px; letter-spacing: -.025em; }
+.agent-welcome p {
+  max-width: 520px;
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 15px;
+  line-height: 1.65;
+  word-break: keep-all;
+  text-wrap: balance;
+}
+
+@media (max-width: 840px) {
+  .agent-welcome p { min-block-size: 2lh; }
+}
 
 .agent-user-message {
   justify-self: end;

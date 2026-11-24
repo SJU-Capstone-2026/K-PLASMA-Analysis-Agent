@@ -70,9 +70,11 @@ for(const {width,version} of layouts)test(`${version} comparison charts and inde
   return route.fulfill({json:workspace});
  });
  await page.goto('/');const card=page.locator('[data-turn-id="artificial-compare"]');
- const selector=page.getByRole('combobox',{name:'Agent 버전'});
- // Saved conversations retain even identities unavailable for a new cloud conversation.
- await expect(selector).toHaveValue(version);await expect(selector).toBeDisabled();
+ const selector=page.getByRole('group',{name:'분석 실행 모드'});
+ const activeMode=version==='v2_localLLM'?'로컬':'일반';
+ const selectedMode=selector.getByRole('button',{name:activeMode,exact:true});
+ if(version==='v1')await expect(page.locator('#agent-query')).toBeDisabled();
+ else await expect(selectedMode).toHaveAttribute('aria-pressed','true');
  const selectorBox=(await selector.boundingBox())!;
  expect(selectorBox.x).toBeGreaterThanOrEqual(0);expect(selectorBox.x+selectorBox.width).toBeLessThanOrEqual(width);
  expect(await selector.locator('..').evaluate(node=>node.scrollWidth<=node.clientWidth+1)).toBe(true);
@@ -141,10 +143,12 @@ for(const {width,version} of layouts)test(`${version} comparison charts and inde
  await heatmaps.evaluate(node=>node.scrollIntoView({block:'center'}));
  await heatmaps.screenshot({path:info.outputPath(`synthetic-iead-heatmaps-${width}.png`)});
  await chart.getByRole('button',{name:'그래프 접기'}).click();await page.reload();await expect(chart.getByRole('button',{name:'그래프 펼치기'})).toBeVisible();
- await expect(selector).toHaveValue(version);await expect(selector).toBeDisabled();
+ if(version==='v1')await expect(page.locator('#agent-query')).toBeDisabled();
+ else await expect(selectedMode).toHaveAttribute('aria-pressed','true');
  await chart.getByRole('button',{name:'그래프 펼치기'}).click();await expect(chart.getByRole('img')).toHaveCount(2);
  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1)).toBe(true);expect(await card.evaluate(node=>node.scrollWidth<=node.clientWidth+1)).toBe(true);
  await card.screenshot({path:info.outputPath(`synthetic-comparison-${width}.png`)});
+ if(version==='v1')return;
  await page.locator('#agent-query').fill('이 실험들 다시 비교해줘');await page.locator('#agent-query-form button[type=submit]').click();
  await expect.poll(()=>posted.length).toBe(1);const user=page.locator('.agent-user-message').filter({hasText:'이 실험들 다시 비교해줘'});
  await expect(user).toHaveCount(1);await expect(user.locator('.run-context-chip')).toHaveCount(runCount);

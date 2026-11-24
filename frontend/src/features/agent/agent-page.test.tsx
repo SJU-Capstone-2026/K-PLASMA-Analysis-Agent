@@ -1,4 +1,4 @@
-import {fireEvent,render,screen} from '@testing-library/react';
+import {fireEvent,render,screen,waitFor} from '@testing-library/react';
 import {afterEach,expect,test,vi} from 'vitest';
 import {createRecord,executeFallback,toRunSummary,type ReviewRecord,type TurnSnapshot} from 'agent';
 import {fixtureRuns} from '../../test/runs';
@@ -7,31 +7,32 @@ import {AnswerView} from './AnswerView';
 import {emptyWorkspace,initialTurnUi,type ConversationController} from './useConversation';
 afterEach(()=>vi.unstubAllEnvs());
 
-test('the selector exposes only configured versions and preserves the chosen identity',()=>{
- vi.stubEnv('VITE_AGENT_SUPPORTED_GRAPH_VERSIONS','v1,v2,v2_localLLM');
+test('analysis offers general and local and opens a new room before switching a pinned conversation',async()=>{
+ vi.stubEnv('VITE_AGENT_SUPPORTED_GRAPH_VERSIONS','v2,v2_localLLM');
  const selectGraphVersion=vi.fn();
+ const newConversation=vi.fn(async()=>{});
  const conversation:ConversationController={state:structuredClone(emptyWorkspace),graphVersion:'v2',selectGraphVersion,
   ready:true,error:'',pending:false,provisionalMessage:null,activeRequest:null,sending:false,
   submit:vi.fn(),resume:vi.fn(),cancel:vi.fn(),updateTurnUi:vi.fn(),setReference:vi.fn(),refresh:vi.fn(),
-  selectConversation:vi.fn(),newConversation:vi.fn(),reset:vi.fn()};
- const {rerender}=render(<AgentPage conversation={conversation} records={[]} notify={vi.fn()} onDetail={vi.fn()}
-  onRecord={vi.fn()} onEvidence={vi.fn()} onDemo={vi.fn()}/>);
- const selector=screen.getByRole('combobox',{name:'Agent 버전'});
- expect(Array.from(selector.querySelectorAll('option'),option=>option.value)).toEqual(['v2','v2_localLLM']);
- fireEvent.change(selector,{target:{value:'v2'}});
- expect(selectGraphVersion).toHaveBeenCalledWith('v2');
- fireEvent.change(selector,{target:{value:'v2_localLLM'}});
- expect(selectGraphVersion).toHaveBeenCalledWith('v2_localLLM');
- vi.stubEnv('VITE_AGENT_SUPPORTED_GRAPH_VERSIONS','v1,v2');
- const pinned={...conversation,state:{...conversation.state,conversation:{...conversation.state.conversation,agentGraphVersion:'v2_localLLM' as const}},graphVersion:'v2_localLLM' as const};
- rerender(<AgentPage conversation={pinned} records={[]} notify={vi.fn()} onDetail={vi.fn()}
-  onRecord={vi.fn()} onEvidence={vi.fn()} onDemo={vi.fn()}/>);
- expect(screen.getByRole('combobox',{name:'Agent 버전'})).toBeDisabled();
- expect(screen.getByRole('combobox',{name:'Agent 버전'})).toHaveValue('');
+  selectConversation:vi.fn(),newConversation,reset:vi.fn()};
+ const page=(value:ConversationController)=><AgentPage conversation={value} records={[]} notify={vi.fn()} onDetail={vi.fn()}
+  onRecord={vi.fn()} onEvidence={vi.fn()}/>;
+ const {rerender}=render(page(conversation));
+ const local=screen.getByRole('button',{name:'로컬'});
+ expect(screen.getByRole('button',{name:'일반'})).toHaveAttribute('aria-pressed','true');
+ fireEvent.click(local);
+ await waitFor(()=>expect(selectGraphVersion).toHaveBeenCalledWith('v2_localLLM'));
+ expect(newConversation).not.toHaveBeenCalled();
+
+ rerender(page({...conversation,graphVersion:'v2_localLLM',state:{...conversation.state,
+  conversation:{...conversation.state.conversation,agentGraphVersion:'v2_localLLM'}}}));
+ fireEvent.click(screen.getByRole('button',{name:'일반'}));
+ await waitFor(()=>expect(selectGraphVersion).toHaveBeenLastCalledWith('v2'));
+ expect(newConversation).toHaveBeenCalledOnce();
+ expect(newConversation.mock.invocationCallOrder[0]).toBeLessThan(selectGraphVersion.mock.invocationCallOrder[1]);
 });
 async function candidateTurn(){const response=await executeFallback({text:'Ion Flux는 높게, Mean Ion Energy는 30–40 eV에 가깝게 후보를 찾아줘',candidateReferences:[]},{candidateRunsLatest:fixtureRuns.map(toRunSummary),referenceRunsByVersion:new Map(),decisionRecords:[],hydrateFullRun:async ref=>fixtureRuns.find(r=>r.runId===ref.runId)!});return {id:'t1',askedAt:'2026-01-01T00:00:00Z',question:'후보 찾아줘',intent:response.intent,context:null,answerRunRefs:response.usedRunRefs,answerSnapshot:response.answerSnapshot,ui:initialTurnUi} satisfies TurnSnapshot;}
-test('candidate card keyboard selects only its turn; group reference selects the whole active group without submitting',async()=>{const turn=await candidateTurn();const submit=vi.fn(async()=>{});const updateTurnUi=vi.fn(async()=>{});const setReference=vi.fn<ConversationController['setReference']>(async()=>{});render(<AgentPage conversation={{state:{...emptyWorkspace,conversation:{...emptyWorkspace.conversation,agentGraphVersion:'v2',turns:[turn]}},graphVersion:'v2',selectGraphVersion:()=>{},ready:true,error:'',pending:false,provisionalMessage:null,activeRequest:null,sending:false,resume:async()=>{},cancel:async()=>{},submit,updateTurnUi,setReference,refresh:async()=>{},selectConversation:async()=>{},newConversation:async()=>{},reset:async()=>{}}} records={[]} notify={()=>{}} onDetail={()=>{}} onRecord={()=>{}} onEvidence={()=>{}} onDemo={async()=>{}}/>);const cards=document.querySelectorAll('.agent-fit-card-selectable');fireEvent.keyDown(cards[0],{key:' '});expect(updateTurnUi).toHaveBeenCalledWith('t1',{selectedCandidateRunId:cards[0].getAttribute('data-run-id')});expect(setReference).not.toHaveBeenCalled();expect(submit).not.toHaveBeenCalled();fireEvent.click(screen.getByRole('button',{name:'전체 후보 채팅에 추가'}));const update=setReference.mock.calls[0][0];expect(typeof update==='function'?update(emptyWorkspace):update).toEqual({kind:'후보 집합',runs:candidateRefs(turn)});expect(submit).not.toHaveBeenCalled();});
-test('examples and quick followups execute immediately, while Enter stays a textarea newline',()=>{const submit=vi.fn(async()=>{});render(<AgentPage conversation={{state:{...emptyWorkspace,conversation:{...emptyWorkspace.conversation,activeRun:fixtureRuns[0]}},graphVersion:'v2',selectGraphVersion:()=>{},ready:true,error:'',pending:false,provisionalMessage:null,activeRequest:null,sending:false,resume:async()=>{},cancel:async()=>{},submit,updateTurnUi:async()=>{},setReference:async()=>{},refresh:async()=>{},selectConversation:async()=>{},newConversation:async()=>{},reset:async()=>{}}} records={[]} notify={()=>{}} onDetail={()=>{}} onRecord={()=>{}} onEvidence={()=>{}} onDemo={async()=>{}}/>);fireEvent.keyDown(screen.getByRole('textbox',{name:'공정 데이터에 질문하기'}),{key:'Enter'});expect(submit).not.toHaveBeenCalled();fireEvent.click(screen.getByRole('button',{name:'Energy만 조금 높게'}));expect(submit).toHaveBeenCalledWith('이 결과에서 이온 에너지만 조금 더 높은 실제 조건 찾아줘',undefined);fireEvent.click(screen.getByRole('button',{name:/Run 조건 조회/}));expect(submit).toHaveBeenCalledWith('압력 8 mTorr, 소스 300 W, 바이어스 600 W 결과를 보여줘',undefined);});
+test('candidate card keyboard selects only its turn; group reference selects the whole active group without submitting',async()=>{const turn=await candidateTurn();const submit=vi.fn(async()=>{});const updateTurnUi=vi.fn(async()=>{});const setReference=vi.fn<ConversationController['setReference']>(async()=>{});render(<AgentPage conversation={{state:{...emptyWorkspace,conversation:{...emptyWorkspace.conversation,turns:[turn]}},graphVersion:'v1',selectGraphVersion:()=>{},ready:true,error:'',pending:false,provisionalMessage:null,activeRequest:null,sending:false,resume:async()=>{},cancel:async()=>{},submit,updateTurnUi,setReference,refresh:async()=>{},selectConversation:async()=>{},newConversation:async()=>{},reset:async()=>{}}} records={[]} notify={()=>{}} onDetail={()=>{}} onRecord={()=>{}} onEvidence={()=>{}}/>);const cards=document.querySelectorAll('.agent-fit-card-selectable');fireEvent.keyDown(cards[0],{key:' '});expect(updateTurnUi).toHaveBeenCalledWith('t1',{selectedCandidateRunId:cards[0].getAttribute('data-run-id')});expect(setReference).not.toHaveBeenCalled();expect(submit).not.toHaveBeenCalled();fireEvent.click(screen.getByRole('button',{name:'전체 후보 채팅에 추가'}));const update=setReference.mock.calls[0][0];expect(typeof update==='function'?update(emptyWorkspace):update).toEqual({kind:'후보 집합',runs:candidateRefs(turn)});expect(submit).not.toHaveBeenCalled();});
 test('versionless saved conversations show their history and disable new questions',async()=>{
  const turn=await candidateTurn();
  const submit=vi.fn(async()=>{});
@@ -40,16 +41,33 @@ test('versionless saved conversations show their history and disable new questio
   graphVersion:'v1',selectGraphVersion:vi.fn(),ready:true,error:'',pending:false,provisionalMessage:null,activeRequest:null,
   sending:false,submit,resume:vi.fn(),cancel:vi.fn(),updateTurnUi:vi.fn(),setReference:vi.fn(),refresh:vi.fn(),
   selectConversation:vi.fn(),newConversation,reset:vi.fn()}} records={[]} notify={vi.fn()}
-  onDetail={vi.fn()} onRecord={vi.fn()} onEvidence={vi.fn()} onDemo={vi.fn()}/>);
+  onDetail={vi.fn()} onRecord={vi.fn()} onEvidence={vi.fn()}/>);
  expect(screen.getByText(turn.question)).toBeVisible();
  expect(screen.getByText('이전 대화입니다. 새 대화에서 질문을 이어갈 수 있어요.')).toBeVisible();
  expect(screen.getByRole('button',{name:'분석'})).toBeDisabled();
- expect(screen.getByRole('combobox',{name:'Agent 버전'})).toBeDisabled();
+ expect(screen.getByRole('button',{name:'일반'})).toHaveAttribute('aria-pressed','false');
  fireEvent.click(screen.getByRole('button',{name:'새 대화'}));
  expect(newConversation).toHaveBeenCalledOnce();
  expect(submit).not.toHaveBeenCalled();
 });
 
+test('nine representative questions start collapsed and submit the selected text',()=>{
+ const submit=vi.fn(async()=>{});
+ render(<AgentPage conversation={{state:emptyWorkspace,graphVersion:'v2',selectGraphVersion:vi.fn(),
+  ready:true,error:'',pending:false,provisionalMessage:null,activeRequest:null,sending:false,submit,
+  resume:vi.fn(),cancel:vi.fn(),updateTurnUi:vi.fn(),setReference:vi.fn(),refresh:vi.fn(),
+  selectConversation:vi.fn(),newConversation:vi.fn(),reset:vi.fn()}} records={[]} notify={vi.fn()}
+  onDetail={vi.fn()} onRecord={vi.fn()} onEvidence={vi.fn()}/>);
+ const summary=screen.getByText('대표 질문으로 시작해 보세요');
+ const details=summary.closest('details')!;
+ expect(details).not.toHaveAttribute('open');
+ expect(details.querySelectorAll('li')).toHaveLength(9);
+ fireEvent.click(summary);
+ expect(details).toHaveAttribute('open');
+ const question='평균 이온 에너지가 뭐야?';
+ fireEvent.click(screen.getByRole('button',{name:question}));
+ expect(submit).toHaveBeenCalledWith(question,undefined);
+});
 test('answer adapter preserves escaped text and removes legacy event attributes',()=>{const turn={id:'safe',askedAt:'',question:'',intent:'CLARIFICATION',context:null,answerRunRefs:[],answerSnapshot:{intent:'CLARIFICATION',summary:'<img src=x onerror="alert(1)">',missingConditions:['pressure']},ui:initialTurnUi} satisfies TurnSnapshot;render(<AnswerView turn={turn} onAction={()=>{}}/>);expect(screen.getByText('<img src=x onerror="alert(1)">')).toBeInTheDocument();expect(document.querySelector('script,img,[onerror],[onclick]')).toBeNull();});
 
 test('candidate role resolves latest A independently of historical baseline A',async()=>{const latest=fixtureRuns[0];const historical={...latest,runVersionId:'historical-A',metrics:{...latest.metrics,meanIonEnergy:20}};const response=await executeFallback({text:'Mean Ion Energy 30–40 eV인 실제 Run 후보를 모두 찾아줘',baseline:historical,candidateReferences:[]},{candidateRunsLatest:[toRunSummary(latest)],referenceRunsByVersion:new Map([[historical.runVersionId,historical]]),decisionRecords:[],hydrateFullRun:async()=>latest});const turn:TurnSnapshot={id:'versions',askedAt:'',question:'후보',intent:response.intent,context:historical,answerRunRefs:response.usedRunRefs,answerSnapshot:response.answerSnapshot,ui:initialTurnUi};expect(turn.answerRunRefs.map(ref=>ref.runVersionId)).toEqual(['historical-A',latest.runVersionId]);expect(candidateRefs(turn)).toEqual([{runId:latest.runId,runVersionId:latest.runVersionId}]);});
@@ -70,8 +88,8 @@ test('a cancelled first request still allows leaving its pinned conversation', (
   setReference:vi.fn(),refresh:vi.fn(),selectConversation:vi.fn(),newConversation,reset:vi.fn(),
  };
  render(<AgentPage conversation={conversation} records={[]} notify={vi.fn()} onDetail={vi.fn()}
-  onRecord={vi.fn()} onEvidence={vi.fn()} onDemo={vi.fn()}/>);
- expect(screen.getByRole('combobox',{name:'Agent 버전'})).toBeDisabled();
+  onRecord={vi.fn()} onEvidence={vi.fn()}/>);
+ expect(screen.getByRole('button',{name:'일반'})).toHaveAttribute('aria-pressed','true');
  expect(screen.getByText('38초 후에 중단했습니다')).toBeVisible();
  const button=screen.getByRole('button',{name:'새 대화'});
  expect(button).toBeEnabled();
