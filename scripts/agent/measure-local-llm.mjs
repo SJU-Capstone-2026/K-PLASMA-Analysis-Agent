@@ -1,6 +1,6 @@
 import {spawn} from 'node:child_process';
 import {statSync,createWriteStream} from 'node:fs';
-import {mkdtemp,readFile,writeFile} from 'node:fs/promises';
+import {mkdtemp,writeFile} from 'node:fs/promises';
 import {createRequire} from 'node:module';
 import {tmpdir} from 'node:os';
 import {join,resolve} from 'node:path';
@@ -44,10 +44,6 @@ try{
  if(!ready)throw new Error('LOCAL_MEASUREMENT_FRONTEND_TIMEOUT');
  browser=await chromium.launch({headless:true});
  const context=await browser.newContext();
- const connection=JSON.parse(await readFile(environment.connection,'utf8'));
- const cookie=/^KPLASMA_LOCAL_SESSION=([A-Za-z0-9_-]{32,128})$/.exec(connection.sessionCookie??'');
- if(!cookie)throw new Error('LOCAL_MEASUREMENT_SESSION_INVALID');
- await context.addCookies([{name:'KPLASMA_LOCAL_SESSION',value:cookie[1],url:web+'/api',httpOnly:true,sameSite:'Strict'}]);
  const page=await context.newPage();
  await page.goto(web+'/?view=agent',{waitUntil:'networkidle'});
  const mode=page.getByRole('group',{name:'분석 실행 모드'}).getByRole('button',{name:'로컬',exact:true});

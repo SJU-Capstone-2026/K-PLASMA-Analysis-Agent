@@ -223,7 +223,7 @@ npm run measure:agent:local -- --env-file .env.local-llm
 
 ## 공통 backend와 화면
 
-분석 Agent의 기본 실행 모드는 일반 V2다. 로컬 워커와 웹 인증이 설정된 환경에서는
+분석 Agent의 기본 실행 모드는 일반 V2다. 로컬 워커와 백엔드가 준비된 환경에서는
 `로컬` 버튼에서 독립 로컬 V2를 선택할 수 있다. 이미 요청을 저장한 대화에서 실행
 모드를 바꾸면 새 대화를 열며, 저장된 질문·답변·Run 참조는 기존 대화에서 읽을 수 있다.
 실행 모드 정보가 없는 과거 대화도 읽을 수 있으며, 새 질문은 새 대화에서 보낸다.
@@ -242,7 +242,7 @@ VITE_AGENT_SUPPORTED_GRAPH_VERSIONS=v2,v2_localLLM VITE_AGENT_DEFAULT_GRAPH_VERS
 VITE_API_TARGET=http://127.0.0.1:8080 npm run dev
 ```
 
-backend의 `AGENT_LOCAL_BOOTSTRAP_TOKEN`은 32바이트 이상의 무작위 값이다. 비공개 실행 경로로 브라우저 `#local-bootstrap` fragment에 전달한 뒤 즉시 지우고 `/api/local-runtime/session`의 `X-Local-Bootstrap` 헤더로 한 번 교환한다. URL query·로그·공유 문서에 값을 남기지 않는다. UI session·worker·모델 API token은 서로 다르다.
+서버와 워커를 시작한 뒤 브라우저에서 [로컬 화면](http://127.0.0.1:5173)을 바로 연다. 백엔드는 로컬 접속과 설정된 UI 주소의 요청을 허용한다. worker와 모델 API는 각자의 토큰으로 인증한다.
 
 상용 키는 로컬 요청·context·checkpoint·입출력을 읽거나 쓸 수 없고 반대 방향도 제한한다. 화면에서는 기존 저장 판단 기록을 볼 수 있지만 상용 worker의 기억 조회에는 상용 출처로 확인된 기록만 제공한다. 서버 내부 `decision.origin_graph_version`으로 출처를 보존하고 공개 응답 JSON은 유지한다. 출처 불명확 기록도 상용 worker에서는 제외한다. 대화의 실행 모드는 첫 질문에 고정된다. 화면에서 다른 모드를 눌러 새 대화를 시작한다. 로컬 전용 배포는 지원 목록과 기본값을 모두 `v2_localLLM`으로 설정한다.
 
@@ -258,9 +258,9 @@ node -- scripts/agent/local-llm.mjs start --env-file .env.local-llm
 
 - `status`는 worker `--check`를 호출한다. 준비되면 exit 0, 차단·불명확이면 blocker와 exit 2다. 새 실행 identity의 계약 확인은 실제 모델을 호출할 수 있다.
 - `smoke`는 인공 문자열로 native 계획·writer JSON·SSE·검토 선택지와 확률 프로토콜을 확인한다. 성공만으로 전체 메모리 준비나 정확도를 통과한 것은 아니다.
-- `start`는 준비 검사 후 private local worker만 시작한다. backend·DB·frontend·브라우저·bootstrap을 자동 기동하지 않는다. worker도 현재 압력과 설정을 계속 확인한다.
+- `start`는 준비 검사 후 private local worker만 시작한다. backend·DB·frontend·브라우저을 자동 기동하지 않는다. worker도 현재 압력과 설정을 계속 확인한다.
 
-모델 payload는 고정된 literal loopback 주소·포트로만 전송한다. 외부 base URL·redirect·환경 proxy·cloud 자격 증명 상속·외부 관측 exporter·cloud fallback은 거부한다. 화면과 API는 로컬 session·Host·Origin 검사를 유지하며 모델·worker token은 화면에 전달하지 않는다. 업데이트·다운로드는 허용하고 OS 송신 필터·LuLu·맥 전체 인터넷 차단은 요구하지 않는다.
+모델 payload는 고정된 literal loopback 주소·포트로만 전송한다. 외부 base URL·redirect·환경 proxy·cloud 자격 증명 상속·외부 관측 exporter·cloud fallback은 거부한다. 화면과 API는 로컬 주소와 요청 출처를 확인하며 모델·worker token은 화면에 전달하지 않는다. 업데이트·다운로드는 허용하고 OS 송신 필터·LuLu·맥 전체 인터넷 차단은 요구하지 않는다.
 
 가중치·실제 env·캐시·대화 원문·DB/실험 payload·원시 평가 로그는 Git에 넣지 않는다. 메모리 준비는 연결·실행 환경의 검증이며 상용 v2와 판단 품질이 같다는 보증이 아니다.
 

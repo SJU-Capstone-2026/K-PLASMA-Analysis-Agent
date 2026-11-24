@@ -88,25 +88,20 @@ def test_flow_worker_command_preserves_explicit_version_and_env_file(version, mo
     assert command[1:] == ["-m", module, "--env-file", "private.env"]
 
 
-def test_session_bootstrap_precedes_data_and_is_consumed_once():
+def test_local_api_evaluation_sends_origin_without_bootstrapping():
     calls = []
 
     def transport(request):
         calls.append(request.url.path)
         assert request.headers["Origin"] == "http://127.0.0.1:5173"
-        if request.url.path == "/api/local-runtime/session":
-            assert request.headers["X-Local-Bootstrap"] == "synthetic-bootstrap"
-            return httpx.Response(204, headers={"Set-Cookie": "KPLASMA_LOCAL_SESSION=synthetic-session; Path=/api; HttpOnly; SameSite=Strict"})
-        assert request.headers["Cookie"] == "KPLASMA_LOCAL_SESSION=synthetic-session"
-        assert "X-Local-Bootstrap" not in request.headers
+        assert request.headers["Sec-Fetch-Site"] == "same-site"
+        assert "Cookie" not in request.headers
         return httpx.Response(200, json={})
 
     with httpx.Client(base_url="http://127.0.0.1:8080", transport=httpx.MockTransport(transport), trust_env=False) as client:
-        run_flow.bootstrap_local_session(client, "http://127.0.0.1:5173", "synthetic-bootstrap")
-        client.get("/api/workspace")
-        with pytest.raises(ValueError, match="ALREADY_BOOTSTRAPPED"):
-            run_flow.bootstrap_local_session(client, "http://127.0.0.1:5173", "synthetic-bootstrap")
-    assert calls == ["/api/local-runtime/session", "/api/workspace"]
+        run_flow.configure_local_origin(client, "http://127.0.0.1:5173")
+        assert client.get("/api/workspace").is_success
+    assert calls == ["/api/workspace"]
 
 
 @pytest.mark.parametrize("version", v2_harness.GRAPH_VERSIONS)

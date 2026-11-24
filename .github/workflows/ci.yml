@@ -53,6 +53,6 @@ jobs:
         run: npm run test:e2e -- --graph-version v2_localLLM
       - name: v2 checkpoint and restart recovery
         run: npm run test:agent:restart
-      - name: Local graph checkpoint and session recovery
+      - name: Local graph checkpoint and restart recovery
         run: npm run test:agent:restart -- --graph-version v2_localLLM
       # Deliberately no upload-artifact step. External sources, traces, payloads and screenshots stay local.

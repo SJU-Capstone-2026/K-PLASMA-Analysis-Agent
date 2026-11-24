@@ -75,7 +75,7 @@ test.beforeEach(async({page})=>{
     record('document-init');
   });
   const record=(message:string)=>browserErrors.push(message
-    .replace(/(?:Bearer\s+|KPLASMA_LOCAL_SESSION=)[A-Za-z0-9_.-]+/g,'[redacted]').slice(0,600));
+    .replace(/Bearer\s+[A-Za-z0-9_.-]+/g,'[redacted]').slice(0,600));
   page.on('pageerror',error=>record(error.message));
   page.on('console',message=>{if(message.type()==='error')record(message.text());});
   page.on('requestfailed',request=>record(`${new URL(request.url()).pathname}: ${request.failure()?.errorText}`));
@@ -103,24 +103,19 @@ test.afterEach(async({page})=>{
     observations,inputObservations},null,2),{mode:0o600});
 });
 
-test.beforeEach(async({context,baseURL})=>{
+test.beforeEach(async({baseURL})=>{
   if(graphVersion!=='v2_localLLM')return;
   const connection=process.env.KPLASMA_E2E_CONNECTION;
-  if(!connection||!baseURL)throw new Error('LOCAL_SYNTHETIC_SESSION_REQUIRED');
+  if(!connection||!baseURL)throw new Error('LOCAL_SYNTHETIC_CONNECTION_REQUIRED');
   let metadata;
   try{metadata=JSON.parse(await readFile(connection,'utf8'));}
-  catch{throw new Error('LOCAL_SYNTHETIC_SESSION_INVALID');}
+  catch{throw new Error('LOCAL_SYNTHETIC_CONNECTION_INVALID');}
   const uiOrigin=new URL(baseURL).origin;
-  const cookie=/^KPLASMA_LOCAL_SESSION=([A-Za-z0-9_-]{32,128})$/.exec(metadata.sessionCookie??'');
   if(metadata.graphVersion!==graphVersion||metadata.data!=='artificial-only'
     ||!['synthetic','real_model_on_artificial_data'].includes(metadata.evaluationMode)
-    ||metadata.url!==api||metadata.uiOrigin!==uiOrigin||!cookie)throw new Error('LOCAL_SYNTHETIC_SESSION_INVALID');
+    ||metadata.url!==api||metadata.uiOrigin!==uiOrigin)throw new Error('LOCAL_SYNTHETIC_CONNECTION_INVALID');
   apiHeaders={Origin:uiOrigin,'Sec-Fetch-Site':'same-site'};
-  // Seed HttpOnly state before this context makes its first data request or opens the app.
-  try{
-    await context.addCookies([{name:'KPLASMA_LOCAL_SESSION',value:cookie[1],domain:new URL(uiOrigin).hostname,
-      path:'/api',httpOnly:true,sameSite:'Strict',secure:false}]);
-  }catch{throw new Error('LOCAL_SYNTHETIC_SESSION_CONTEXT_FAILED');}
+
 });
 
 async function apiCall(page:Page,path:string,data?:unknown){
@@ -133,7 +128,7 @@ async function apiCall(page:Page,path:string,data?:unknown){
     return response;
   }catch(error){
     // Playwright's raw API error can echo request cookies in its call log.
-    // eslint-disable-next-line preserve-caught-error -- Playwright's cause can expose private session cookies.
+    // eslint-disable-next-line preserve-caught-error -- Playwright's cause can expose private request details.
     if(graphVersion==='v2_localLLM')throw new Error('LOCAL_SYNTHETIC_API_REQUEST_FAILED');
     throw error;
   }

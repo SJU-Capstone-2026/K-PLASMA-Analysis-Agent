@@ -1,7 +1,6 @@
 package com.kplasma.analysisagent.workspace;
 
 import java.net.URI;
-import java.net.HttpCookie;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
@@ -17,34 +16,15 @@ import static org.assertj.core.api.Assertions.assertThat;
     "kplasma.agent.local-worker-token=synthetic-local-worker",
     "kplasma.agent.supported-graph-versions=v2,v2_localLLM", "kplasma.agent.default-graph-version=v2",
     "AGENT_LOCAL_RUNTIME_ENABLED=false", "AGENT_LOCAL_UI_ORIGIN=http://127.0.0.1:5173",
-    "AGENT_LOCAL_API_HOST=", "AGENT_LOCAL_BOOTSTRAP_TOKEN=synthetic-shared-bootstrap"})
+    "AGENT_LOCAL_API_HOST="})
 class AgentSharedGraphVersionTest extends WorkspaceTestSupport {
-    private String cookie;
 
-    private HttpResponse<String> exchange(String method, String path, Object body, String worker,
-                                          String session, String bootstrap) throws Exception {
+    private HttpResponse<String> exchange(String method, String path, Object body, String worker, String key)
+            throws Exception {
         var request = HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + port + path))
             .header("Content-Type", "application/json");
         if (worker != null) request.header("X-Agent-Token", worker);
         else request.header("Origin", "http://127.0.0.1:5173").header("Sec-Fetch-Site", "same-site");
-        if (session != null) request.header("Cookie", session);
-        if (bootstrap != null) request.header("X-Local-Bootstrap", bootstrap);
-        return HttpClient.newHttpClient().send(request.method(method, body == null
-            ? HttpRequest.BodyPublishers.noBody()
-            : HttpRequest.BodyPublishers.ofString(mapper.writeValueAsString(body))).build(),
-            HttpResponse.BodyHandlers.ofString());
-    }
-
-    @Override protected HttpResponse<String> send(String method, String path, Object body, String key) throws Exception {
-        if (cookie == null) {
-            var response = exchange("POST", "/api/local-runtime/session", null, null, null, "synthetic-shared-bootstrap");
-            assertThat(response.statusCode()).describedAs(response.body()).isEqualTo(204);
-            var value = HttpCookie.parse(response.headers().firstValue("Set-Cookie").orElseThrow()).getFirst();
-            cookie = value.getName() + "=" + value.getValue();
-        }
-        var request = HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + port + path))
-            .header("Content-Type", "application/json").header("Cookie", cookie)
-            .header("Origin", "http://127.0.0.1:5173").header("Sec-Fetch-Site", "same-site");
         if (key != null) request.header("Idempotency-Key", key);
         return HttpClient.newHttpClient().send(request.method(method, body == null
             ? HttpRequest.BodyPublishers.noBody()
@@ -52,9 +32,13 @@ class AgentSharedGraphVersionTest extends WorkspaceTestSupport {
             HttpResponse.BodyHandlers.ofString());
     }
 
+    @Override protected HttpResponse<String> send(String method, String path, Object body, String key) throws Exception {
+        return exchange(method, path, body, null, key);
+    }
+
     private HttpResponse<String> claim(String worker, List<String> versions) throws Exception {
         return exchange("POST", "/internal/agent/claim", Map.of("workerId", "synthetic-" + worker,
-            "leaseSeconds", 30, "supportedGraphVersions", versions), worker, null, null);
+            "leaseSeconds", 30, "supportedGraphVersions", versions), worker, null);
     }
 
     private void forbidden(HttpResponse<String> response) {
@@ -72,15 +56,17 @@ class AgentSharedGraphVersionTest extends WorkspaceTestSupport {
                 "steps/" + dummy + "/comparison-outputs", "steps/" + dummy + "/result",
                 "model-attempts", "model-attempts/" + dummy + "/complete", "comparison-outputs",
                 "attempt", "decision-records", "needs-input", "fail", "finalize")) {
-            forbidden(exchange("POST", root + "/" + path, body, worker, null, null));
+            forbidden(exchange("POST", root + "/" + path, body, worker, null));
         }
         for (String path : List.of("context", "checkpoint"))
             forbidden(exchange("GET", root + "/" + path + "?claimGeneration=1&requestRevision=0",
-                null, worker, null, null));
+                null, worker, null));
     }
 
     @Test void oneWorkspaceSharesHistoryWhileWorkerKeysKeepModelRoutesSeparate() throws Exception {
-        assertThat(exchange("GET", "/api/workspace", null, null, null, null).statusCode()).isEqualTo(401);
+        var workspace = send("GET", "/api/workspace", null, null);
+        assertThat(workspace.statusCode()).isEqualTo(200);
+        assertThat(workspace.headers().firstValue("Set-Cookie")).isEmpty();
         var cloudMemory=review();cloudMemory.put("reviewId","REV-shared-cloud");cloudMemory.put("comment","CLOUD_MEMORY");
         ok("POST","/api/decisions",write(cloudMemory),"cloud-memory");
         var historicalMemory=review();historicalMemory.put("reviewId","REV-retired-v1");
@@ -120,9 +106,9 @@ class AgentSharedGraphVersionTest extends WorkspaceTestSupport {
         var localFence=Map.<String,Object>of("claimGeneration",json(localClaim).path("claimGeneration").longValue(),
             "requestRevision",json(localClaim).path("requestRevision").longValue());
         assertThat(exchange("POST",localRoot+"/heartbeat",Map.of("claimGeneration",localFence.get("claimGeneration"),
-            "requestRevision",localFence.get("requestRevision"),"operationKind","decision_records"),"synthetic-local-worker",null,null).statusCode()).isEqualTo(200);
-        assertThat(exchange("POST",localRoot+"/context",localFence,"synthetic-local-worker",null,null).statusCode()).isEqualTo(200);
-        var localRecords=exchange("POST",localRoot+"/decision-records",localFence,"synthetic-local-worker",null,null);
+            "requestRevision",localFence.get("requestRevision"),"operationKind","decision_records"),"synthetic-local-worker",null).statusCode()).isEqualTo(200);
+        assertThat(exchange("POST",localRoot+"/context",localFence,"synthetic-local-worker",null).statusCode()).isEqualTo(200);
+        var localRecords=exchange("POST",localRoot+"/decision-records",localFence,"synthetic-local-worker",null);
         assertThat(localRecords.statusCode()).describedAs(localRecords.body()).isEqualTo(200);
         assertThat(localRecords.body()).contains("LOCAL_ONLY_MEMORY","CLOUD_MEMORY","HISTORICAL_V1_MEMORY");
         ok("POST","/api/agent/requests/"+local.path("requestId").asString()+"/cancel",Map.of(),"cancel-local");
@@ -134,26 +120,26 @@ class AgentSharedGraphVersionTest extends WorkspaceTestSupport {
         var fence=Map.<String,Object>of("claimGeneration",json(reuseClaim).path("claimGeneration").longValue(),
             "requestRevision",json(reuseClaim).path("requestRevision").longValue());
         assertThat(exchange("POST",reuseRoot+"/heartbeat",Map.of("claimGeneration",fence.get("claimGeneration"),
-            "requestRevision",fence.get("requestRevision"),"operationKind","decision_records"),"synthetic-cloud-worker",null,null).statusCode()).isEqualTo(200);
-        assertThat(exchange("POST",reuseRoot+"/context",fence,"synthetic-cloud-worker",null,null).statusCode()).isEqualTo(200);
-        var cloudRecords=exchange("POST",reuseRoot+"/decision-records",fence,"synthetic-cloud-worker",null,null);
+            "requestRevision",fence.get("requestRevision"),"operationKind","decision_records"),"synthetic-cloud-worker",null).statusCode()).isEqualTo(200);
+        assertThat(exchange("POST",reuseRoot+"/context",fence,"synthetic-cloud-worker",null).statusCode()).isEqualTo(200);
+        var cloudRecords=exchange("POST",reuseRoot+"/decision-records",fence,"synthetic-cloud-worker",null);
         assertThat(cloudRecords.statusCode()).describedAs(cloudRecords.body()).isEqualTo(200);
         assertThat(cloudRecords.body()).contains("CLOUD_MEMORY","HISTORICAL_V1_MEMORY").doesNotContain("LOCAL_ONLY_MEMORY");
         String query="?claimGeneration="+fence.get("claimGeneration")+"&requestRevision="+fence.get("requestRevision");
-        assertThat(exchange("GET",reuseRoot+"/context"+query,null,"synthetic-cloud-worker",null,null).body())
+        assertThat(exchange("GET",reuseRoot+"/context"+query,null,"synthetic-cloud-worker",null).body())
             .contains("CLOUD_MEMORY").doesNotContain("LOCAL_ONLY_MEMORY");
-        assertThat(exchange("POST",reuseRoot+"/context",fence,"synthetic-cloud-worker",null,null).body())
+        assertThat(exchange("POST",reuseRoot+"/context",fence,"synthetic-cloud-worker",null).body())
             .doesNotContain("LOCAL_ONLY_MEMORY");
         assertThat(ok("GET","/api/decisions",null,null).toString()).contains("CLOUD_MEMORY","LOCAL_ONLY_MEMORY","HISTORICAL_V1_MEMORY");
         jdbc.update("update agent_request set manifest=jsonb_set(manifest,'{decisionRecords}',?::jsonb) where id=?::uuid",
             mapper.writeValueAsString(List.of(Map.of("reviewId","REV-local-private","comment","LOCAL_ONLY_MEMORY"))),reuse.path("requestId").asString());
-        forbidden(exchange("GET",reuseRoot+"/context"+query,null,"synthetic-cloud-worker",null,null));
-        forbidden(exchange("POST",reuseRoot+"/context",fence,"synthetic-cloud-worker",null,null));
-        forbidden(exchange("GET",reuseRoot+"/checkpoint"+query,null,"synthetic-cloud-worker",null,null));
+        forbidden(exchange("GET",reuseRoot+"/context"+query,null,"synthetic-cloud-worker",null));
+        forbidden(exchange("POST",reuseRoot+"/context",fence,"synthetic-cloud-worker",null));
+        forbidden(exchange("GET",reuseRoot+"/checkpoint"+query,null,"synthetic-cloud-worker",null));
         jdbc.update("update agent_request set lease_until=clock_timestamp()-interval '1 second' where id=?::uuid",reuse.path("requestId").asString());
         forbidden(claim("synthetic-cloud-worker",List.of("v2")));
         jdbc.update("update decision set origin_graph_version=null where review_id='REV-local-private'");
-        forbidden(exchange("GET",reuseRoot+"/checkpoint"+query,null,"synthetic-cloud-worker",null,null));
+        forbidden(exchange("GET",reuseRoot+"/checkpoint"+query,null,"synthetic-cloud-worker",null));
         assertThat(ok("GET","/api/decisions",null,null).toString()).contains("LOCAL_ONLY_MEMORY");
     }
 }
