@@ -133,7 +133,7 @@ def test_register_failure_does_not_prevent_worker_work(monkeypatch, caplog):
     assert result == 4 and "test-private-key" not in caplog.text
 
 
-def test_backend_context_records_normalized_query_and_response_without_auth(trace_capture):
+def test_backend_step_context_records_fence_and_response_without_auth(trace_capture):
     import httpx
     from kplasma_agent.backend_client import BackendClient
 
@@ -141,12 +141,13 @@ def test_backend_context_records_normalized_query_and_response_without_auth(trac
     backend = BackendClient(settings, transport=httpx.MockTransport(
         lambda request: httpx.Response(200, json={"runs": [{"runId": "SYNTHETIC-A", "ionFlux": 0}]})
     )).bind({"request": {"requestId": "synthetic"}, "claimGeneration": 2, "requestRevision": 1})
-    query = {"constraints": [], "goals": [{"metric": "ionFlux", "direction": "maximize"}]}
+    from kplasma_agent.v2.backend import V2ExecutionPort
+
     with tracing.span("parent"):
-        assert backend.context(reverse_query=query)["runs"][0]["ionFlux"] == 0
+        assert V2ExecutionPort(backend).load_context("synthetic-step")[0]["ionFlux"] == 0
     spans = {s.name: s for s in trace_capture.get_finished_spans()}
-    child = spans["backend.context"]
-    assert json.loads(child.attributes["input.value"])["reverseQuery"] == query
+    child = spans["backend.steps/synthetic-step/context"]
+    assert json.loads(child.attributes["input.value"]) == {"claimGeneration": 2, "requestRevision": 1}
     assert json.loads(child.attributes["output.value"])["runs"][0]["ionFlux"] == 0
     assert child.parent.span_id == spans["parent"].context.span_id
     assert "test-private-key" not in str(child.attributes)
@@ -161,11 +162,11 @@ def test_decision_notes_are_redacted_from_node_and_backend_spans(trace_capture):
     backend = BackendClient(Settings(), transport=httpx.MockTransport(
         lambda request: httpx.Response(200, json={"records": records})
     )).bind({"request": {"requestId": "synthetic"}, "claimGeneration": 1, "requestRevision": 1})
-    assert backend.decision_records() == records
+    assert backend.post("steps/synthetic-step/decision-records")["records"] == records
     observed = tracing.node("gather", lambda state: {"result": {"entries": [{"note": secret, "sharedComment": secret}]}})
     observed({"manifest": {"decisionRecords": records}, "comment": secret})
     spans = trace_capture.get_finished_spans()
-    assert {s.name for s in spans} == {"backend.decision-records", "graph.gather"}
+    assert {s.name for s in spans} == {"backend.steps/synthetic-step/decision-records", "graph.gather"}
     assert secret not in json.dumps([dict(s.attributes) for s in spans], ensure_ascii=False)
 
 

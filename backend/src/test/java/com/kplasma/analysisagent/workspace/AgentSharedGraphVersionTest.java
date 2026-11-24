@@ -4,6 +4,7 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
@@ -51,16 +52,40 @@ class AgentSharedGraphVersionTest extends WorkspaceTestSupport {
         String root = "/internal/agent/requests/" + request.path("requestId").asString();
         String dummy = "00000000-0000-0000-0000-000000000001";
         var body = Map.of("claimGeneration", 1, "requestRevision", 0);
-        for (String path : List.of("events", "heartbeat", "context", "checkpoint", "plans", "steps",
+        for (String path : List.of("events", "heartbeat", "checkpoint", "plans", "steps",
                 "steps/" + dummy + "/context", "steps/" + dummy + "/decision-records",
                 "steps/" + dummy + "/comparison-outputs", "steps/" + dummy + "/result",
-                "model-attempts", "model-attempts/" + dummy + "/complete", "comparison-outputs",
-                "attempt", "decision-records", "needs-input", "fail", "finalize")) {
+                "model-attempts", "model-attempts/" + dummy + "/complete", "needs-input", "fail", "finalize")) {
             forbidden(exchange("POST", root + "/" + path, body, worker, null));
         }
-        for (String path : List.of("context", "checkpoint"))
-            forbidden(exchange("GET", root + "/" + path + "?claimGeneration=1&requestRevision=0",
-                null, worker, null));
+        forbidden(exchange("GET", root + "/checkpoint?claimGeneration=1&requestRevision=0", null, worker, null));
+    }
+
+    private void confirmActiveRun() throws Exception {
+        var body = new LinkedHashMap<String,Object>();
+        body.put("stateToken", token());
+        body.put("activeRun", refs.getFirst());
+        body.put("candidateReference", null);
+        ok("PUT", "/api/workspace/reference", body, null);
+    }
+
+    private String recordsStep(String root, Map<String,Object> fence, String worker) throws Exception {
+        var draft = new LinkedHashMap<String,Object>();
+        draft.put("schema_version", 1);
+        draft.put("base_revision", null);
+        draft.put("steps", List.of(Map.of("id", "records", "kind", "tool", "tool", "decision_records",
+            "inputs", Map.of("action", "view", "runs", Map.of("context_key", "activeRun")))));
+        var plan = new LinkedHashMap<>(fence);
+        plan.put("payload", draft);
+        var accepted = exchange("POST", root + "/plans", plan, worker, null);
+        assertThat(accepted.statusCode()).describedAs(accepted.body()).isEqualTo(200);
+        var step = new LinkedHashMap<>(fence);
+        step.put("planRevision", 1);
+        step.put("stepId", "records");
+        step.put("payload", Map.of("action", "view", "runs", List.of(refs.getFirst())));
+        var reserved = exchange("POST", root + "/steps", step, worker, null);
+        assertThat(reserved.statusCode()).describedAs(reserved.body()).isEqualTo(200);
+        return root + "/steps/" + json(reserved).path("executionId").asString() + "/decision-records";
     }
 
     @Test void oneWorkspaceSharesHistoryWhileWorkerKeysKeepModelRoutesSeparate() throws Exception {
@@ -84,6 +109,7 @@ class AgentSharedGraphVersionTest extends WorkspaceTestSupport {
         assertAllRequestRoutesReject("synthetic-local-worker", cloud);
         ok("POST", "/api/agent/requests/" + cloud.path("requestId").asString() + "/cancel", Map.of(), "cancel-cloud");
         ok("POST", "/api/workspace/new-conversation", Map.of("stateToken", token()), null);
+        confirmActiveRun();
         var local = ok("POST", "/api/agent/requests", Map.of("text", "private-local-question",
             "stateToken", token(), "graphVersion", "v2_localLLM"), "local-question");
         forbidden(claim("synthetic-cloud-worker", List.of("v2", "v2_localLLM")));
@@ -105,36 +131,30 @@ class AgentSharedGraphVersionTest extends WorkspaceTestSupport {
         String localRoot="/internal/agent/requests/"+local.path("requestId").asString();
         var localFence=Map.<String,Object>of("claimGeneration",json(localClaim).path("claimGeneration").longValue(),
             "requestRevision",json(localClaim).path("requestRevision").longValue());
-        assertThat(exchange("POST",localRoot+"/heartbeat",Map.of("claimGeneration",localFence.get("claimGeneration"),
-            "requestRevision",localFence.get("requestRevision"),"operationKind","decision_records"),"synthetic-local-worker",null).statusCode()).isEqualTo(200);
-        assertThat(exchange("POST",localRoot+"/context",localFence,"synthetic-local-worker",null).statusCode()).isEqualTo(200);
-        var localRecords=exchange("POST",localRoot+"/decision-records",localFence,"synthetic-local-worker",null);
+        var localStep = recordsStep(localRoot, localFence, "synthetic-local-worker");
+        var localRecords = exchange("POST", localStep, localFence, "synthetic-local-worker", null);
         assertThat(localRecords.statusCode()).describedAs(localRecords.body()).isEqualTo(200);
         assertThat(localRecords.body()).contains("LOCAL_ONLY_MEMORY","CLOUD_MEMORY","HISTORICAL_V1_MEMORY");
         ok("POST","/api/agent/requests/"+local.path("requestId").asString()+"/cancel",Map.of(),"cancel-local");
         ok("POST","/api/workspace/new-conversation",Map.of("stateToken",token()),null);
+        confirmActiveRun();
         var reuse=ok("POST","/api/agent/requests",Map.of("text","cloud-memory-question","stateToken",token(),"graphVersion","v2"),"cloud-memory-question");
         var reuseClaim=claim("synthetic-cloud-worker",List.of("v2"));
         assertThat(reuseClaim.statusCode()).isEqualTo(200);
         String reuseRoot="/internal/agent/requests/"+reuse.path("requestId").asString();
         var fence=Map.<String,Object>of("claimGeneration",json(reuseClaim).path("claimGeneration").longValue(),
             "requestRevision",json(reuseClaim).path("requestRevision").longValue());
-        assertThat(exchange("POST",reuseRoot+"/heartbeat",Map.of("claimGeneration",fence.get("claimGeneration"),
-            "requestRevision",fence.get("requestRevision"),"operationKind","decision_records"),"synthetic-cloud-worker",null).statusCode()).isEqualTo(200);
-        assertThat(exchange("POST",reuseRoot+"/context",fence,"synthetic-cloud-worker",null).statusCode()).isEqualTo(200);
-        var cloudRecords=exchange("POST",reuseRoot+"/decision-records",fence,"synthetic-cloud-worker",null);
+        var cloudStep = recordsStep(reuseRoot, fence, "synthetic-cloud-worker");
+        var cloudRecords = exchange("POST", cloudStep, fence, "synthetic-cloud-worker", null);
         assertThat(cloudRecords.statusCode()).describedAs(cloudRecords.body()).isEqualTo(200);
         assertThat(cloudRecords.body()).contains("CLOUD_MEMORY","HISTORICAL_V1_MEMORY").doesNotContain("LOCAL_ONLY_MEMORY");
         String query="?claimGeneration="+fence.get("claimGeneration")+"&requestRevision="+fence.get("requestRevision");
-        assertThat(exchange("GET",reuseRoot+"/context"+query,null,"synthetic-cloud-worker",null).body())
-            .contains("CLOUD_MEMORY").doesNotContain("LOCAL_ONLY_MEMORY");
-        assertThat(exchange("POST",reuseRoot+"/context",fence,"synthetic-cloud-worker",null).body())
-            .doesNotContain("LOCAL_ONLY_MEMORY");
+        assertThat(json(exchange("POST", cloudStep, fence, "synthetic-cloud-worker", null)))
+            .isEqualTo(json(cloudRecords));
         assertThat(ok("GET","/api/decisions",null,null).toString()).contains("CLOUD_MEMORY","LOCAL_ONLY_MEMORY","HISTORICAL_V1_MEMORY");
         jdbc.update("update agent_request set manifest=jsonb_set(manifest,'{decisionRecords}',?::jsonb) where id=?::uuid",
             mapper.writeValueAsString(List.of(Map.of("reviewId","REV-local-private","comment","LOCAL_ONLY_MEMORY"))),reuse.path("requestId").asString());
-        forbidden(exchange("GET",reuseRoot+"/context"+query,null,"synthetic-cloud-worker",null));
-        forbidden(exchange("POST",reuseRoot+"/context",fence,"synthetic-cloud-worker",null));
+        forbidden(exchange("POST", cloudStep, fence, "synthetic-cloud-worker", null));
         forbidden(exchange("GET",reuseRoot+"/checkpoint"+query,null,"synthetic-cloud-worker",null));
         jdbc.update("update agent_request set lease_until=clock_timestamp()-interval '1 second' where id=?::uuid",reuse.path("requestId").asString());
         forbidden(claim("synthetic-cloud-worker",List.of("v2")));

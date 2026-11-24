@@ -133,7 +133,7 @@ class AgentGraphVersionTest extends WorkspaceTestSupport {
         rejects("POST", "/api/agent" + root + "/resume", Map.of("expectedRequestRevision", 0,
             "pendingInputId", "historical-input", "input", Map.of("text", "인공 답변")),
             "retired-input", 409, "GRAPH_VERSION_RETIRED");
-        assertThat(sendInternal(root + "/context", Map.of("claimGeneration", 0, "requestRevision", 0))
+        assertThat(sendInternal(root + "/checkpoint", Map.of("claimGeneration", 0, "requestRevision", 0, "payload", Map.of()))
             .statusCode()).isEqualTo(403);
         jdbc.update("update agent_request set status='QUEUED', pending_input=null where id=?::uuid", id);
         assertThat(claim(Map.of("workerId", "v2-worker", "leaseSeconds", 60, "supportedGraphVersions", List.of("v2")))

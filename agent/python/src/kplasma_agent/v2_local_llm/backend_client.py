@@ -76,26 +76,6 @@ class RequestBackend:
     def stage(self, stage=None, **fields):
         return self.post("heartbeat", stage=stage, leaseSeconds=60, **fields)
 
-    def attempt(self, stage):
-        return self.post("attempt", stage=stage, limit=4)
-
-    def context(self, refs=None, *, reverse_query=None, forward_query=None, references_only=False):
-        fields = {"requiredRunRefs": refs or []}
-        if reverse_query is not None:
-            fields["reverseQuery"] = reverse_query
-        if forward_query is not None:
-            fields["forwardQuery"] = forward_query
-        if references_only:
-            fields["referencesOnly"] = True
-        return self.post("context", **fields)
-
-    def decision_records(self):
-        # The backend pins the first read in the request manifest; call after context().
-        return self.post("decision-records")["records"]
-
-    def comparison_outputs(self, refs, plots):
-        return self.post("comparison-outputs", runRefs=refs, plotIds=plots)
-
     def checkpoint(self):
         with tracing.span("backend.checkpoint.load", inputs=self.fence) as observation:
             result = self.client.call("GET", self.prefix + "checkpoint", params=self.fence)["payload"]
@@ -125,7 +105,6 @@ class RequestBackend:
             "MODEL_RESPONSE_FAILED": "모델 공급자가 응답 생성을 실패로 종료했습니다. 오류 코드를 확인해 주세요.",
             "MODEL_CONTENT_FILTERED": "모델 응답이 콘텐츠 필터에 의해 중단되었습니다. 오류 코드를 확인해 주세요.",
             "MODEL_STREAM_INTERRUPTED": "모델 응답의 종료 신호를 받지 못했습니다. 다시 질문해 주세요.",
-            "MODEL_ATTEMPT_LIMIT": "모델 처리 횟수 제한에 도달했습니다. 새 질문으로 시작해 주세요.",
             "RECOVERY_VERSION_MISMATCH": "저장된 작업의 실행 버전이 달라 안전하게 재개할 수 없습니다. 새 질문으로 시작해 주세요.",
         }
         return self.post(

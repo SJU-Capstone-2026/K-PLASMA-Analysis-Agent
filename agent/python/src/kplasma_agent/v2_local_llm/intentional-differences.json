@@ -8,9 +8,14 @@
         "class:BackendClient/function:claim",
         "class:RequestBackend/function:__init__",
         "class:RequestBackend/function:stage",
+        "class:RequestBackend/function:attempt",
+        "class:RequestBackend/function:context",
+        "class:RequestBackend/function:decision_records",
+        "class:RequestBackend/function:comparison_outputs",
+        "class:RequestBackend/function:fail",
         "import:kplasma_agent.v2_local_llm.network:local_http_client"
       ],
-      "reason": "Restrict the owned backend client to one explicit loopback origin with no proxy or redirects. Require an explicit graph at claim and remove retired worker progress routing.",
+      "reason": "Restrict the owned backend client to one explicit loopback origin with no proxy or redirects. Require an explicit graph at claim and remove retired progress routing and request-scoped worker calls.",
       "tests": [
         "tests/v2_local_llm/test_network.py",
         "tests/v2_local_llm/test_model_client.py"

@@ -32,20 +32,28 @@ class AgentRequestPersistenceTest extends WorkspaceTestSupport {
         ok("PUT","/api/workspace/reference",reference,null);
         var origins=chosen.stream().map(ref->Map.of("ref",ref,"kind","catalog_tag")).toList();
         var job=ok("POST","/api/agent/requests",Map.of("text","선택한 실험 비교","stateToken",token(),"attachedRunRefs",chosen,"referenceOrigins",origins),"bulk-request");
-        var claimed=claim();String path="/requests/"+job.get("requestId").stringValue();internal(path+"/heartbeat",mutation(claimed,"operationKind","compare_runs"));
-        var input=new HashMap<>(fence(claimed));input.put("referencesOnly",true);input.put("requiredRunRefs",chosen);
-        clearInvocations(observedJdbc);var manifest=internal(path+"/context",input);
-        var runReads=mockingDetails(observedJdbc).getInvocations().stream().filter(call->call.getArguments().length==3&&call.getArguments()[1] instanceof org.springframework.jdbc.core.RowMapper<?> &&call.getArguments()[0] instanceof String sql&&sql.startsWith("select")&&sql.contains("from run_version")).toList();
-        assertThat(runReads).hasSize(2);assertThat(manifest.get("referencedRuns").size()).isEqualTo(size);assertThat(manifest.get("catalogRunRefs").size()).isZero();
-        clearInvocations(observedJdbc);internal(path+"/context",input);
-        assertThat(mockingDetails(observedJdbc).getInvocations().stream().filter(call->call.getArguments().length==3&&call.getArguments()[1] instanceof org.springframework.jdbc.core.RowMapper<?> &&call.getArguments()[0] instanceof String sql&&sql.startsWith("select")&&sql.contains("from run_version"))).hasSize(1);
+        var claimed = claim();
+        String path = "/requests/" + job.get("requestId").asString();
+        String step = reserveStep(path, claimed, "compare_runs", Map.of("runs", chosen));
         clearInvocations(observedJdbc);
-        for(int offset=0;offset<size;offset+=25){
-            var batch=chosen.subList(offset,Math.min(offset+25,size));var outputInput=new HashMap<>(fence(claimed));
-            outputInput.put("runRefs",batch);outputInput.put("plotIds",List.of("current","residual"));
-            var response=internal(path+"/comparison-outputs",outputInput);
-            assertThat(response.get("outputs").size()).isEqualTo(batch.size()*2);
-            response.get("outputs").forEach(output->assertThat(output.get("display").isNull()).isTrue());
+        var context = internal(step + "/context", fence(claimed));
+        var runReads = mockingDetails(observedJdbc).getInvocations().stream()
+            .filter(call -> call.getArguments().length == 3
+                && call.getArguments()[1] instanceof org.springframework.jdbc.core.RowMapper<?>
+                && call.getArguments()[0] instanceof String sql
+                && sql.startsWith("select") && sql.contains("from run_version")).toList();
+        assertThat(runReads).hasSize(2);
+        assertThat(context.get("runs").size()).isEqualTo(size);
+        assertThat(internal(step + "/context", fence(claimed))).isEqualTo(context);
+        clearInvocations(observedJdbc);
+        for (int offset = 0; offset < size; offset += 25) {
+            var batch = chosen.subList(offset, Math.min(offset + 25, size));
+            var outputInput = new HashMap<>(fence(claimed));
+            outputInput.put("runRefs", batch);
+            outputInput.put("plotIds", List.of("current", "residual"));
+            var response = internal(step + "/comparison-outputs", outputInput);
+            assertThat(response.get("outputs").size()).isEqualTo(batch.size() * 2);
+            response.get("outputs").forEach(output -> assertThat(output.get("display").isNull()).isTrue());
         }
         var outputSql=mockingDetails(observedJdbc).getInvocations().stream()
             .filter(call->call.getMethod().getParameterCount()==3
@@ -66,11 +74,14 @@ class AgentRequestPersistenceTest extends WorkspaceTestSupport {
         var resumed=ok("POST","/api/agent"+path+"/resume",input,"pick-input");
         assertThat(resumed.get("status").stringValue()).isEqualTo("QUEUED");
         assertThat(state().get("agentMessages").get(0).get("submittedRunRefs").size()).isZero();
-        var next=claim();assertThat(next.get("context").get("comparisonReference").get("entries").size()).isEqualTo(2);
-        var only=new HashMap<>(fence(next));only.put("referencesOnly",true);only.put("requiredRunRefs",List.of(options.get("options").get(0).get("ref"),options.get("options").get(2).get("ref")));
-        var manifest=internal(path+"/context",only);
-        assertThat(manifest.get("runs").size()).isZero();assertThat(manifest.get("referencedRuns").size()).isEqualTo(2);
-        assertThat(manifest.get("catalogRunRefs").size()).isZero();
+        var next = claim();
+        var entries = next.path("context").path("comparisonReference").path("entries");
+        var selected = List.of(options.path("options").get(0).path("ref"), options.path("options").get(2).path("ref"));
+        assertThat(entries).hasSize(2);
+        assertThat(entries.get(0).path("ref")).isEqualTo(selected.get(0));
+        assertThat(entries.get(1).path("ref")).isEqualTo(selected.get(1));
+        String step = reserveStep(path, next, "compare_runs", Map.of("runs", selected));
+        assertThat(internal(step + "/context", fence(next)).path("runs")).hasSize(2);
         assertThat(ok("POST","/api/agent"+path+"/resume",input,"pick-input").get("requestId")).isEqualTo(resumed.get("requestId"));
     }
     @Test void deletedUnselectedVersionIsDisabledAndOnlySelectedDeletionCancelsComparison()throws Exception{
@@ -112,6 +123,17 @@ class AgentRequestPersistenceTest extends WorkspaceTestSupport {
     private Map<String,Object> fence(JsonNode claim){return Map.of("claimGeneration",claim.get("claimGeneration").longValue(),"requestRevision",claim.get("requestRevision").longValue());}
     private Map<String,Object> mutation(JsonNode claim,String key,Object value){var body=new HashMap<>(fence(claim));body.put(key,value);return body;}
     private JsonNode claim() throws Exception {return internal("/claim",Map.of("workerId","test-worker","leaseSeconds",60,"supportedGraphVersions",List.of("v2")));}
+    private String reserveStep(String path, JsonNode claim, String tool, Map<String,Object> inputs) throws Exception {
+        var draft = new LinkedHashMap<String,Object>();
+        draft.put("schema_version", 1);
+        draft.put("base_revision", null);
+        draft.put("steps", List.of(Map.of("id", "lookup", "kind", "tool", "tool", tool)));
+        internal(path + "/plans", mutation(claim, "payload", draft));
+        var body = mutation(claim, "payload", inputs);
+        body.put("stepId", "lookup");
+        body.put("planRevision", 1);
+        return path + "/steps/" + internal(path + "/steps", body).path("executionId").asString();
+    }
     @Test void acceptedRequestIsDurableAndExactRetryCreatesOnlyOneJob() throws Exception {
         var body=Map.of("text","이온 플럭스를 설명해줘","stateToken",token());
         var accepted=ok("POST","/api/agent/requests",body,"request-a");
@@ -174,13 +196,15 @@ class AgentRequestPersistenceTest extends WorkspaceTestSupport {
         assertThat(cleared.get("error").isNull()).isTrue();
         assertThat(state().get("activeAgentRequest").isNull()).isTrue();assertThat(jdbc.queryForObject("select count(*) from agent_checkpoint",Long.class)).isZero();
     }
-    @Test void modelAttemptBudgetPersistsAcrossClaimLossAndRepairsShareSameBudget() throws Exception {
-        var job=accepted();var claim=claim();String path="/requests/"+job.get("requestId").stringValue();
-        for(int i=0;i<4;i++)internal(path+"/attempt",mutation(claim,"stage",i%2==0?"interpret":"interpret_repair"));
-        assertThat(internalResponse(path+"/attempt",mutation(claim,"stage","interpret")).statusCode()).isEqualTo(409);
-        internal(path+"/attempt",mutation(claim,"stage","explain"));
-        jdbc.update("update agent_request set lease_until=now()-interval '1 second' where id=?",UUID.fromString(job.get("requestId").stringValue()));
-        var next=claim();assertThat(internalResponse(path+"/attempt",mutation(next,"stage","interpret")).statusCode()).isEqualTo(409);
+    @Test void retiredRequestScopedWorkerRoutesAreAbsent() throws Exception {
+        var job = accepted();
+        var claim = claim();
+        String path = "/requests/" + job.path("requestId").asString();
+        for (String suffix : List.of("/attempt", "/context", "/comparison-outputs", "/decision-records"))
+            assertThat(internalResponse(path + suffix, fence(claim)).statusCode()).isEqualTo(404);
+        assertThat(send("GET", "/internal/agent" + path + "/context?claimGeneration=1&requestRevision=0",
+            null, null).statusCode()).isEqualTo(404);
+        assertThat(internal(path + "/checkpoint", mutation(claim, "payload", Map.of("cursor", 1))).isObject()).isTrue();
     }
     @Test void threeExpiredClaimsEndWithVisibleFailureAndFenceTheLastWorker() throws Exception {
         var job=accepted();UUID id=UUID.fromString(job.get("requestId").stringValue());String path="/requests/"+id;JsonNode last=null;
@@ -208,15 +232,20 @@ class AgentRequestPersistenceTest extends WorkspaceTestSupport {
         reference.put("stateToken",token());reference.put("activeRun",refs.get(1));ok("PUT","/api/workspace/reference",reference,null);
         assertThat(ok("GET","/api/agent"+path,null,null).get("status").stringValue()).isEqualTo("CANCELLED");
     }
-    @Test void manifestPinsCatalogAndAcceptsAdditionalExactHistoricalVersionsWithoutRefreshingLatest() throws Exception {
-        var job=accepted();var claim=claim();String path="/requests/"+job.get("requestId").stringValue();
-        var first=internal(path+"/context",mutation(claim,"requiredRunRefs",List.of(refs.getFirst())));assertThat(first.get("runs").size()).isEqualTo(4);
-        assertThat(first.get("runs").get(0).has("sourceFiles")).isFalse();assertThat(first.get("runs").get(0).has("iedDistribution")).isFalse();
-        UUID newer=UUID.randomUUID();String old=refs.getFirst().get("runVersionId").stringValue();
-        jdbc.update("insert into run_version(id,run_id,source_id,registered_at,summary,full_run) select ?,run_id,source_id,now(),jsonb_set(summary,'{runVersionId}',to_jsonb(?::text)),jsonb_set(full_run,'{runVersionId}',to_jsonb(?::text)) from run_version where id=?",newer,newer.toString(),newer.toString(),UUID.fromString(old));
-        jdbc.update("update run set current_version_id=? where run_id='SYNTHETIC-0'",newer);
-        var second=internal(path+"/context",mutation(claim,"requiredRunRefs",List.of(Map.of("runId","SYNTHETIC-0","runVersionId",newer.toString()))));
-        assertThat(second.get("runs")).isEqualTo(first.get("runs"));assertThat(second.get("referencedRuns").size()).isEqualTo(2);
+    @Test void stepContextKeepsPinnedCatalogVersionsAcrossReads() throws Exception {
+        var job = accepted();
+        var claim = claim();
+        String step = reserveStep("/requests/" + job.path("requestId").asString(), claim, "forward_lookup", Map.of());
+        var first = internal(step + "/context", fence(claim)).path("runs");
+        assertThat(first).hasSize(4);
+        assertThat(first.get(0).has("sourceFiles")).isFalse();
+        assertThat(first.get(0).has("iedDistribution")).isFalse();
+        UUID newer = UUID.randomUUID();
+        String old = refs.getFirst().path("runVersionId").asString();
+        jdbc.update("insert into run_version(id,run_id,source_id,registered_at,summary,full_run) select ?,run_id,source_id,now(),jsonb_set(summary,'{runVersionId}',to_jsonb(?::text)),jsonb_set(full_run,'{runVersionId}',to_jsonb(?::text)) from run_version where id=?",
+            newer, newer.toString(), newer.toString(), UUID.fromString(old));
+        jdbc.update("update run set current_version_id=? where run_id='SYNTHETIC-0'", newer);
+        assertThat(internal(step + "/context", fence(claim)).path("runs")).isEqualTo(first);
     }
     @Test void legacyConversationStaysReadableAndCannotEnqueueNewWork() throws Exception {
         var saved=turn();
@@ -238,7 +267,8 @@ class AgentRequestPersistenceTest extends WorkspaceTestSupport {
     }
     @Test void deletingPinnedRunCancelsWorkAndPreventsLateFinalization() throws Exception {
         var job=accepted();var claim=claim();String path="/requests/"+job.get("requestId").stringValue();
-        internal(path+"/context",mutation(claim,"requiredRunRefs",List.of(refs.getFirst())));
+        String step = reserveStep(path, claim, "forward_lookup", Map.of());
+        internal(step + "/context", fence(claim));
         var deletion=send("POST","/api/runs/delete",Map.of("runIds",List.of("SYNTHETIC-0")),null);assertThat(deletion.statusCode()).describedAs(deletion.body()).isEqualTo(200);
         assertThat(ok("GET","/api/agent"+path,null,null).get("status").stringValue()).isEqualTo("CANCELLED");
         assertThat(internalResponse(path+"/checkpoint",mutation(claim,"payload",Map.of("late",true))).statusCode()).isEqualTo(409);
@@ -286,7 +316,8 @@ class AgentRequestPersistenceTest extends WorkspaceTestSupport {
         assertThat(state().get("conversation").get("turns").size()).isEqualTo(1);
         ok("POST","/api/workspace/new-conversation",Map.of("stateToken",token()),null);
         var job=accepted();var claim=claim();
-        var context=internal("/requests/"+job.get("requestId").stringValue()+"/context",mutation(claim,"requiredRunRefs",List.of()));
+        String step = reserveStep("/requests/" + job.path("requestId").asString(), claim, "forward_lookup", Map.of());
+        var context = internal(step + "/context", fence(claim));
         assertThat(context.get("runs").size()).isEqualTo(3);
     }
 }

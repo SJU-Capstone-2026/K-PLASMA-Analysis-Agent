@@ -59,33 +59,6 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/OutputResponse' }
         '400': { description: Invalid batch bounds, duplicate refs or unknown output ID }
-  /internal/agent/requests/{id}/comparison-outputs:
-    post:
-      summary: Load compact full-source features for the fixed comparison selection
-      security: [{ WorkerToken: [] }]
-      parameters:
-        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
-      description: claimGeneration and requestRevision fence before/after I/O; runRefs must be a subset of captured comparisonReference. Worker batches 25 (API max 50). No raw display arrays are returned. No new batch resume protocol.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              allOf:
-                - { $ref: '#/components/schemas/OutputQuery' }
-                - type: object
-                  required: [claimGeneration, requestRevision]
-                  properties:
-                    claimGeneration: { type: integer }
-                    requestRevision: { type: integer }
-      responses:
-        '200':
-          description: Compact outputs array with metadata, typed scalar features and display=null.
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/OutputResponse' }
-        '400': { description: Unknown output or selection outside the fixed inventory }
-        '409': { description: Stale worker claim }
   /api/agent/requests:
     post:
       operationId: submitAgentRequest
@@ -290,54 +263,6 @@ paths:
       responses:
         '200': { $ref: '#/components/responses/Request' }
         '409': { $ref: '#/components/responses/StaleClaim' }
-  /internal/agent/requests/{id}/context:
-    parameters: [{ $ref: '#/components/parameters/RequestId' }]
-    get:
-      operationId: getAgentManifest
-      security: [{ workerToken: [] }]
-      parameters: [{ $ref: '#/components/parameters/Generation' }, { $ref: '#/components/parameters/Revision' }]
-      responses:
-        '200': { $ref: '#/components/responses/Manifest' }
-        '409': { $ref: '#/components/responses/StaleClaim' }
-    post:
-      operationId: pinAgentManifestWithExactVersions
-      security: [{ workerToken: [] }]
-      description: |
-        requiredRunRefs adds exact historical versions. First successfully committed call fixes ordered
-        latest scalar summaries and available acceptance refs for ordinary lookups.
-        forwardQuery contains pressure (mTorr), sourcePower (W), and biasPower (W)
-        already normalized by the worker. For forward_lookup only, the server derives
-        the integer condition Run ID and looks up its current version using the existing
-        primary key. A usable exact match pins only that Run in runs/catalogRunRefs;
-        unrelated catalog exclusions are not enumerated in this scoped exact result.
-        The actual stored conditions and status are checked before accepting the match.
-        Missing, non-integer, noncanonical or unavailable matches use the legacy catalog
-        path, preserving nearest ranking and exclusions. Previously pinned legacy manifests
-        also keep that path. Forward referencesOnly prepares just required/selected/active
-        historical references, without pinning the entire catalog; the exact result is
-        pinned when forwardQuery is materialized. Replay cannot replace its version or query.
-        forwardQuery cannot be combined with reverseQuery or referencesOnly.
-        A reverseQuery selects current versions in one SQL snapshot using typed scalar
-        predicates and ordered goals. Only common matches and independent output-condition
-        matches are returned, with selectedRunRefs pinning that exact pool. No global
-        catalogRunRefs or nearest-candidate pool is read or persisted. Zero matches is
-        a materialized empty result. referencesOnly pins only explicit requiredRunRefs
-        with an empty runs array; it resolves context-derived bounds before reverseQuery.
-        Deleted versions mentioned in previous answers are optional interpretation
-        context and do not block an unrelated lookup; explicit requiredRunRefs are
-        checked. A selected unavailable role must lead to a clarification.
-        Later calls can append exact versions to referencedRuns but never refresh
-        a materialized query or replace existing scalar values. A scoped query
-        is materialized once; replay uses the identical stored query and selected pool.
-        Changing a materialized reverseQuery returns MANIFEST_QUERY_CONFLICT.
-        Python still verifies numeric predicates and resolves full Decimal/tie order.
-        generate_answer skips this API. compare_runs requires referencesOnly and an ordered
-        subset of the saved explicit comparisonReference. It materializes only those exact versions
-        in referencedRuns; runs/catalogRunRefs stay empty. Identity/scalar reads are bulk queries.
-      requestBody: { $ref: '#/components/requestBodies/Mutation' }
-      responses:
-        '200': { $ref: '#/components/responses/Manifest' }
-        '409': { $ref: '#/components/responses/StaleClaim' }
   /internal/agent/requests/{id}/checkpoint:
     parameters: [{ $ref: '#/components/parameters/RequestId' }]
     get:
@@ -360,39 +285,6 @@ paths:
       requestBody: { $ref: '#/components/requestBodies/Mutation' }
       responses:
         '200': { description: Saved under the same claim fence transaction. }
-        '409': { $ref: '#/components/responses/StaleClaim' }
-  /internal/agent/requests/{id}/attempt:
-    parameters: [{ $ref: '#/components/parameters/RequestId' }]
-    post:
-      operationId: reserveModelAttempt
-      security: [{ workerToken: [] }]
-      description: |
-        Call before each external model call. interpret and interpret_repair share
-        a maximum of 4 reservations per request revision; explain/explain_repair
-        share another 4. A worker crash never refunds a reserved attempt.
-      requestBody: { $ref: '#/components/requestBodies/Mutation' }
-      responses:
-        '200': { description: Object with attempt and limit. }
-        '409': { description: STALE_CLAIM or MODEL_ATTEMPT_LIMIT }
-  /internal/agent/requests/{id}/decision-records:
-    parameters: [{ $ref: '#/components/parameters/RequestId' }]
-    post:
-      operationId: readDecisionRecordsForReuse
-      security: [{ workerToken: [] }]
-      description: |
-        Only for operationKind decision_records or reverse_search, after context()
-        has created the request manifest. The first read pins the records, in save
-        order, as manifest.decisionRecords; retries and resumes return the same
-        array. Records carry only reviewId, id, version, targetRunId, targetRunRef,
-        decision, comment, overallComment, question, queryText, createdAt, isDemo,
-        candidates[runId, runVersionId, decision, note, conditions] and
-        runSnapshots[runId, runVersionId, conditions]. Authors, objectives and
-        metrics are omitted. Notes are user text: workers classify them locally and
-        must not send them to a model or an external trace.
-      requestBody: { $ref: '#/components/requestBodies/Mutation' }
-      responses:
-        '200': { description: Object with records. }
-        '400': { description: Unsupported operationKind or missing request manifest }
         '409': { $ref: '#/components/responses/StaleClaim' }
   /internal/agent/requests/{id}/needs-input:
     parameters: [{ $ref: '#/components/parameters/RequestId' }]
@@ -458,21 +350,6 @@ components:
           schema: { $ref: '#/components/schemas/RequestView' }
     StaleClaim:
       description: STALE_CLAIM; discard local work. No state or checkpoint was written.
-    Manifest:
-      description: Ordered scalar summaries only, never raw source files or graph arrays.
-      content:
-        application/json:
-          schema:
-            type: object
-            required: [runs, referencedRuns, context, createdAt]
-            properties:
-              runs: { type: array, items: { type: object, description: RunSummary plus nullable sourceFileCount } }
-              referencedRuns: { type: array, items: { type: object } }
-              context: { type: object }
-              createdAt: { type: string, format: date-time }
-              catalogRunRefs: { type: array, items: { $ref: '#/components/schemas/RunRef' }, description: Legacy inventory or exact forward selection; absent in new reverse queries. }
-              selectedRunRefs: { type: array, items: { $ref: '#/components/schemas/RunRef' }, description: Exact materialized reverse-query pool, including an empty array for no matches. }
-              reverseQuery: { $ref: '#/components/schemas/ReverseQuery' }
   schemas:
     PublicActivity:
       type: object
@@ -703,39 +580,6 @@ components:
         workspaceEpoch: { type: integer }
         conversationEpoch: { type: integer }
         revision: { type: integer }
-    ReverseQuery:
-      type: object
-      additionalProperties: false
-      required: [constraints, goals]
-      description: At least one constraint or goal. Inputs have already been validated and normalized by Python; the backend independently validates its SQL whitelist. No SQL text is accepted.
-      properties:
-        constraints:
-          type: array
-          maxItems: 32
-          items:
-            type: object
-            additionalProperties: false
-            required: [metric, operator, unit]
-            properties:
-              metric: { enum: [pressure, sourcePower, biasPower, meanIonEnergy, ionFlux, iedWidth] }
-              operator: { enum: [eq, lt, lte, gt, gte, between] }
-              unit: { type: string, description: Canonical registry unit for the metric. }
-              value: { type: number }
-              min: { type: number }
-              max: { type: number }
-        goals:
-          type: array
-          maxItems: 32
-          items:
-            type: object
-            additionalProperties: false
-            required: [metric, direction, unit]
-            properties:
-              metric: { enum: [meanIonEnergy, ionFlux, iedWidth] }
-              direction: { enum: [maximize, minimize, target_range] }
-              unit: { type: string, description: Canonical registry unit for the metric. }
-              min: { type: number }
-              max: { type: number }
     Submission:
       type: object
       required: [text, stateToken]
@@ -825,23 +669,4 @@ components:
             message: { type: string, minLength: 1, maxLength: 1000 }
         partialResult: { type: object }
         usedRunRefs: { type: array, items: { $ref: '#/components/schemas/RunRef' } }
-        requiredRunRefs: { type: array, items: { $ref: '#/components/schemas/RunRef' } }
-        referencesOnly: { type: boolean, default: false }
-        reverseQuery: { $ref: '#/components/schemas/ReverseQuery' }
-        forwardQuery:
-          type: object
-          additionalProperties: false
-          required: [pressure, sourcePower, biasPower]
-          properties:
-            pressure: { type: number, description: Canonical mTorr }
-            sourcePower: { type: number, description: Canonical W }
-            biasPower: { type: number, description: Canonical W including zero }
         answer: { type: object, description: AgentResponse with a composite answerSnapshot matching the request graph. }
-        limit: { type: integer, minimum: 1, maximum: 4 }
-
-# Reverse scoped-context contract (search result schema is defined in agent-answer-v2.schemas.yaml):
-# reverseQuery selects current rows and their versions in one SQL snapshot, then freezes
-# only selectedRunRefs/runs. referencesOnly freezes requiredRunRefs, not the catalog.
-# catalogMaterialized=true also represents an empty selection; retries never refresh it.
-# New reverse answers use result.searchResultVersion=2, runsByVersion/commonRunRefs and
-# objectiveResults[].candidateRefs. No near candidates or global catalogRunRefs are emitted.
