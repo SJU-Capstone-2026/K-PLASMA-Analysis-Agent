@@ -25,6 +25,14 @@
 
 두 모드는 웹·백엔드·DB를 공유하고 각자의 그래프에서 요청을 처리합니다. 계획이 반려되면 지적 사항을 전달해 다시 계획합니다. 로컬 모드의 모델 호출은 기기에서 처리합니다. [일반 V2 상세 그래프](docs/development/agent-v2-graph.md) · [로컬 V2 구조와 모델 설정](docs/development/agent-v2-local-llm.md)
 
+## 시스템 아키텍처
+
+로컬 V2 최종 평가에서 사용한 웹, 백엔드, 워커, 로컬 모델, 저장소 구성입니다.
+
+![PLASMATE 로컬 V2 시스템 아키텍처](docs/images/local-v2-system-architecture.png)
+
+그림의 브라우저 세션 확인은 평가 당시 구성입니다. 현재 로컬 웹은 연결 파일 없이 접속하며, 백엔드가 요청 출처를 확인합니다.
+
 ## 설치 및 실행
 
 Java 21, Node 22.23.3, npm 10.9.9, uv, Docker를 준비합니다.
