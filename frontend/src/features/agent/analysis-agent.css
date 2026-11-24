@@ -1,0 +1,129 @@
+.analysis-agent .analysis-agent-header {
+  min-height: 44px;
+  align-items: center;
+  flex-direction: row;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.analysis-agent-modes {
+  display: inline-flex;
+  gap: 3px;
+  padding: 3px;
+  border: 1px solid var(--color-border, #dce4ef);
+  border-radius: 9px;
+  background: #f5f7fb;
+}
+
+.analysis-agent-modes button {
+  min-height: 36px;
+  padding: 0 15px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: #51617a;
+  font: inherit;
+  cursor: pointer;
+}
+
+.analysis-agent-modes button[aria-pressed="true"] {
+  border-color: #dbe3f1;
+  background: #fff;
+  color: #294d9b;
+  font-weight: 650;
+}
+
+.analysis-agent-modes button:disabled {
+  opacity: .55;
+  cursor: default;
+}
+
+.analysis-agent .agent-thread:has(> .analysis-agent-welcome) {
+  flex: 1 0 auto;
+  grid-template-columns: minmax(0, 1fr);
+  align-content: center;
+}
+
+.analysis-agent .analysis-agent-welcome {
+  width: min(100%, 640px);
+  min-width: 0;
+  grid-template-columns: minmax(0, 1fr);
+  margin-inline: auto;
+  padding: 24px 8px;
+  border: 0;
+  background: none;
+  box-shadow: none;
+}
+
+.analysis-agent-welcome .agent-welcome-mark {
+  width: 84px;
+  height: 84px;
+  object-fit: contain;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+}
+
+.analysis-agent-welcome h1 {
+  margin: 10px 0 0;
+  font-size: clamp(17px, 2.4vw, 22px);
+  font-weight: 650;
+  letter-spacing: -.025em;
+}
+
+.analysis-agent-examples {
+  width: min(100%, 580px);
+  margin: 20px auto 0;
+}
+
+.analysis-agent-examples summary {
+  min-height: 40px;
+  width: fit-content;
+  margin-inline: auto;
+  padding: 9px 13px;
+  color: #3f5e95;
+  cursor: pointer;
+}
+
+.analysis-agent-examples ul {
+  margin: 8px 0 0;
+  padding: 0;
+  border-top: 1px solid #e3eaf4;
+  list-style: none;
+  text-align: left;
+}
+
+.analysis-agent-examples li {
+  min-width: 0;
+  border-bottom: 1px solid #e3eaf4;
+}
+
+.analysis-agent-examples button {
+  display: block;
+  width: 100%;
+  min-height: 41px;
+  padding: 8px 10px;
+  overflow: hidden;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.analysis-agent-examples button:hover,
+.analysis-agent-examples button:focus-visible {
+  background: #eff4ff;
+}
+
+.analysis-agent-history-note {
+  margin: 12px 0;
+  color: var(--color-text-muted);
+  font-size: 13px;
+  text-align: center;
+}

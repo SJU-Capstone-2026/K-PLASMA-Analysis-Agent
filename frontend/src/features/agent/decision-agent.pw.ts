@@ -97,7 +97,7 @@ test('Decision Agent approves criteria, compares the nominated Run and stays sep
  const input=page.getByRole('textbox',{name:'공정 데이터에 질문하기'});
  const composerTag=page.locator('.decision-agent .agent-composer .run-context-chip');
  await expect(page.getByRole('button',{name:`${defaultRun.runId} 채팅에서 제거`})).toBeVisible();
- await expect(page.getByRole('combobox',{name:'Agent 버전'})).toHaveCount(0);
+ await expect(page.getByRole('group',{name:'분석 실행 모드'})).toHaveCount(0);
  for(const width of [390,800,1008,1440]){
   await page.setViewportSize({width,height:1000});
   if(width===390)await page.getByRole('button',{name:'메뉴 열기'}).click();
@@ -198,7 +198,7 @@ test('Decision Agent approves criteria, compares the nominated Run and stays sep
  await expect(page.getByText('600 W → 400 W')).toBeVisible();
  await page.emulateMedia({reducedMotion:'reduce'});
  await page.getByRole('button',{name:'분석 Agent',exact:true}).click();
- await expect(page.getByRole('combobox',{name:'Agent 버전'})).toBeVisible();
+ await expect(page.getByRole('group',{name:'분석 실행 모드'})).toBeVisible();
  await page.getByRole('button',{name:'의사결정 Agent',exact:true}).click();
  await expect(choice.getByText(candidate.runId)).toBeVisible();
  await expect(tradeoffTable).toBeVisible();
