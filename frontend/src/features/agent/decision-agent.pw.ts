@@ -25,6 +25,8 @@ test('Decision Agent approves criteria, compares the nominated Run and stays sep
  let workspace:WorkspaceView={...structuredClone(emptyWorkspace),stateToken:{workspaceEpoch:1,conversationEpoch:1,revision:0},conversations:rooms};
  let demoTurns:TurnSnapshot[]=[];
  let demoMessages:AgentMessage[]=[];
+ const searchExplanation='검색 근거로 바이어스 전력만 바꿔 볼 수 있습니다.';
+ const followupExplanation='최저 에너지 후보의 식각 가능성을 먼저 확인하세요.';
  const posts:AgentSubmission[]=[];
  const requestKeys:(string|undefined)[]=[];
  await page.route('**/api/**',async route=>{
@@ -57,7 +59,7 @@ test('Decision Agent approves criteria, compares the nominated Run and stays sep
    if(posts.length===2)return route.abort('failed');
    const followup=body.text.includes('후속 질문');
    const id=followup?'decision-followup':'decision-search';
-   const text=followup?'최저 에너지 후보의 식각 가능성을 먼저 확인하세요.':'검색 근거로 바이어스 전력만 바꿔 볼 수 있습니다.';
+   const text=followup?followupExplanation:searchExplanation;
    const answerSnapshot={...contract.general_answer,intent:'COMPOSITE_ANSWER',question:body.text,
     review:{status:'PASS',answers:[],reason:null},draft:{fact_ids:[],interpretations:[{id:'i1',text,assumptions:[],evidence_ids:['search:candidates']}],limitations:[]},
     stepResults:[{executionId:'search',stepId:'s1',status:'verified',groupId:'common',reason:null,runRefs:[ref(candidate),ref(lowest)],
@@ -138,6 +140,28 @@ test('Decision Agent approves criteria, compares the nominated Run and stays sep
  expect(posts).toHaveLength(0);
  await page.getByRole('button',{name:'이 해석으로 후보 찾기'}).click();
  await expect(page.getByRole('alert')).toContainText('로컬 서버에 연결할 수 없습니다');
+ const writingSelector='.decision-narrative [aria-busy="true"]';
+ const writing=page.locator(writingSelector);
+ const savedNarrative=page.locator('.decision-narrative [aria-busy="false"]');
+ // Record partial text in the page so the test can check it after typing has finished.
+ const narrativeRecording=await page.evaluateHandle(selector=>{
+  const drafts=new Set<string>();
+  const observer=new MutationObserver(()=>{
+   for(const element of document.querySelectorAll(selector)){
+    const text=element.textContent?.trim();
+    if(text)drafts.add(text);
+   }
+  });
+  observer.observe(document.body,{subtree:true,childList:true,characterData:true,attributes:true,attributeFilter:['aria-busy']});
+  return {drafts,observer};
+ },writingSelector);
+ async function expectTypedNarrative(finalText:string){
+  await expect(savedNarrative.getByText(finalText,{exact:true})).toBeVisible();
+  const drafts=await narrativeRecording.evaluate(recording=>[...recording.drafts]);
+  expect(drafts).not.toContain(finalText);
+  expect(drafts.some(draft=>draft!==finalText&&finalText.startsWith(draft)),
+   `no partial narrative was recorded for "${finalText}"`).toBe(true);
+ }
  await page.getByRole('button',{name:'다시 검색'}).click();
  const candidateHeading=page.getByRole('heading',{name:'조건을 만족한 후보 2개'});
  const activities=page.getByRole('list',{name:'최근 작업 기록'});
@@ -154,21 +178,18 @@ test('Decision Agent approves criteria, compares the nominated Run and stays sep
  await expect(candidateHeading).toBeVisible();
  const skeleton=page.locator('.decision-table-skeleton');
  const candidateTable=page.getByRole('table',{name:'후보 Run 비교'});
- const writing=page.locator('.decision-narrative [aria-busy="true"]');
  await expect(skeleton).toBeVisible();
  await expect(skeleton.locator('span')).toHaveCount(5);
  await expect(candidateTable).toBeHidden();
  await expect(page.getByLabel('V2 분석 답변')).toHaveCount(0);
  await expect(candidateTable).toBeVisible();
- await expect(writing).toContainText('검색 근거로 바이어스');
- await expect(page.getByText('검색 근거로 바이어스 전력만 바꿔 볼 수 있습니다.',{exact:true})).toHaveCount(0);
  const progress=page.locator('.agent-progress-complete summary');
  await expect(progress).toHaveText(['2초 동안 작업함›']);
  await progress.first().click();
  await expect(page.getByText('바이어스에 따른 측정값 차이를 해석했어요')).toBeVisible();
  await expect(candidateTable).toBeVisible();
  await expect(skeleton).toBeHidden();
- await expect(page.getByText('검색 근거로 바이어스 전력만 바꿔 볼 수 있습니다.')).toBeVisible();
+ await expectTypedNarrative(searchExplanation);
  expect(posts).toHaveLength(3);
  expect(posts[2]).toEqual(posts[1]);
  expect(requestKeys[1]).toBeTruthy();
@@ -185,11 +206,12 @@ test('Decision Agent approves criteria, compares the nominated Run and stays sep
  await expect(skeleton).toBeVisible();
  await expect(page.getByLabel('V2 분석 답변')).toHaveCount(1);
  await expect(tradeoffTable).toBeVisible();
- await expect(writing).toContainText('최저 에너지 후보의');
  await expect(progress).toHaveCount(2);
  await progress.last().click();
  await expect(page.getByText('후속 질문에 맞춰 후보별 장점과 주의점을 정리했어요')).toBeVisible();
- await expect(page.getByText('최저 에너지 후보의 식각 가능성을 먼저 확인하세요.')).toBeVisible();
+ await expectTypedNarrative(followupExplanation);
+ await narrativeRecording.evaluate(recording=>recording.observer.disconnect());
+ await narrativeRecording.dispose();
  await expect(page.getByText(/식각에 필요한 최소 이온 에너지 기준/)).toBeVisible();
  await page.getByRole('button',{name:`${candidate.runId} 선택`}).click();
  const choice=page.locator('.agent-user-message').filter({hasText:'이 조건으로 다음 실험을 해볼게요.'});
