@@ -1,4 +1,4 @@
-"""Manual local v2 evaluation: the same external 40-case bank in web and API."""
+"""Run the V2 regression tests or the API-only automatic-improvement dataset."""
 
 import argparse
 from collections import Counter
@@ -17,7 +17,7 @@ import uuid
 
 import httpx
 
-from . import flow_grader
+from . import automatic_improvement, flow_grader
 from .flow_recovery import classify
 from .v2_harness import GRAPH_VERSIONS, live_configuration
 
@@ -375,44 +375,68 @@ def main():
         "--live", action="store_true", help="Submit selected Agent questions; absent means offline preflight"
     )
     parser.add_argument("--headless", action="store_true")
-    parser.add_argument("--mode", choices=("both", "browser", "api"), default="both")
-    parser.add_argument("--limit", type=int, default=40)
+    parser.add_argument("--mode", choices=("both", "browser", "api"))
+    parser.add_argument("--limit", type=int)
+    parser.add_argument("--suite", choices=("regression", "automatic-improvement"), default="regression")
+    parser.add_argument("--dataset", type=Path, help="Private directory with learning.json and evaluation.json")
+    parser.add_argument("--split", choices=("learning", "evaluation"))
     args = parser.parse_args()
     GRAPH_VERSION = args.graph_version
     ROOT = args.output.expanduser().resolve()
     bundle = args.bundle.expanduser().resolve()
-    if ROOT.is_relative_to(REPO) or ROOT.is_relative_to(bundle) or ROOT.exists():
-        parser.error("Output must be a NEW directory outside the repository and input bundle")
+    dataset = args.dataset.expanduser().resolve() if args.dataset else None
+    if (ROOT.is_relative_to(REPO) or ROOT.is_relative_to(bundle) or ROOT.exists()
+            or (dataset is not None and ROOT.is_relative_to(dataset))):
+        parser.error("Output must be a NEW directory outside the repository and inputs")
     flow_grader.configure(bundle)
-    cases = flow_grader.load_cases()
+    improvement = args.suite == "automatic-improvement"
     try:
-        jobs = build_jobs(cases, mode=args.mode, limit=args.limit)
-    except ValueError as error:
+        if improvement:
+            if dataset is None or args.split is None or args.mode not in (None, "api"):
+                raise ValueError("Automatic improvement requires --dataset, --split and API mode")
+            if GRAPH_VERSION != "v2" or args.limit is not None or args.headless:
+                raise ValueError("Automatic improvement runs a complete split in standard V2")
+            oracle = flow_grader.load_oracle()
+            cases = automatic_improvement.load_sets(dataset, oracle)[args.split]
+            jobs = [(case, 1, "api") for case in cases]
+            input_hashes = {**oracle["hashes"], **{
+                f"{split}.json": hashlib.sha256((dataset / f"{split}.json").read_bytes()).hexdigest()
+                for split in automatic_improvement.SPLIT_COUNTS
+            }}
+        else:
+            if args.dataset or args.split:
+                raise ValueError("--dataset and --split require the automatic-improvement suite")
+            jobs = build_jobs(flow_grader.load_cases(), mode=args.mode or "both",
+                              limit=40 if args.limit is None else args.limit)
+            input_hashes = {
+                name: hashlib.sha256((bundle / name).read_bytes()).hexdigest()
+                for name in ("cases.json", "runs.json", "wave-expected.json", "distribution-expected.json",
+                             "oracle-overrides.json")
+                if (bundle / name).exists()
+            }
+    except (OSError, ValueError) as error:
         parser.error(str(error))
     manifest = {
+        "suite": args.suite, "split": args.split,
         "graphVersion": GRAPH_VERSION, "expectedImplementationId": GRAPH_VERSION,
         "evaluationMode": "real_model" if args.live else "offline_preflight", "concurrency": 1,
         "settings": {"planReviewEnabled": True, "modelTimeoutSeconds": 90},
         "planned": {mode: sum(selected == mode for _, _, selected in jobs) for mode in ("browser", "api")},
         "maxReplans": 2,
         "maxAnswerRewrites": 1,
-        "inputSha256": {
-            name: hashlib.sha256((bundle / name).read_bytes()).hexdigest()
-            for name in (
-                "cases.json",
-                "runs.json",
-                "wave-expected.json",
-                "distribution-expected.json",
-                "oracle-overrides.json",
-            )
-            if (bundle / name).exists()
-        },
+        "inputSha256": input_hashes,
     }
+    if improvement:
+        from kplasma_agent.v2.model_gateway import PLAN_INSTRUCTIONS
+
+        manifest["primaryMetric"] = "firstPlanPass"
+        manifest["planInstructionsSha256"] = hashlib.sha256(PLAN_INSTRUCTIONS.encode()).hexdigest()
     if args.live:
         if not args.connection:
             parser.error("--live requires a dedicated local app --connection")
         connection = json.loads(args.connection.read_text())
-        API, WEB = local_origin(connection["api"]), local_origin(connection["web"])
+        API = local_origin(connection["api"])
+        WEB = API if improvement else local_origin(connection["web"])
         container = connection["container"]
         if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", container):
             parser.error("Invalid database container name")
@@ -422,6 +446,12 @@ def main():
             parser.error(str(error))
         if not connection.get("workerToken"):
             parser.error("Live evaluation requires a matching backend workerToken")
+        if improvement:
+            profile = (configured.planner.model, configured.planner.reasoning_effort,
+                       configured.writer.model, configured.writer.reasoning_effort, configured.decisions_model)
+            if profile != ("gpt-6-luna", "low", "gpt-6-luna", "low", "gpt-6-luna"):
+                parser.error("Automatic improvement baseline requires gpt-6-luna low and Luna Decisions")
+            manifest["graphPlanReviewEnabled"] = automatic_improvement.verify_graph_review(configured, cases)
         if GRAPH_VERSION == "v2_localLLM" and (settings.backend_url != API
                                                or settings.worker_token != connection["workerToken"]):
             parser.error("LOCAL_CONNECTION_PROFILE_MISMATCH")
@@ -557,11 +587,17 @@ def main():
                     **outcome,
                     "recovery": classify(records["models"], checked["pass"]),
                 }
+                if improvement:
+                    row.update(steps=case["steps"], firstPlan=automatic_improvement.first_plan_grade(
+                        case, records["models"]))
                 dump(directory / "result.json", row)
                 output.write(json.dumps(row, ensure_ascii=False, allow_nan=False) + "\n")
                 output.flush()
                 rows.append(row)
-                dump(ROOT / "summary.json", summarize(rows))
+                summary = summarize(rows)
+                if improvement:
+                    summary["automaticImprovement"] = automatic_improvement.summarize(rows)
+                dump(ROOT / "summary.json", summary)
                 print(
                     json.dumps(
                         {
@@ -571,6 +607,7 @@ def main():
                             "mode": mode,
                             "deterministicPass": checked["pass"],
                             "answerReviewRequired": checked["answerReviewRequired"],
+                            **({"firstPlanPass": row["firstPlan"]["pass"]} if improvement else {}),
                         },
                         ensure_ascii=False,
                     ),
@@ -605,7 +642,7 @@ def main():
         raise RuntimeError(
             "Evaluation did not finish the selected distinct requests; never add replacements automatically"
         )
-    print(f"Finished exactly {len(jobs)} questions. Review answers and screenshots before reporting final quality.")
+    print(f"Finished exactly {len(jobs)} questions. See summary.json for grading and review status.")
 
 
 if __name__ == "__main__":

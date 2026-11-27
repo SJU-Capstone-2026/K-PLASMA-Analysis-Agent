@@ -1,8 +1,8 @@
-# v2 평가 실행: Decisions와 Agent 전체 흐름
+# V2 평가 실행
 
-두 평가는 별도 수동 명령이다. Decisions 단독 평가는 고정 계획의 의미 판별을,
-Agent 전체 평가는 모델이 직접 계획을 만드는 웹·API 흐름을 검사한다.
-두 유료 명령을 CI나 하나의 자동 실행 명령으로 묶지 않는다.
+Decisions 단독 평가는 고정 계획의 의미 판별을, 회귀 테스트는 모델이 직접 계획을 만드는 웹·API 흐름을 검사한다.
+자동개선 테스트셋은 일반 V2의 최초 계획을 API에서 독립 정답표로 채점한다.
+실제 모델 평가는 각각 별도 수동 명령으로 실행한다.
 
 [3회차 평가 기록](../verification/2026-11-11-agent-v2-round3.md)에 웹 39/40·API 37/40·Decisions 80/80과 실제 평가 조건을 기록했다.
 아래 명령과 결과는 표준 V2 기준이다. 로컬 모델은 [LocalLLM 실행 가이드](agent-v2-local-llm.md)를 따른다.
@@ -10,7 +10,8 @@ Agent 전체 평가는 모델이 직접 계획을 만드는 웹·API 흐름을 �
 | 평가 | 기본 실행량 | 범위 | 외부 준비물 |
 | --- | --- | --- | --- |
 | Decisions 단독 | 80회: 정상 40 / 오류 40 | 원문과 고정 계획의 의미 일치 판별 | 모델 키 |
-| Agent 전체 흐름 | 80개 질문: 웹 40 / API 40 | 계획 → 검토 → 도구·HITL → 필요한 답변·검토·수정 → 저장 | 모델 키, 비공개 고정 문항·정답 묶음, 격리 DB·backend·frontend |
+| 회귀 테스트 | 고정 40문항을 웹·API에서 각각 실행 | 계획 → 검토 → 도구·HITL → 필요한 답변·검토·수정 → 저장 | 모델 키, 비공개 고정 문항·정답 묶음, 격리 DB·backend·frontend |
+| 자동개선 테스트셋 | 학습용 36문항 또는 평가용 24문항 | 최초 계획의 대상·조건·사용자 확인·단계 연결 검사 | 모델 키, 비공개 자동개선 문항·정답, 동결 Run 묶음, 격리 DB·backend |
 
 질문 80개는 모델 API 호출 80번이라는 뜻이 아니다. 계획·Decisions·재계획·답변 작성 등
 요청 내부 호출도 비용에 포함된다. 실패 문항의 추가 유료 재실행은 자동으로 하지 않는다.
@@ -67,9 +68,9 @@ uv run --frozen python -m evals.run_plan_review --output /tmp/decisions-plan-001
 정상 계획을 거절한 경우, 오류 계획을 승인한 경우, 판정 불가와 API 오류를 구분한다.
 각 실험에는 새로운 출력 경로를 사용해 이전 결과를 보존한다.
 
-## 2. Agent 전체 흐름: 웹 40 + API 40
+## 2. 회귀 테스트 · 기존 40문항
 
-`eval:agent:local`은 같은 40문항을 먼저 실제 브라우저에서 한 번씩,
+`eval:agent:local -- --suite regression`은 같은 40문항을 먼저 실제 브라우저에서 한 번씩,
 다음으로 실제 backend API에서 한 번씩 실행한다. 메모리 그래프로 대체하지 않는다.
 브라우저는 실제 입력·버튼·선택창을 조작하고, API는 미리 정한 사용자 선택을
 실제 `NEEDS_INPUT`·선택지·revision에 맞춰 같은 요청의 resume API로 전달한다.
@@ -140,6 +141,47 @@ DB 조회 제한은 30초이며 모델 호출 제한 90초와 구분한다. 실�
 새 폴더로 전체 실험을 다시 시작하는 행위도 새 유료 실행이므로 별도로 결정한다.
 평가가 시작한 worker와 브라우저는 종료하지만, 사용자가 준비한 backend·frontend·DB는
 종료하거나 삭제하지 않는다.
+
+## 3. 자동개선 테스트셋 · API
+
+| 계획 스텝 | 학습용 | 평가용 |
+|---|---:|---:|
+| 1 | 6 | 6 |
+| 2 | 10 | 6 |
+| 3 | 10 | 6 |
+| 4 | 10 | 6 |
+| **합계** | **36** | **24** |
+
+비공개 문항 디렉터리에는 `learning.json`과 `evaluation.json`을 둔다.
+각 문항은 질문, 사전 선택 Run과 기준, 준비한 사용자 입력, 기준 계획, 실제 실행 기대값을 포함한다.
+동결 Run 목록과 문항 파일의 해시를 확인하고, API에 보낼 질문·시작 문맥·사용자 선택만 실행에 제공한다.
+두 세트의 문항 수, 단계 분포, 고유 ID·질문, 기준 계획과 기대 검색 결과를 사전 검사한다.
+
+현재 지시문으로 학습용 36문항의 기준을 측정한다. 주지표는 **`PLAN_INITIAL` 최초 계획 통과 수와 통과율**이다.
+단계 ID와 독립 단계의 순서가 달라도 요청 모드, 조건과 연산자, 값의 출처, 비교·확인 대상이 맞으면 통과한다.
+후보 전체를 비교할 때 임의의 정확한 개수 제한을 넣거나, 계산 결과 대신 고정 수치를 넣으면 실패로 기록한다.
+최종 실행 자동 검사, Decisions 지적, 재계획 후 복구, 답변 내용 검토 필요 여부는 각자의 지표로 기록한다.
+
+후보 지시문은 학습용에서 기준 대비 개선과 단일 단계의 회귀 여부를 확인한 뒤 평가용에서 비교한다.
+학습용 진입 수치는 기준 성적을 확인한 뒤 확정한다. 평가용에서는 기준 지시문과 선택한 수정 지시문을 같은 24문항으로 평가한다.
+첫 기준 측정에는 학습용 API 요청 36건만 접수한다.
+
+```sh
+npm run eval:agent:local -- --suite automatic-improvement --mode api --split learning \
+  --bundle /path/to/frozen-runs --dataset /path/to/automatic-improvement \
+  --output /tmp/automatic-improvement-learning-preflight
+
+npm run eval:agent:local -- --suite automatic-improvement --mode api --split learning --live \
+  --bundle /path/to/frozen-runs --dataset /path/to/automatic-improvement \
+  --connection /path/to/connection.json --env-file /path/to/eval.env \
+  --output /tmp/automatic-improvement-luna-low-baseline
+```
+
+API 전용 연결 파일에는 `api`, `container`, `workerToken`이 필요하다. 전용 backend와 PostgreSQL을 준비한다.
+live 명령은 `gpt-6-luna` low 계획·답변, Luna Decisions, 모델 설정과 그래프 상태의 검토 활성화를 확인한다.
+`manifest.json`은 지시문·데이터·소스의 해시를, `summary.json`은 스텝별 최초 계획·실행·복구 집계를 보관한다.
+`trials/<문항>-1/execution-records.json`에는 최초 계획 제출, 모든 재계획, Decisions, 계획 revision, 입력·실행 기록이 남는다.
+원시 문항·Run 데이터·계획 로그는 비공개 평가 경로에 보관한다.
 
 ## Phoenix와 실패 토큰 관측
 
