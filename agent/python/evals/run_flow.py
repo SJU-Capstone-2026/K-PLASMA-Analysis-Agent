@@ -37,6 +37,18 @@ def worker_command(graph_version, env_file=None):
     return [sys.executable, "-m", module, *(["--env-file", str(env_file)] if env_file else [])]
 
 
+def worker_environment():
+    paths = [str(REPO / "agent/python/src")]
+    if inherited := os.environ.get("PYTHONPATH"):
+        paths.append(inherited)
+    return {**os.environ, "PYTHONPATH": os.pathsep.join(paths)}
+
+
+def ensure_worker_running(worker):
+    if worker is not None and worker.poll() is not None:
+        raise RuntimeError("Evaluation worker exited; preserve accepted requests and inspect local worker.log")
+
+
 def configure_local_origin(client, web):
     client.headers["Origin"] = local_origin(web)
     client.headers["Sec-Fetch-Site"] = "same-site"
@@ -109,7 +121,8 @@ def comparison_input(pending, action, mapping):
     return value
 
 
-def run_api(case, workspace, refs, baseline, directory):
+def run_api(case, workspace, refs, baseline, directory, *, worker=None):
+    ensure_worker_running(worker)
     body = {
         "text": case["question"],
         "stateToken": workspace["stateToken"],
@@ -128,6 +141,7 @@ def run_api(case, workspace, refs, baseline, directory):
     start = time.monotonic()
     handled = set()
     while time.monotonic() - start < 900:
+        ensure_worker_running(worker)
         view = request("GET", f"/api/agent/requests/{view['requestId']}")
         if view["status"] in ("COMPLETED", "FAILED", "CANCELLED"):
             return {"view": view, "requestId": view["requestId"], "interactions": interactions}
@@ -521,7 +535,7 @@ def main():
     HEADLESS = args.headless
     worker = browser = None
     rows = []
-    worker_env = {**os.environ, "PYTHONPATH": str(REPO / "agent/python/src")}
+    worker_env = worker_environment()
     if GRAPH_VERSION != "v2_localLLM":
         worker_env.update(AGENT_BACKEND_URL=API, AGENT_WORKER_TOKEN=connection["workerToken"],
                           AGENT_MODEL_TIMEOUT_SECONDS="90")
@@ -534,8 +548,15 @@ def main():
     dump(ROOT / "manifest.json", manifest)
     try:
         with (ROOT / "worker.log").open("w") as log, (ROOT / "results.jsonl").open("x") as output:
+            command = worker_command(GRAPH_VERSION, args.env_file)
+            if improvement:
+                subprocess.run(
+                    [*command, "--help"], cwd=REPO, env=worker_env,
+                    stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=log,
+                    check=True, timeout=30,
+                )
             worker = subprocess.Popen(
-                worker_command(GRAPH_VERSION, args.env_file),
+                command,
                 cwd=REPO,
                 env=worker_env,
                 stdin=subprocess.DEVNULL,
@@ -543,10 +564,7 @@ def main():
                 stderr=subprocess.STDOUT,
             )
             for index, (case, trial, mode) in enumerate(jobs, 1):
-                if worker.poll() is not None:
-                    raise RuntimeError(
-                        "Evaluation worker exited; preserve accepted requests and inspect local worker.log"
-                    )
+                ensure_worker_running(worker)
                 directory = ROOT / "trials" / f"{case['id']}-{trial}"
                 directory.mkdir(parents=True)
                 workspace, refs, baseline = prepare(case, catalog)
@@ -559,7 +577,7 @@ def main():
                     if browser is not None:
                         browser.close()
                         browser = None
-                    outcome = run_api(case, workspace, refs, baseline, directory)
+                    outcome = run_api(case, workspace, refs, baseline, directory, worker=worker)
                 view = outcome.get("view")
                 if not view or not outcome.get("requestId"):
                     dump(directory / "harness-error.json", outcome)

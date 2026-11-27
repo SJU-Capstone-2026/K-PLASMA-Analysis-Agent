@@ -1,4 +1,5 @@
 import json
+import os
 import subprocess
 from collections import Counter
 from functools import lru_cache
@@ -17,6 +18,20 @@ def cases():
         {"id": f"Q{index:02}", "category": "synthetic", "question": f"Synthetic question {index}"}
         for index in range(1, 41)
     ]
+
+
+def test_worker_inherits_dependency_paths_after_checkout_source(monkeypatch):
+    monkeypatch.setenv("PYTHONPATH", os.pathsep.join(["/opt/local/pinned-wheels", "/opt/local/agent"]))
+    assert run_flow.worker_environment()["PYTHONPATH"].split(os.pathsep) == [
+        str(run_flow.REPO / "agent/python/src"), "/opt/local/pinned-wheels", "/opt/local/agent",
+    ]
+
+
+def test_api_refuses_to_submit_when_worker_is_already_dead(monkeypatch, tmp_path):
+    monkeypatch.setattr(run_flow, "request", lambda *_a, **_k: pytest.fail("question submitted"))
+    worker = SimpleNamespace(poll=lambda: 1)
+    with pytest.raises(RuntimeError, match="Evaluation worker exited"):
+        run_flow.run_api({}, {}, [], None, tmp_path, worker=worker)
 
 
 def arguments(monkeypatch, tmp_path, *, live=False):
