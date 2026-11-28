@@ -13,7 +13,10 @@ from kplasma_agent.v2.plan_validation import InvalidPlan, validate_plan
 
 from . import flow_grader
 
-SPLIT_COUNTS = {"learning": {1: 6, 2: 10, 3: 10, 4: 10}, "evaluation": {1: 6, 2: 6, 3: 6, 4: 6}}
+SPLIT_COUNTS = {
+    "learning": {1: 10, 2: 20, 3: 35, 4: 35},
+    "evaluation": {1: 5, 2: 10, 3: 17, 4: 18},
+}
 
 
 def step_kind(step):
@@ -122,13 +125,17 @@ def structural_view(case, raw, *, initial):
                                base_revision=None if initial else plan.base_revision,
                                selected_run_keys=selected)
     prepared = {step.id: step.model_dump(mode="json") for step in normalized.steps}
-    # Bind the compare-options fields that V2 explicitly lets code populate from their waits.
+    # Mirror only the option bindings that the runtime itself rewrites before execution.
     original = plan.model_dump(mode="json")
     for step in original["steps"]:
-        if step_kind(step) != "compare_runs" or step["id"] not in prepared:
+        if step["id"] not in prepared:
             continue
-        for key in ("baseline", "trend_axis"):
-            step["inputs"][key] = prepared[step["id"]]["inputs"][key]
+        normalized_inputs = prepared[step["id"]]["inputs"]
+        if step_kind(step) == "compare_runs":
+            for key in ("baseline", "trend_axis"):
+                step["inputs"][key] = normalized_inputs[key]
+        elif step.get("confirmation") in {"baseline", "trend_axis"}:
+            step["inputs"]["candidates"] = normalized_inputs["candidates"]
     return original, sorted(selected)
 
 

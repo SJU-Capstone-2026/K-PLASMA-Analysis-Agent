@@ -5,7 +5,12 @@ from types import SimpleNamespace
 
 import pytest
 
-from .automatic_improvement import first_plan_grade, grade_plan, summarize, verify_graph_review
+from .automatic_improvement import SPLIT_COUNTS, first_plan_grade, grade_plan, summarize, verify_graph_review
+
+
+def test_automatic_improvement_baseline_and_holdout_distribution():
+    assert SPLIT_COUNTS == {"learning": {1: 10, 2: 20, 3: 35, 4: 35},
+                            "evaluation": {1: 5, 2: 10, 3: 17, 4: 18}}
 
 
 def reference_case(question, steps, selected=(), *, general=False):
@@ -119,3 +124,21 @@ def test_review_enabled_in_actual_graph_checkpoint():
     assert verify_graph_review(SimpleNamespace(plan_review_enabled=True), [case])
     with pytest.raises(ValueError, match="disabled"):
         verify_graph_review(SimpleNamespace(plan_review_enabled=False), [case])
+
+
+@pytest.mark.parametrize("confirmation", ["baseline", "trend_axis", "run_selection"])
+def test_only_comparison_options_normalize_candidate_binding(confirmation):
+    selected = {"kind": "context_ref", "key": "selected_runs"}
+    selection = confirmation == "run_selection"
+    wait = {"id": "wait", "kind": "await_input", "confirmation": confirmation,
+            "inputs": {"target_step_id": "compare", "field": "runs" if selection else confirmation}}
+    case = reference_case("선택한 후보를 비교해줘", [
+        wait, compare("compare", ref("wait", "selection") if selection else selected, ["ionFlux"],
+                      dependencies=("wait",))], ("ART-A", "ART-B"))
+    candidate = deepcopy(case["referencePlan"])
+    candidate["steps"][0]["inputs"]["candidates"] = selected
+    assert grade_plan(case, case["referencePlan"])["pass"]
+    grade = grade_plan(case, candidate)
+    assert grade["pass"] == (not selection)
+    if selection:
+        assert grade["failures"][0]["check"] == "candidates"

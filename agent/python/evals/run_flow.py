@@ -394,6 +394,7 @@ def main():
     parser.add_argument("--suite", choices=("regression", "automatic-improvement"), default="regression")
     parser.add_argument("--dataset", type=Path, help="Private directory with learning.json and evaluation.json")
     parser.add_argument("--split", choices=("learning", "evaluation"))
+    parser.add_argument("--proposal", type=Path, help="Validated instruction proposal for a dedicated V2 worker")
     args = parser.parse_args()
     GRAPH_VERSION = args.graph_version
     ROOT = args.output.expanduser().resolve()
@@ -404,6 +405,8 @@ def main():
         parser.error("Output must be a NEW directory outside the repository and inputs")
     flow_grader.configure(bundle)
     improvement = args.suite == "automatic-improvement"
+    if args.proposal is not None and not improvement:
+        parser.error("--proposal requires the automatic-improvement suite")
     try:
         if improvement:
             if dataset is None or args.split is None or args.mode not in (None, "api"):
@@ -442,9 +445,11 @@ def main():
     }
     if improvement:
         from kplasma_agent.v2.model_gateway import PLAN_INSTRUCTIONS
+        from .plan_proposal import load_candidate
 
         manifest["primaryMetric"] = "firstPlanPass"
-        manifest["planInstructionsSha256"] = hashlib.sha256(PLAN_INSTRUCTIONS.encode()).hexdigest()
+        prompt = load_candidate(args.proposal, PLAN_INSTRUCTIONS) if args.proposal else PLAN_INSTRUCTIONS
+        manifest["planInstructionsSha256"] = hashlib.sha256(prompt.encode()).hexdigest()
     if args.live:
         if not args.connection:
             parser.error("--live requires a dedicated local app --connection")
@@ -549,6 +554,13 @@ def main():
     try:
         with (ROOT / "worker.log").open("w") as log, (ROOT / "results.jsonl").open("x") as output:
             command = worker_command(GRAPH_VERSION, args.env_file)
+            if args.proposal:
+                receipt = ROOT / "worker-prompt.json"
+                command = [sys.executable, "-m", "evals.proposal_worker", "--proposal", str(args.proposal.resolve()),
+                           "--sha256", manifest["planInstructionsSha256"], "--receipt", str(receipt)]
+                if args.env_file:
+                    command.extend(["--env-file", str(args.env_file.resolve())])
+                worker_env["PYTHONPATH"] = os.pathsep.join([str(REPO / "agent/python"), worker_env["PYTHONPATH"]])
             if improvement:
                 subprocess.run(
                     [*command, "--help"], cwd=REPO, env=worker_env,
@@ -563,6 +575,18 @@ def main():
                 stdout=log,
                 stderr=subprocess.STDOUT,
             )
+            if args.proposal:
+                deadline = time.monotonic() + 30
+                while not receipt.exists():
+                    ensure_worker_running(worker)
+                    if time.monotonic() >= deadline:
+                        raise RuntimeError("Candidate worker did not confirm its loaded prompt")
+                    time.sleep(0.1)
+                loaded = json.loads(receipt.read_bytes())
+                if loaded != {"pid": worker.pid, "sha256": manifest["planInstructionsSha256"]}:
+                    raise RuntimeError("Candidate worker loaded a different prompt")
+                manifest["workerPlanInstructionsSha256"] = loaded["sha256"]
+                dump(ROOT / "manifest.json", manifest)
             for index, (case, trial, mode) in enumerate(jobs, 1):
                 ensure_worker_running(worker)
                 directory = ROOT / "trials" / f"{case['id']}-{trial}"
@@ -586,6 +610,10 @@ def main():
                     )
                 checked = flow_grader.grade(case, view, outcome.get("interactions", []), graph_version=GRAPH_VERSION)
                 records = export_request(container, outcome["requestId"], directory)
+                if args.proposal:
+                    from .plan_proposal import verify_attempt_prompt
+
+                    verify_attempt_prompt(records["models"], manifest["planInstructionsSha256"])
                 if not records["models"]:
                     raise RuntimeError(
                         "No model journal found in the supplied database; stop before another question"
