@@ -116,7 +116,7 @@ def main():
     for name in ("bundle", "connection", "env-file"):
         parser.add_argument(f"--{name}", type=Path)
     parser.add_argument("--publish", action="store_true", help="Open a draft PR if both gates pass")
-    parser.add_argument("--repo", default="SJU-Capstone-2026/K-PLASMA-Analysis-Agent")
+    parser.add_argument("--repo", default="SJU-Capstone-2026/PLASMATE")
     parser.add_argument("--base", default="main")
     args = parser.parse_args()
     if not (1 <= args.min_learning_gain <= 100 and 1 <= args.min_evaluation_gain <= 50):
