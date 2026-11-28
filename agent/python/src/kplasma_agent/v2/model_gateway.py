@@ -93,15 +93,13 @@ compare의 inputs.trend_axis는 null로 두면 코드가 확인 결과를 연결
 compare_runs는 기준 없는 두 Run의 동일 지표 절대 차이, 기준 대비 변화량, 여러 Run의 범위와 경향을 제공한다.
 두 Run의 최댓값·최솟값 차이를 보여주거나 해석하려면 해당 지표를 compare_runs의 fields에만 넣는다. derive를 추가하지 않는다.
 각 파형의 최댓값에서 최솟값을 뺀 폭은 potential.peakToPeak 또는 current.peakToPeak를 요청한다.
-derive는 요청에 새 계산이 필요하거나 그 결과를 후속 도구의 입력으로 써야 할 때 사용한다.
 IEAD 분포 비교는 plot_ids에 iead를, fields에 iead.maximum, iead.peakEnergy, iead.peakAngle을 넣는다.
 비교 대상 전체의 수치를 계산한다. 화면에서 히트맵으로 볼 Run의 선택은 비교 대상을 제한하지 않는다.
-selected_runs와 R1 같은 문맥 키는 Run 참조이며 수치가 아니다. 측정값을 얻는 단계는 compare_runs다.
-비교 결과 전체 집합의 참조 예: {"kind":"result_ref","step_id":"compare","field":"ionFlux",
-"scope":{"kind":"context_selection","key":"selected_runs"}}.
-derive의 values에서 한 집합을 읽을 때는 위 참조 객체 하나를 사용한다. 입력 배열은 개별 값에만 사용하며, R1·R2는 confirmed_run으로 참조한다.
-max/min/mean 결과의 참조 예: {"kind":"result_ref","step_id":"max","field":"value","scope":{"kind":"scalar"}}.
-두 Run 모두에 관한 계산은 단일 confirmed_run 범위를 사용하지 않는다.
+여러 Run의 지표를 계산하거나 검색에 재사용할 때는 먼저 compare_runs의 inputs.runs에 원문이 가리키는 Run 집합을 연결하고 fields에 필요한 지표를 넣는다. selected_runs와 개별 Run 키는 Run 참조이며 측정값이 아니다.
+특정 Run의 지표값을 그대로 쓸 때는 compare_runs의 해당 지표를 result_ref로 직접 참조한다. scope.kind는 confirmed_run, scope.key는 확인된 Run 키다. 이 값 하나를 꺼내기 위해 derive를 추가하지 않는다.
+집합의 최솟값·최댓값·산술평균을 따로 구하거나 후속 입력으로 쓸 때는 compare_runs 뒤에 derive를 두고 operation에 각각 min·max·mean을 지정한다. derive의 inputs.values에는 해당 지표의 집합을 가리키는 result_ref 객체 하나를 넣는다. 기존 태그 집합의 scope는 {"kind":"context_selection","key":"selected_runs"}, await_input의 run_selection으로 새로 고른 집합의 scope는 {"kind":"confirmed_selection","step_id":"select"}다. 여기서 select는 비교 대상에 selection을 제공한 확인 단계의 ID다. 새 선택에 기존 태그를 합치지 않는다. 배열은 개별 값 참조를 나열할 때만 사용하며, 전체 집합을 단일 confirmed_run으로 참조하지 않는다.
+reverse_search의 value 또는 between의 min·max에 앞선 결과를 연결할 때는 각 자리에 단일 수치만 전달한다. 개별 Run 값은 confirmed_run으로 직접 읽고, 집계값은 derive의 출력 {"kind":"result_ref","step_id":"calculate","field":"value","scope":{"kind":"scalar"}}로 읽는다. Run 참조나 비교 결과의 값 집합을 넣지 않는다. scope를 scalar로 바꾸거나 requires에 개수를 적어도 집합은 단일 수치가 되지 않는다.
+조회 → 필요한 계산 → 결과를 사용하는 검색 순으로 배치한다. 각 소비 단계의 depends_on에는 실제로 참조하는 출력을 만든 앞 단계의 ID를 넣는다.
 
 # 연결·재계획
 각 단계의 requirement_ids는 requirements[].id를, requirements[].handled_by는 steps[].id를 참조한다.
